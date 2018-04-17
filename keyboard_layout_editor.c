@@ -125,72 +125,84 @@ char* parse_xkb_block (char *s,
     }
 }
 
+#define C_STR(str) str,((str)!=NULL?strlen(str):0)
+
+static inline
+bool strneq (const char *str1, uint32_t str1_size, const char* str2, uint32_t str2_size)
+{
+    if (str1_size != str2_size) {
+        return false;
+    } else {
+        return (strncmp (str1, str2, str1_size) == 0);
+    }
+}
+
 bool xkb_keymap_install (const char *keymap_path, const char *dest_dir, const char *layout_name)
 {
     bool success = true;
     mem_pool_t pool = {0};
     char *s = full_file_read (&pool, keymap_path);
-    string_t dest_file = str_new (dest_dir);
-    if (str_last (&dest_file) != '/') {
-        str_cat_c (&dest_file, "/");
+    if (s != NULL) {
+
+        string_t dest_file = str_new (dest_dir);
+        if (str_last (&dest_file) != '/') {
+            str_cat_c (&dest_file, "/");
+        }
+        int dest_dir_end = str_len (&dest_file);
+
+        char *keymap_id;
+        size_t keymap_id_size;
+        parse_xkb_block (s, &keymap_id, &keymap_id_size, NULL, NULL, &s, NULL);
+        if (!strneq (keymap_id, keymap_id_size, C_STR("xkb_keymap"))) {
+            success = false;
+        }
+
+        while (*s && success) {
+            char *block_name;
+            size_t block_name_size;
+            s = parse_xkb_block (s, &block_name, &block_name_size, NULL, NULL, NULL, NULL);
+            if (s == NULL) {
+                success = false;
+                break;
+            }
+
+            if (strneq (block_name, block_name_size, C_STR("xkb_keycodes"))) {
+                str_put_c (&dest_file, dest_dir_end, "keycodes/");
+                str_cat_c (&dest_file, layout_name);
+                str_cat_c (&dest_file, "_k");
+
+            } else if (strneq (block_name, block_name_size, C_STR("xkb_types"))) {
+                str_put_c (&dest_file, dest_dir_end, "types/");
+                str_cat_c (&dest_file, layout_name);
+                str_cat_c (&dest_file, "_t");
+
+            } else if (strneq (block_name, block_name_size, C_STR("xkb_compatibility"))) {
+                str_put_c (&dest_file, dest_dir_end, "compat/");
+                str_cat_c (&dest_file, layout_name);
+                str_cat_c (&dest_file, "_c");
+
+            } else if (strneq (block_name, block_name_size, C_STR("xkb_symbols"))) {
+                str_put_c (&dest_file, dest_dir_end, "symbols/");
+                str_cat_c (&dest_file, layout_name);
+            } else {
+                success = false;
+                break;
+            }
+
+            if (ensure_path_exists (str_data (&dest_file))) {
+                // s -> pointer to end of parsed block.
+                // block_name -> pointer to the beginning of the parsed block.
+                if (full_file_write (block_name, s - block_name, str_data (&dest_file))) {
+                    success = false;
+                }
+            } else {
+                success = false;
+            }
+        }
+        str_free (&dest_file);
     }
-    int dest_dir_end = str_len (&dest_file);
-
-    char *keymap_id;
-    size_t keymap_id_size;
-
-    parse_xkb_block (s, &keymap_id, &keymap_id_size, NULL, NULL, &s, NULL);
-
-    char *start, *end;
-    if (s) {
-        end = s = parse_xkb_block (s, &start, NULL, NULL, NULL, &s, NULL);
-        str_put_c (&dest_file, dest_dir_end, "keycodes/");
-        if (ensure_path_exists (str_data (&dest_file))) {
-            str_cat_c (&dest_file, layout_name);
-            str_cat_c (&dest_file, "_k");
-            full_file_write (start, end - start, str_data (&dest_file));
-        } else {
-            success = false;
-        }
-    } else { success = false; }
-
-    if (s) {
-        end = s = parse_xkb_block (s, &start, NULL, NULL, NULL, &s, NULL);
-        str_put_c (&dest_file, dest_dir_end, "types/");
-        if (ensure_path_exists (str_data (&dest_file))) {
-            str_cat_c (&dest_file, layout_name);
-            str_cat_c (&dest_file, "_t");
-            full_file_write (start, end - start, str_data (&dest_file));
-        } else {
-            success = false;
-        }
-    } else { success = false; }
-
-    if (s) {
-        end = s = parse_xkb_block (s, &start, NULL, NULL, NULL, &s, NULL);
-        str_put_c (&dest_file, dest_dir_end, "compat/");
-        if (ensure_path_exists (str_data (&dest_file))) {
-            str_cat_c (&dest_file, layout_name);
-            str_cat_c (&dest_file, "_c");
-            full_file_write (start, end - start, str_data (&dest_file));
-        } else {
-            success = false;
-        }
-    } else { success = false; }
-
-    if (s) {
-        end = s = parse_xkb_block (s, &start, NULL, NULL, NULL, &s, NULL);
-        str_put_c (&dest_file, dest_dir_end, "symbols/");
-        if (ensure_path_exists (str_data (&dest_file))) {
-            str_cat_c (&dest_file, layout_name);
-            full_file_write (start, end - start, str_data (&dest_file));
-        } else {
-            success = false;
-        }
-    } else { success = false; }
 
     mem_pool_destroy (&pool);
-    str_free (&dest_file);
     return success;
 }
 

@@ -1933,6 +1933,7 @@ bool full_file_write (void *data, ssize_t size, char *path)
             bytes_written += status;
         } while (bytes_written != size);
     } else {
+        failed = true;
         printf ("Error opening %s: %s\n", path, strerror(errno));
     }
 
@@ -1943,31 +1944,52 @@ bool full_file_write (void *data, ssize_t size, char *path)
 
 char* full_file_read (mem_pool_t *pool, const char *path)
 {
-    char *retval = NULL;
+    bool success = true;
     char *dir_path = sh_expand (path, NULL);
 
+    mem_pool_temp_marker_t mrk;
+    if (pool != NULL) {
+        mrk = mem_pool_begin_temporary_memory (pool);
+    }
+
+    char *loaded_data = NULL;
     struct stat st;
     if (stat(dir_path, &st) == 0) {
-        retval = (char*)pom_push_size (pool, st.st_size + 1);
+        loaded_data = (char*)pom_push_size (pool, st.st_size + 1);
 
         int file = open (dir_path, O_RDONLY);
         if (file != -1) {
             int bytes_read = 0;
             do {
-                int status = read (file, retval+bytes_read, st.st_size-bytes_read);
+                int status = read (file, loaded_data+bytes_read, st.st_size-bytes_read);
                 if (status == -1) {
+                    success = false;
                     printf ("Error reading %s: %s\n", path, strerror(errno));
                     break;
                 }
                 bytes_read += status;
             } while (bytes_read != st.st_size);
-            retval[st.st_size] = '\0';
+            loaded_data[st.st_size] = '\0';
             close (file);
         } else {
+            success = false;
             printf ("Error opening %s: %s\n", path, strerror(errno));
         }
+
     } else {
+        success = false;
         printf ("Could not read %s: %s\n", path, strerror(errno));
+    }
+
+    char *retval = NULL;
+    if (success) {
+        retval = loaded_data;
+    } else if (loaded_data != NULL) {
+        if (pool != NULL) {
+            mem_pool_end_temporary_memory (mrk);
+        } else {
+            free (loaded_data);
+        }
     }
 
     free (dir_path);
@@ -1977,7 +1999,6 @@ char* full_file_read (mem_pool_t *pool, const char *path)
 char* full_file_read_prefix (mem_pool_t *out_pool, const char *path, char **prefix, int len)
 {
     mem_pool_t pool = {0};
-    char *retval = NULL;
     string_t pfx_s = {0};
     string_t path_s = str_new (path);
     char *dir_path = sh_expand (path, &pool);
@@ -1998,22 +2019,42 @@ char* full_file_read_prefix (mem_pool_t *out_pool, const char *path, char **pref
     str_free (&pfx_s);
     str_free (&path_s);
 
+    mem_pool_temp_marker_t mrk;
+    if (out_pool != NULL) {
+        mrk = mem_pool_begin_temporary_memory (out_pool);
+    }
+
+    bool success = true;
+    char *loaded_data = NULL;
     if (status == 0) {
-        retval = (char*)pom_push_size (out_pool, st.st_size + 1);
+        loaded_data = (char*)pom_push_size (out_pool, st.st_size + 1);
 
         int file = open (dir_path, O_RDONLY);
         int bytes_read = 0;
         do {
-            int status = read (file, retval+bytes_read, st.st_size-bytes_read);
+            int status = read (file, loaded_data+bytes_read, st.st_size-bytes_read);
             if (status == -1) {
+                success = false;
                 printf ("Error reading %s: %s\n", path, strerror(errno));
                 break;
             }
             bytes_read += status;
         } while (bytes_read != st.st_size);
-        retval[st.st_size] = '\0';
+        loaded_data[st.st_size] = '\0';
     } else {
+        success = false;
         printf ("Could not locate %s in any folder.\n", path);
+    }
+
+    char *retval = NULL;
+    if (success) {
+        retval = loaded_data;
+    } else if (loaded_data != NULL) {
+        if (out_pool != NULL) {
+            mem_pool_end_temporary_memory (mrk);
+        } else {
+            free (loaded_data);
+        }
     }
 
     mem_pool_destroy (&pool);

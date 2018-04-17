@@ -1913,12 +1913,14 @@ void file_read (int file, void *pos,  ssize_t size)
     }
 }
 
+// NOTE: If path does not exist, it will be created. If it does, it will be
+// overwritten.
 bool full_file_write (void *data, ssize_t size, char *path)
 {
     bool failed = false;
     char *dir_path = sh_expand (path, NULL);
 
-    int file = open (dir_path, O_WRONLY | O_CREAT, 0666);
+    int file = open (dir_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
     if (file != -1) {
         int bytes_written = 0;
         do {
@@ -2056,6 +2058,54 @@ bool ensure_dir_exists (char *path)
 
     free (dir_path);
     return retval;
+}
+
+// Checks if path exists (either as a file or directory). If it doesn't it tries
+// to create all directories required for it to exist. If path ends in / then
+// all components are checked, otherwise the last part after / is assumed to be
+// a filename and is not created as a directory.
+bool ensure_path_exists (const char *path)
+{
+    bool success = true;
+    char *dir_path = sh_expand (path, NULL);
+
+    char *c = dir_path;
+    if (*c == '/') {
+        c++;
+    }
+
+    struct stat st;
+    if (stat(dir_path, &st) == -1) {
+        if (errno == ENOENT) {
+            while (*c && success) {
+                while (*c && *c != '/') {
+                    c++;
+                }
+
+                if (*c != '\0') {
+                    *c = '\0';
+                    if (stat(dir_path, &st) == -1 && errno == ENOENT) {
+                        if (mkdir (dir_path, 0777) == -1) {
+                            success = false;
+                            printf ("Error creating %s: %s\n", dir_path, strerror (errno));
+                        }
+                    }
+
+                    *c = '/';
+                    c++;
+                }
+            }
+        } else {
+            success = false;
+            printf ("Error ensuring path for %s: %s\n", path, strerror(errno));
+        }
+    } else {
+        // Path exists. Maybe check if it's the same type as on path, either
+        // file or directory?.
+    }
+
+    free (dir_path);
+    return success;
 }
 
 //////////////////////////////

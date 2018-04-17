@@ -125,11 +125,16 @@ char* parse_xkb_block (char *s,
     }
 }
 
-bool xkb_keymap_install (char *keymap_path)
+bool xkb_keymap_install (const char *keymap_path, const char *dest_dir, const char *layout_name)
 {
     bool success = true;
     mem_pool_t pool = {0};
     char *s = full_file_read (&pool, keymap_path);
+    string_t dest_file = str_new (dest_dir);
+    if (str_last (&dest_file) != '/') {
+        str_cat_c (&dest_file, "/");
+    }
+    int dest_dir_end = str_len (&dest_file);
 
     char *keymap_id;
     size_t keymap_id_size;
@@ -139,29 +144,57 @@ bool xkb_keymap_install (char *keymap_path)
     char *start, *end;
     if (s) {
         end = s = parse_xkb_block (s, &start, NULL, NULL, NULL, &s, NULL);
-        full_file_write (start, end-start, "custom_k");
+        str_put_c (&dest_file, dest_dir_end, "keycodes/");
+        if (ensure_path_exists (str_data (&dest_file))) {
+            str_cat_c (&dest_file, layout_name);
+            str_cat_c (&dest_file, "_k");
+            full_file_write (start, end - start, str_data (&dest_file));
+        } else {
+            success = false;
+        }
     } else { success = false; }
 
     if (s) {
         end = s = parse_xkb_block (s, &start, NULL, NULL, NULL, &s, NULL);
-        full_file_write (start, end-start, "custom_t");
+        str_put_c (&dest_file, dest_dir_end, "types/");
+        if (ensure_path_exists (str_data (&dest_file))) {
+            str_cat_c (&dest_file, layout_name);
+            str_cat_c (&dest_file, "_t");
+            full_file_write (start, end - start, str_data (&dest_file));
+        } else {
+            success = false;
+        }
     } else { success = false; }
 
     if (s) {
         end = s = parse_xkb_block (s, &start, NULL, NULL, NULL, &s, NULL);
-        full_file_write (start, end-start, "custom_c");
+        str_put_c (&dest_file, dest_dir_end, "compat/");
+        if (ensure_path_exists (str_data (&dest_file))) {
+            str_cat_c (&dest_file, layout_name);
+            str_cat_c (&dest_file, "_c");
+            full_file_write (start, end - start, str_data (&dest_file));
+        } else {
+            success = false;
+        }
     } else { success = false; }
 
     if (s) {
         end = s = parse_xkb_block (s, &start, NULL, NULL, NULL, &s, NULL);
-        full_file_write (start, end-start, "custom");
+        str_put_c (&dest_file, dest_dir_end, "symbols/");
+        if (ensure_path_exists (str_data (&dest_file))) {
+            str_cat_c (&dest_file, layout_name);
+            full_file_write (start, end - start, str_data (&dest_file));
+        } else {
+            success = false;
+        }
     } else { success = false; }
 
     mem_pool_destroy (&pool);
+    str_free (&dest_file);
     return success;
 }
 
 int main (int argc, char *argv[])
 {
-    xkb_keymap_install (argv[1]);
+    xkb_keymap_install (argv[1], "/usr/share/X11/xkb", "my_layout");
 }

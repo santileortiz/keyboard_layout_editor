@@ -3,6 +3,7 @@
  */
 
 #include "common.h"
+#include <libxml/parser.h>
 
 static inline
 bool is_blank (char *c) {
@@ -206,7 +207,71 @@ bool xkb_keymap_install (const char *keymap_path, const char *dest_dir, const ch
     return success;
 }
 
+struct keymap_t {
+    char *name;
+    char *short_description;
+    char *description;
+    char **languages;
+    int num_languages;
+};
+
+xmlNodePtr xml_get_child (xmlNodePtr node, const char *child_name)
+{
+    xmlNodePtr curr_node = node->children;
+    while (curr_node != NULL && xmlStrcmp(curr_node->name, (const xmlChar *)child_name) != 0) {
+        curr_node = curr_node->next;
+    }
+    return curr_node;
+}
+
+xmlNodePtr xml_get_sibling (xmlNodePtr node, const char *sibling_name)
+{
+    while (node != NULL && xmlStrcmp(node->name, (const xmlChar *)sibling_name) != 0) {
+        node = node->next;
+    }
+    return node;
+}
+
+bool xkb_keymap_info_install (struct keymap_t *keymap, const char *dest_file)
+{
+    bool success = true;
+    xmlDocPtr doc = xmlParseFile(dest_file);
+    if (doc == NULL) {
+        printf ("XML database parsing failed.\n");
+        // We can return without leaking memory because nothing was allocated.
+        return false;
+    }
+
+    xmlNodePtr curr_node = xmlDocGetRootElement (doc);
+    curr_node = curr_node->children;
+    while (curr_node != NULL && xmlStrcmp(curr_node->name, (const xmlChar *)"layoutList") != 0) {
+        curr_node = curr_node->next;
+    }
+
+    xmlNodePtr curr_layout = xml_get_sibling (curr_node->children, "layout");
+    while (curr_layout != NULL) {
+        xmlNodePtr configItem = xml_get_child (curr_layout, "configItem");
+        if (configItem != NULL) {
+            xmlNodePtr name_node = xml_get_child (configItem, "name");
+            xmlChar *name = xmlNodeGetContent(name_node);
+            printf ("%s\n", (char *)name);
+            xmlFree (name);
+        }
+        curr_layout = xml_get_sibling (curr_layout->next, "layout");
+    }
+
+    return success;
+}
+
 int main (int argc, char *argv[])
 {
-    xkb_keymap_install (argv[1], "/usr/share/X11/xkb", "my_layout");
+    //xkb_keymap_install (argv[1], "/usr/share/X11/xkb", "my_layout");
+
+    struct keymap_t keymap = {0};
+    keymap.name = "my_layout";
+    keymap.short_description = "su";
+    keymap.description = "US layout with Spanish characters";
+    keymap.languages = (char *[]){"es", "us"};
+    keymap.num_languages = 2;
+    xkb_keymap_info_install (&keymap, "/usr/share/X11/xkb/rules/evdev.xml");
 }

@@ -17,7 +17,7 @@ def default():
     call_user_function(target)
 
 def keyboard_layout_editor ():
-    ex ('gcc {FLAGS} -o bin/keyboard-layout-editor keyboard_layout_editor.c -lm')
+    ex ('gcc {FLAGS} -o bin/keyboard-layout-editor keyboard_layout_editor.c -I/usr/include/libxml2 -lxml2 -lm')
 
 if __name__ == "__main__":
     # Everything above this line will be executed for each TAB press.

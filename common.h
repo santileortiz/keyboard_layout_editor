@@ -166,13 +166,13 @@ typedef union {
 #pragma pack(pop)
 
 #define str_is_small(string) (!((string)->len_small&0x01))
-#define str_len(string) (str_is_small(string)?(string)->len_small/2-1:(string)->len)
+#define str_len(string) (str_is_small(string)?(string)->len_small/2:(string)->len)
 #define str_data(string) (str_is_small(string)?(string)->str_small:(string)->str)
 
 static inline
 char* str_small_alloc (string_t *str, size_t len)
 {
-    str->len_small = 2*(len+1); // Guarantee LSB == 0
+    str->len_small = 2*len; // Guarantee LSB == 0
     return str->str_small;
 }
 
@@ -1915,7 +1915,7 @@ void file_read (int file, void *pos,  ssize_t size)
 
 // NOTE: If path does not exist, it will be created. If it does, it will be
 // overwritten.
-bool full_file_write (void *data, ssize_t size, char *path)
+bool full_file_write (void *data, ssize_t size, const char *path)
 {
     bool failed = false;
     char *dir_path = sh_expand (path, NULL);

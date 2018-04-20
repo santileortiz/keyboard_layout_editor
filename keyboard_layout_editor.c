@@ -480,15 +480,100 @@ bool xkb_keymap_info_install (struct keymap_t *keymap)
     return success;
 }
 
+static inline
+void str_right_pad (string_t *str, int n)
+{
+    while (str_len(str) < n) {
+        str_cat_c (str, " ");
+    }
+}
+
+bool xkb_keymap_rules_install (const char *keymap_name)
+{
+    // Build the rule that will be installed
+    string_t new_rule = {0};
+    {
+        size_t keymap_name_len = strlen (keymap_name);
+        int col_size = MAX (2 + keymap_name_len, strlen("! layout")) + 1;
+
+        string_t decl = str_new ("! layout");
+        str_right_pad (&decl, col_size);
+        str_cat_c (&decl, "= ");
+        size_t decl_len = str_len (&decl);
+
+        string_t value = str_new ("  ");
+        str_cat_c (&value, keymap_name);
+        str_right_pad (&value, col_size);
+        str_cat_c (&value, "= ");
+        str_cat_c (&value, keymap_name);
+        size_t value_len = str_len (&value);
+
+        str_put_c (&decl, decl_len, "types\n");
+        str_put_c (&value, value_len, "_t\n");
+        str_cat (&new_rule, &decl);
+        str_cat (&new_rule, &value);
+
+        str_put_c (&decl, decl_len, "keycodes\n");
+        str_put_c (&value, value_len, "_k\n");
+        str_cat (&new_rule, &decl);
+        str_cat (&new_rule, &value);
+
+        str_put_c (&decl, decl_len, "compat\n");
+        str_put_c (&value, value_len, "_c\n");
+        str_cat (&new_rule, &decl);
+        str_cat (&new_rule, &value);
+
+        str_put_c (&decl, decl_len, "symbols\n");
+        str_put_c (&value, value_len, "\n\n");
+        str_cat (&new_rule, &decl);
+        str_cat (&new_rule, &value);
+        str_free (&decl);
+        str_free (&value);
+    }
+
+    bool success = true;
+    mem_pool_t pool = {0};
+    char *res;
+    size_t res_len;
+    char *path = "/usr/share/X11/xkb/rules/evdev";
+    char *db = full_file_read (&pool, path);
+    if (db) {
+        char *s = strstr (db, "CUSTOM LAYOUTS START");
+        if (s) {
+            s = strstr (s, "CUSTOM LAYOUTS END");
+        }
+        if (s) {
+            res = insert_string_before_line (&pool, db, "CUSTOM LAYOUTS END",
+                                             str_data(&new_rule),
+                                             &res_len);
+        } else {
+            string_t new_install = str_new ("// CUSTOM LAYOUTS START\n");
+            str_cat_c (&new_install, "// These rules were added by keyboard_layout_editor.\n\n");
+            str_cat (&new_install, &new_rule);
+            str_cat_c (&new_install, "// CUSTOM LAYOUTS END\n\n");
+            res = insert_string_before_line (&pool, db, "// PC models",
+                                             str_data(&new_install),
+                                             &res_len);
+            str_free (&new_install);
+        }
+        full_file_write (res, res_len, path);
+    }
+    str_free (&new_rule);
+
+    mem_pool_destroy (&pool);
+    return success;
+}
+
 int main (int argc, char *argv[])
 {
     //xkb_keymap_install (argv[1], "/usr/share/X11/xkb", "my_layout");
 
-    struct keymap_t keymap = {0};
-    keymap.name = "my_layout";
-    keymap.short_description = "su";
-    keymap.description = "US layout with Spanish characters";
-    keymap.languages = (char *[]){"es", "us"};
-    keymap.num_languages = 2;
-    xkb_keymap_info_install (&keymap);
+    //struct keymap_t keymap = {0};
+    //keymap.name = "my_layout";
+    //keymap.short_description = "su";
+    //keymap.description = "US layout with Spanish characters";
+    //keymap.languages = (char *[]){"es", "us"};
+    //keymap.num_languages = 2;
+    //xkb_keymap_info_install (&keymap);
+    xkb_keymap_rules_install ("my_layout");
 }

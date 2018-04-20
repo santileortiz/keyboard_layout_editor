@@ -1821,7 +1821,7 @@ void mem_pool_end_temporary_memory (mem_pool_temp_marker_t mrkr)
 #define pom_push_size(pool, size) (pool==NULL? malloc(size) : mem_pool_push_size(pool,size))
 
 static inline
-void* pom_strndup (mem_pool_t *pool, void *str, uint32_t str_len)
+char* pom_strndup (mem_pool_t *pool, void *str, uint32_t str_len)
 {
     char *res = (char*)pom_push_size (pool, str_len+1);
     memcpy (res, str, str_len);

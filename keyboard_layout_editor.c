@@ -140,7 +140,7 @@ bool strneq (const char *str1, uint32_t str1_size, const char* str2, uint32_t st
     }
 }
 
-bool xkb_keymap_install (const char *keymap_path, const char *dest_dir, const char *layout_name)
+bool xkb_keymap_xkb_install (const char *keymap_path, const char *dest_dir, const char *layout_name)
 {
     bool success = true;
     mem_pool_t pool = {0};
@@ -292,7 +292,7 @@ char* insert_string_after_line (mem_pool_t *pool, const char *str, const char *s
     return retval;
 }
 
-bool xkb_keymap_info_install (struct keymap_t *keymap)
+bool xkb_keymap_info_install (struct keymap_t *keymap, bool *new_layout)
 {
     // Currently, as far as I know, systems don't look for keymap metadata
     // anywhere else other than /usr/share/X11/xkb/rules/evdev.xml. This
@@ -372,6 +372,7 @@ bool xkb_keymap_info_install (struct keymap_t *keymap)
 
     char *res;
     size_t res_len;
+    bool updated = false;
     char *db = full_file_read (&pool, db_path);
     if (db) {
         char *s = strstr (db, "<!--CUSTOM LAYOUTS START-->");
@@ -411,7 +412,6 @@ bool xkb_keymap_info_install (struct keymap_t *keymap)
             xmlDocPtr new_node_doc = xmlParseMemory (str_data(&new_layout_str),
                                                      str_len(&new_layout_str));
             xmlNodePtr new_node = xmlDocGetRootElement (new_node_doc);
-            bool updated = false;
             xmlDocPtr out_xml = xmlParseFile (db_path);
             curr_layout = xmlDocGetRootElement (out_xml); // xkbConfigRegistry
             curr_layout = xml_get_sibling (curr_layout->children, "layoutList");
@@ -468,11 +468,21 @@ bool xkb_keymap_info_install (struct keymap_t *keymap)
                                             &res_len);
         }
 
-        full_file_write (res, res_len, db_path);
+        if (full_file_write (res, res_len, db_path)) {
+            success = false;
+        }
 
     } else {
         success = false;
         printf ("Failed to load keymap info database: %s.\n", db_path);
+    }
+
+    if (new_layout != NULL) {
+        if (updated) {
+            *new_layout = false;
+        } else {
+            *new_layout = true;
+        }
     }
 
     str_free (&new_layout_str);
@@ -556,7 +566,10 @@ bool xkb_keymap_rules_install (const char *keymap_name)
                                              &res_len);
             str_free (&new_install);
         }
-        full_file_write (res, res_len, path);
+
+        if (full_file_write (res, res_len, path)) {
+            success = false;
+        }
     }
     str_free (&new_rule);
 
@@ -564,16 +577,96 @@ bool xkb_keymap_rules_install (const char *keymap_name)
     return success;
 }
 
+// Ideally, the installation of a new keymap should be as simple as copying a
+// file to some local configuration directory. A bit less idealy we could copy
+// the keymap as a .xkb file, then add metadata somewhere else like evdev.xml.
+// Sadly as far as I can tell none of these can be accomplished with the state
+// of current systems. At the moment the process of making a full .xkb file to
+// a system is as follows:
+//
+//   1. Split the .xkb file into it's components (symbols, types, compat and
+//      keycodes) and install each of them in the corresponding folder under
+//      /usr/share/X11/xkb/.
+//   2. Install metadata into /usr/share/X11/xkb/evdev.xml from which systems
+//      will know the existance of the keymap.
+//   3. Install rules into /usr/share/X11/xkb/evdev to lin together the
+//      components of the .xkb file that were installed.
+//
+// This process has several drawbacks:
+//   - Requires administrator privileges.
+//   - Changes files from a system package (xkeyboard-config), maybe blocking
+//     upgrades.
+//   - The code required is more complex than necessary.
+//   - Changes are made for all users in a system.
+//
+// The path towards a simpler system will require making some changes upstream
+// and talking with people from other projects. Here are the facts I've gathered
+// so far:
+//
+//   - The current layout installation makes the command 'setxkbmap my_layout'
+//     do the correct thing, and load all installed components. This was tested
+//     by swapping keys using the keycodes component.
+//
+//   - From reading the API and it's source code, libxkbcommon can search for
+//     keymap definitions from multiple base directories. Actually, ~/.xkb is a
+//     default search directory. But, for some reason just installing a keymap
+//     there and calling setxkbmap doesn't work. More research is needed here as
+//     several things may be happening: The window manager is not using
+//     libxkbcommon, the WM uses libxkbcommon but changes the default
+//     directories, testing with setxkbmap does not relate to libxkbcommon.
+//     Depending on what causes this we may need to create patches for each WM
+//     (Gala, Gnome Shell), or a single patch to Mutter.
+//
+//   - Configuring a keymap in the shell in Gnome is done by using the gsettings
+//     schema /org/gnome/desktop/input-sources/, 'sources' includes a list of
+//     layout names and 'current' chooses the index for the active one. But we
+//     have to take into account that Gnome has added another schema for this
+//     functionality /org/gnome/libgnomekbd/keyboard/ in libgnomekbd. Things may
+//     move here soon.
+//
+//   - Keymap metadata is not handled by libxkbcommon. Applications seem to read
+//     some of it from /usr/share/X11/xkb/evdev.xml. Still, there is no
+//     consensus on which metadata is shown to the user to choose the right
+//     layout. Sometimes the description is used, others a list of languages,
+//     elementary for example shows descriptions as if they were language names.
+//     There is also no consensus on what the layout indicator shows, sometimes
+//     it's the short description, others the first 2 letters of the layout
+//     name. More research is required here too, at check the settings panel
+//     and layout indicator for Gala and Gnome.
+//
+//   - I have not done any research on KDE based desktops, but it 'should' be
+//     similar, changing gsettings for configuration files.
+//
+//                                                  Santiago (April 20, 2018)
+//
+bool xkb_keymap_install (const char *keymap_path, const char *layout_name)
+{
+    bool success = true;
+    struct keymap_t keymap = {0};
+    keymap.name = "my_layout";
+    keymap.short_description = "su";
+    keymap.description = "Test custom layout";
+    keymap.languages = (char *[]){"es", "us"};
+    keymap.num_languages = 2;
+
+    bool new_layout;
+    success = xkb_keymap_info_install (&keymap, &new_layout);
+    if (success && new_layout) {
+        success = xkb_keymap_rules_install (keymap.name);
+    }
+
+    if (success) {
+        success = xkb_keymap_xkb_install (keymap_path, "/usr/share/X11/xkb", keymap.name);
+    }
+
+    return success;
+}
+
 int main (int argc, char *argv[])
 {
-    //xkb_keymap_install (argv[1], "/usr/share/X11/xkb", "my_layout");
-
-    //struct keymap_t keymap = {0};
-    //keymap.name = "my_layout";
-    //keymap.short_description = "su";
-    //keymap.description = "US layout with Spanish characters";
-    //keymap.languages = (char *[]){"es", "us"};
-    //keymap.num_languages = 2;
-    //xkb_keymap_info_install (&keymap);
-    xkb_keymap_rules_install ("my_layout");
+    if (xkb_keymap_install ("./custom_keyboard.xkb", "my_layout")) {
+        return 0;
+    } else {
+        return 1;
+    }
 }

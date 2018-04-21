@@ -210,7 +210,7 @@ bool xkb_keymap_xkb_install (const char *keymap_path, const char *dest_dir, cons
 }
 
 struct keymap_t {
-    char *name;
+    const char *name;
     char *short_description;
     char *description;
     char **languages;
@@ -642,7 +642,7 @@ bool xkb_keymap_install (const char *keymap_path, const char *layout_name)
 {
     bool success = true;
     struct keymap_t keymap = {0};
-    keymap.name = "my_layout";
+    keymap.name = layout_name;
     keymap.short_description = "su";
     keymap.description = "Test custom layout";
     keymap.languages = (char *[]){"es", "us"};
@@ -687,6 +687,8 @@ char* delete_lines (mem_pool_t *pool, const char *str,
     while (*s != '\n') {
         s--;
     }
+    s++;
+    e += strlen (end);
     e = consume_line (e);
 
     string_t res_str = strn_new (str, s - str);
@@ -699,47 +701,122 @@ char* delete_lines (mem_pool_t *pool, const char *str,
     return res;
 }
 
+void get_custom_layout_names (mem_pool_t *pool, char ***res, int *res_len)
+{
+    if (res == NULL || res_len == NULL) {
+        return;
+    }
+
+    mem_pool_t local_pool = {0};
+    char *metadata_path = "/usr/share/X11/xkb/rules/evdev.xml";
+    char *metadata = full_file_read (&local_pool, metadata_path);
+
+    int num_layouts = 0;
+    char **layouts = NULL;
+    char *s = strstr (metadata, "CUSTOM LAYOUTS START");
+    if (s) {
+        s = consume_line (s);
+        char *e = strstr (metadata, "CUSTOM LAYOUTS END");
+        while (*e != '\n') {
+            e--;
+        }
+
+        string_t default_layouts = str_new ("<layoutList>");
+        strn_cat_c (&default_layouts, s, e - s);
+        str_cat_c (&default_layouts, "</layoutList>");
+
+        xmlDocPtr default_xml = xmlParseMemory(str_data(&default_layouts),
+                                               str_len(&default_layouts));
+        xmlNodePtr curr_layout = xmlDocGetRootElement (default_xml); // layoutList node
+        num_layouts = xmlChildElementCount (curr_layout);
+        layouts = pom_push_size (pool, sizeof (char *)*num_layouts);
+        int layout_count = 0;
+        curr_layout = xml_get_sibling (curr_layout->children, "layout");
+        while (curr_layout != NULL) {
+            xmlNodePtr configItem = xml_get_child (curr_layout, "configItem");
+            if (configItem != NULL) {
+                xmlNodePtr name_node = xml_get_child (configItem, "name");
+                xmlChar *name = xmlNodeGetContent(name_node);
+                layouts[layout_count] = pom_strndup (pool, name, strlen((char*)name));
+                layout_count++;
+                xmlFree (name);
+            }
+            curr_layout = xml_get_sibling (curr_layout->next, "layout");
+        }
+
+    } else {
+        // There are no custom layouts
+    }
+
+    *res = layouts;
+    *res_len = num_layouts;
+
+    mem_pool_destroy (&local_pool);
+}
+
+bool xkb_keymap_components_remove (const char *layout_name)
+{
+    bool success = true;
+    string_t xkb_file = str_new ("/usr/share/X11/xkb/");
+    size_t xkb_root_end = str_len (&xkb_file);
+
+    str_put_c (&xkb_file, xkb_root_end, "types/");
+    str_cat_c (&xkb_file, layout_name);
+    str_cat_c (&xkb_file, "_t");
+    if (unlink (str_data(&xkb_file)) == -1) {
+        success = false;
+        printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
+    }
+
+    str_put_c (&xkb_file, xkb_root_end, "keycodes/");
+    str_cat_c (&xkb_file, layout_name);
+    str_cat_c (&xkb_file, "_k");
+    if (unlink (str_data(&xkb_file)) == -1) {
+        success = false;
+        printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
+    }
+
+    str_put_c (&xkb_file, xkb_root_end, "compat/");
+    str_cat_c (&xkb_file, layout_name);
+    str_cat_c (&xkb_file, "_c");
+    if (unlink (str_data(&xkb_file)) == -1) {
+        success = false;
+        printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
+    }
+
+    str_put_c (&xkb_file, xkb_root_end, "symbols/");
+    str_cat_c (&xkb_file, layout_name);
+    if (unlink (str_data(&xkb_file)) == -1) {
+        success = false;
+        printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
+    }
+    str_free (&xkb_file);
+    return success;
+}
+
 bool xkb_keymap_uninstall (const char *layout_name)
 {
-    // TODO: Check we are deleting a custom layout and not a defult one.
     bool success = true;
     mem_pool_t pool = {0};
+    char **custom_layouts;
+    int num_custom_layouts;
+    get_custom_layout_names (&pool, &custom_layouts, &num_custom_layouts);
+    bool found = false;
+    int i;
+    for (i=0; i<num_custom_layouts; i++) {
+        if (strcmp (layout_name, custom_layouts[i]) == 0) {
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        success = false;
+        printf ("Could not find layout to be uninstalled.\n");
+    }
+
     // Delete installed .xkb components.
-    {
-        string_t xkb_file = str_new ("/usr/share/X11/xkb/");
-        size_t xkb_root_end = str_len (&xkb_file);
-
-        str_put_c (&xkb_file, xkb_root_end, "types/");
-        str_cat_c (&xkb_file, layout_name);
-        str_cat_c (&xkb_file, "_t");
-        if (unlink (str_data(&xkb_file)) == -1) {
-            success = false;
-            printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
-        }
-
-        str_put_c (&xkb_file, xkb_root_end, "keycodes/");
-        str_cat_c (&xkb_file, layout_name);
-        str_cat_c (&xkb_file, "_k");
-        if (unlink (str_data(&xkb_file)) == -1) {
-            success = false;
-            printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
-        }
-
-        str_put_c (&xkb_file, xkb_root_end, "compat/");
-        str_cat_c (&xkb_file, layout_name);
-        str_cat_c (&xkb_file, "_c");
-        if (unlink (str_data(&xkb_file)) == -1) {
-            success = false;
-            printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
-        }
-
-        str_put_c (&xkb_file, xkb_root_end, "symbols/");
-        str_cat_c (&xkb_file, layout_name);
-        if (unlink (str_data(&xkb_file)) == -1) {
-            success = false;
-            printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
-        }
-        str_free (&xkb_file);
+    if (success) {
+        success = xkb_keymap_components_remove (layout_name);
     }
 
     // Remove installed xkb rules
@@ -808,6 +885,55 @@ bool xkb_keymap_uninstall (const char *layout_name)
     return success;
 }
 
+// Removes everything we changed in the system's xkb configuration folder.
+bool xkb_keymap_uninstall_everything ()
+{
+    bool success = true;
+    mem_pool_t pool = {0};
+    char **custom_layouts;
+    int num_custom_layouts;
+    get_custom_layout_names (&pool, &custom_layouts, &num_custom_layouts);
+    int i;
+    for (i=0; i<num_custom_layouts; i++) {
+        xkb_keymap_components_remove (custom_layouts[i]);
+    }
+
+    // Remove installed xkb rules
+    if (success) {
+        char *rules_path = "/usr/share/X11/xkb/rules/evdev";
+        char *rules = full_file_read (&pool, rules_path);
+        size_t new_file_len;
+        char *new_file = delete_lines (&pool, rules,
+                                       "CUSTOM LAYOUTS START", "CUSTOM LAYOUTS END\n", &new_file_len);
+        if (new_file == NULL) {
+            success = false;
+        }
+
+        if (success && full_file_write (new_file, new_file_len, rules_path)) {
+            success = false;
+        }
+    }
+
+    // Remove installed metadata
+    if (success) {
+        char *metadata_path = "/usr/share/X11/xkb/rules/evdev.xml";
+        char *metadata = full_file_read (&pool, metadata_path);
+        size_t new_file_len;
+        char *new_file = delete_lines (&pool, metadata,
+                                       "CUSTOM LAYOUTS START", "CUSTOM LAYOUTS END", &new_file_len);
+        if (new_file == NULL) {
+            success = false;
+        }
+
+        if (success && full_file_write (new_file, new_file_len, metadata_path)) {
+            success = false;
+        }
+    }
+
+    mem_pool_destroy (&pool);
+    return success;
+}
+
 int main (int argc, char *argv[])
 {
 #if 0
@@ -817,10 +943,11 @@ int main (int argc, char *argv[])
         return 1;
     }
 #else
-    if (xkb_keymap_uninstall ("my_layout")) {
-        return 0;
-    } else {
-        return 1;
-    }
+//    if (xkb_keymap_uninstall ("my_layout")) {
+//        return 0;
+//    } else {
+//        return 1;
+//    }
+    xkb_keymap_uninstall_everything ();
 #endif
 }

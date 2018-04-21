@@ -1920,6 +1920,8 @@ bool full_file_write (void *data, ssize_t size, const char *path)
     bool failed = false;
     char *dir_path = sh_expand (path, NULL);
 
+    // TODO: If writing fails, we will leave a blank file behind. We should make
+    // a backup in case things go wrong.
     int file = open (dir_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
     if (file != -1) {
         int bytes_written = 0;

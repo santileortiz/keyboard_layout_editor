@@ -1,3 +1,8 @@
+// Name: my_layout
+// Description: Test custom layout
+// Short description: su
+// Languages: es, us
+
 xkb_keymap {
 xkb_keycodes "evdev+aliases(qwerty)" {
     minimum = 8;

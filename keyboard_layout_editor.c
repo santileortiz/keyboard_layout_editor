@@ -576,6 +576,72 @@ bool xkb_keymap_rules_install (const char *keymap_name)
     return success;
 }
 
+static inline
+bool match_c_str (const char *s, const char *c_str)
+{
+    return memcmp (s, c_str, strlen(c_str)) == 0;
+}
+
+static inline
+bool match_case_c_str (const char *s, const char *c_str)
+{
+    return strncasecmp (s, c_str, strlen(c_str)) == 0;
+}
+
+bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keymap_t *res)
+{
+    if (res == NULL) {
+        return false;
+    }
+
+    *res = (struct keymap_t){0};
+    bool success = true;
+    char *s = xkb_file_content;
+    while (s && *s) {
+        if (match_c_str (s, "//")) {
+            s += 2; //consume "//"
+            s = consume_spaces (s);
+            if (match_case_c_str (s, "name")) {
+                s += 4;
+                s = consume_spaces(s);
+                if (*s == ':') {
+                    s++;
+                    s = consume_spaces (s);
+                    char *end = consume_line (s);
+                    res->name = pom_strndup (pool, s, end - s - 1);
+                }
+
+            } else if (match_case_c_str (s, "description")) {
+                s += 11;
+                s = consume_spaces(s);
+                if (*s == ':') {
+                    s++;
+                    s = consume_spaces (s);
+                    char *end = consume_line (s);
+                    res->description = pom_strndup (pool, s, end - s - 1);
+                }
+
+            } else if (match_case_c_str (s, "short description")) {
+                s += 17;
+                s = consume_spaces(s);
+                if (*s == ':') {
+                    s++;
+                    s = consume_spaces (s);
+                    char *end = consume_line (s);
+                    res->short_description = pom_strndup (pool, s, end - s - 1);
+                }
+            }
+
+            // TODO: Parse language list.
+            s = consume_spaces (s);
+        } else {
+            s = consume_line(s);
+        }
+    }
+
+    return success;
+}
+
 // Ideally, the installation of a new keymap should be as simple as copying a
 // file to some local configuration directory. A bit less idealy we could copy
 // the keymap as a .xkb file, then add metadata somewhere else like evdev.xml.
@@ -948,6 +1014,11 @@ int main (int argc, char *argv[])
 //    } else {
 //        return 1;
 //    }
-    xkb_keymap_uninstall_everything ();
+//    xkb_keymap_uninstall_everything ();
 #endif
+    mem_pool_t pool = {0};
+    struct keymap_t keymap;
+    char *f = full_file_read (&pool, "./custom_keyboard.xkb");
+    extract_keymap_info (&pool, f, &keymap);
+    mem_pool_destroy (&pool);
 }

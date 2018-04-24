@@ -8,7 +8,7 @@
 #include <libxml/xmlwriter.h>
 
 static inline
-bool is_blank (char *c) {
+bool is_blank (const char *c) {
     return *c == ' ' ||  (*c >= '\t' && *c <= '\r');
 }
 
@@ -17,6 +17,29 @@ char *consume_blanks (char *c)
 {
     while (is_blank(c)) {
         c++;
+    }
+    return c;
+}
+
+static inline
+char* consume_line (char *c)
+{
+    while (*c && *c != '\n') {
+           c++;
+    }
+
+    if (*c) {
+        c++;
+    }
+
+    return c;
+}
+
+static inline
+char* consume_spaces (char *c)
+{
+    while (is_space(c)) {
+           c++;
     }
     return c;
 }
@@ -353,7 +376,7 @@ bool xkb_keymap_info_install (struct keymap_t *keymap, bool *new_layout)
         // Manually indent the resulting XML. I was unable to find a way to do this
         // with libxml.
         str_set(&new_layout_str, "    ");
-        char *s = pom_strndup (&pool, buff->content, buff->use);
+        char *s = pom_strndup (&pool, (const char*)buff->content, buff->use);
         char *end;
         while (*s) {
             end = strstr (s, "\n");
@@ -443,7 +466,7 @@ bool xkb_keymap_info_install (struct keymap_t *keymap, bool *new_layout)
                 xmlSaveDoc (save_ctx, out_xml);
                 xmlSaveClose (save_ctx);
 
-                res = pom_strndup (&pool, buff->content, buff->use);
+                res = pom_strndup (&pool, (const char*)buff->content, buff->use);
                 res_len = buff->use;
                 xmlBufferFree (buff);
             } else {
@@ -803,7 +826,7 @@ void get_custom_layout_names (mem_pool_t *pool, char ***res, int *res_len)
             if (configItem != NULL) {
                 xmlNodePtr name_node = xml_get_child (configItem, "name");
                 xmlChar *name = xmlNodeGetContent(name_node);
-                layouts[layout_count] = pom_strndup (pool, name, strlen((char*)name));
+                layouts[layout_count] = pom_strndup (pool, (const char*)name, strlen((char*)name));
                 layout_count++;
                 xmlFree (name);
             }

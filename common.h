@@ -422,47 +422,89 @@ char str_last (string_t *str)
 // PARSING UTILITIES
 //
 // These are some small functions useful when parsing text files
+//
+// FIXME: (API BREAK) Applications using consume_line() and consume_spaces()
+// will break!, to make them work again copy the deprecated code into the
+// application.
+//
+// Even thought this seemed like a good idea for a simple parsing API that does
+// not require any state but a pointer to the current position, turns out it's
+// impossible to program it in a way that allows to be used by people that want
+// const AND non-const strings.
+//
+// If people are using a const string we must declare the function as:
+//
+//      const char* consume_line (const char *c);
+//
+// This will keep the constness of the original string. But, if people are using
+// a non const string even though it will be casted to const without problem, we
+// will still return a const pointer that will be most likely assigned to the
+// same non const variable sent in the first place, here the const qualifier
+// will be discarded and the compiler will complain. There is no way to say "if
+// we are sent const return const, if it's non-const return non-const". Maybe in
+// C++ with templates this can be done.
+//
+// Because we want to cause the least ammount of friction when using this
+// library, making the user think about constdness defeats this purpose, so
+// better just not use this.
+//
+// We could try to declare functions as:
+//
+//      bool consume_line (const char **c);
+//
+// But in C, char **c won't cast implicitly to const char **c. Also this has the
+// problem that now it will unconditionally update c, wheras before the user had
+// the choice either to update it immediately, or store it in a variable and
+// update it afterwards, if necessary.
+//
+// Maybe what's needed is a proper scanner API that stores state inside a struct
+// with more clear semantics. I'm still experimenting with different
+// alternatives.
+
+//static inline
+//char* consume_line (char *c)
+//{
+//    while (*c && *c != '\n') {
+//           c++;
+//    }
+//
+//    if (*c) {
+//        c++;
+//    }
+//
+//    return c;
+//}
+//
+//static inline
+//char* consume_spaces (char *c)
+//{
+//    while (is_space(c)) {
+//           c++;
+//    }
+//    return c;
+//}
 
 static inline
-char *consume_line (char *c)
-{
-    while (*c && *c != '\n') {
-           c++;
-    }
-
-    if (*c) {
-        c++;
-    }
-
-    return c;
-}
-
-static inline
-bool is_space (char *c)
+bool is_space (const char *c)
 {
     return *c == ' ' ||  *c == '\t';
 }
 
 static inline
-char *consume_spaces (char *c)
+bool is_end_of_line_or_file (const char *c)
 {
     while (is_space(c)) {
            c++;
     }
-    return c;
-}
-
-static inline
-bool is_end_of_line_or_file (char *c)
-{
-    c = consume_spaces (c);
     return *c == '\n' || *c == '\0';
 }
 
 static inline
-bool is_end_of_line (char *c)
+bool is_end_of_line (const char *c)
 {
-    c = consume_spaces (c);
+    while (is_space(c)) {
+           c++;
+    }
     return *c == '\n';
 }
 
@@ -1821,7 +1863,7 @@ void mem_pool_end_temporary_memory (mem_pool_temp_marker_t mrkr)
 #define pom_push_size(pool, size) (pool==NULL? malloc(size) : mem_pool_push_size(pool,size))
 
 static inline
-char* pom_strndup (mem_pool_t *pool, void *str, uint32_t str_len)
+char* pom_strndup (mem_pool_t *pool, const char *str, uint32_t str_len)
 {
     char *res = (char*)pom_push_size (pool, str_len+1);
     memcpy (res, str, str_len);
@@ -1915,7 +1957,7 @@ void file_read (int file, void *pos,  ssize_t size)
 
 // NOTE: If path does not exist, it will be created. If it does, it will be
 // overwritten.
-bool full_file_write (void *data, ssize_t size, const char *path)
+bool full_file_write (const void *data, ssize_t size, const char *path)
 {
     bool failed = false;
     char *dir_path = sh_expand (path, NULL);

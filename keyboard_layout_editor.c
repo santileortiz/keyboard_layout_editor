@@ -470,6 +470,7 @@ bool xkb_keymap_info_install (struct keymap_t *keymap, bool *new_layout)
             }
             s = end;
         }
+        xmlBufferFree (buff);
     }
 
     char *res;
@@ -505,33 +506,37 @@ bool xkb_keymap_info_install (struct keymap_t *keymap, bool *new_layout)
                 }
                 curr_layout = xml_get_sibling (curr_layout->next, "layout");
             }
+            xmlFreeDoc (default_xml);
 
             // If keymap is already a custom layout update it.
             //
             // Look for a <layout> node with <name> == keymap->name in the full XML
             // database, if we find it, update it. It's guearanteed to be a  custom
             // layout because these were the only ones ignored.
-            xmlDocPtr new_node_doc = xmlParseMemory (str_data(&new_layout_str),
-                                                     str_len(&new_layout_str));
-            xmlNodePtr new_node = xmlDocGetRootElement (new_node_doc);
             xmlDocPtr out_xml = xmlParseFile (db_path);
-            curr_layout = xmlDocGetRootElement (out_xml); // xkbConfigRegistry
-            curr_layout = xml_get_sibling (curr_layout->children, "layoutList");
-            curr_layout = xml_get_sibling (curr_layout->children, "layout");
-            while (curr_layout != NULL && success && !updated) {
-                xmlNodePtr configItem = xml_get_child (curr_layout, "configItem");
-                if (configItem != NULL) {
-                    xmlNodePtr name_node = xml_get_child (configItem, "name");
-                    xmlChar *name = xmlNodeGetContent(name_node);
-                    if (xmlStrcmp (name, (const xmlChar *)keymap->name) == 0) {
-                        xmlAddPrevSibling (curr_layout, new_node);
-                        xmlUnlinkNode (curr_layout);
-                        xmlFreeNode (curr_layout);
-                        updated = true;
+            {
+                xmlDocPtr new_node_doc = xmlParseMemory (str_data(&new_layout_str),
+                                                         str_len(&new_layout_str));
+                xmlNodePtr new_node = xmlDocGetRootElement (new_node_doc);
+                curr_layout = xmlDocGetRootElement (out_xml); // xkbConfigRegistry
+                curr_layout = xml_get_sibling (curr_layout->children, "layoutList");
+                curr_layout = xml_get_sibling (curr_layout->children, "layout");
+                while (curr_layout != NULL && success && !updated) {
+                    xmlNodePtr configItem = xml_get_child (curr_layout, "configItem");
+                    if (configItem != NULL) {
+                        xmlNodePtr name_node = xml_get_child (configItem, "name");
+                        xmlChar *name = xmlNodeGetContent(name_node);
+                        if (xmlStrcmp (name, (const xmlChar *)keymap->name) == 0) {
+                            xmlAddPrevSibling (curr_layout, new_node);
+                            xmlUnlinkNode (curr_layout);
+                            xmlFreeNode (curr_layout);
+                            updated = true;
+                        }
+                        xmlFree (name);
                     }
-                    xmlFree (name);
+                    curr_layout = xml_get_sibling (curr_layout->next, "layout");
                 }
-                curr_layout = xml_get_sibling (curr_layout->next, "layout");
+                xmlFreeDoc (new_node_doc);
             }
 
             // Generate the new XML database and write it out.
@@ -960,6 +965,8 @@ void get_custom_layout_names (mem_pool_t *pool, char ***res, int *res_len)
             }
             curr_layout = xml_get_sibling (curr_layout->next, "layout");
         }
+        str_free (&default_layouts);
+        xmlFreeDoc (default_xml);
 
     } else {
         // There are no custom layouts
@@ -1083,8 +1090,10 @@ bool xkb_keymap_uninstall (const char *layout_name)
                     xmlFreeNode (tmp);
 
                     // Delete actual <layout> node
-                    xmlUnlinkNode (curr_layout);
-                    xmlFreeNode (curr_layout);
+                    xmlNodePtr to_delete = curr_layout;
+                    curr_layout = curr_layout->prev;
+                    xmlUnlinkNode (to_delete);
+                    xmlFreeNode (to_delete);
                     done = true;
                 }
                 xmlFree (name);
@@ -1153,17 +1162,7 @@ bool xkb_keymap_uninstall_everything ()
 
 int main (int argc, char *argv[])
 {
-#if 1
-    if (xkb_keymap_install ("./custom_keyboard.xkb")) {
-        return 0;
-    } else {
-        return 1;
-    }
-#else
-    if (xkb_keymap_uninstall ("my_layout")) {
-        return 0;
-    } else {
-        return 1;
-    }
-#endif
+    xkb_keymap_uninstall ("my_layout");
+    xkb_keymap_install ("./custom_keyboard.xkb");
+    xmlCleanupParser();
 }

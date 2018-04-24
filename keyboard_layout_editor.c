@@ -35,6 +35,88 @@ char* consume_line (char *c)
     return c;
 }
 
+// Compares the beginning of s with the null terminated c_str, returns true if
+// it matches and false otherwise. If after!=NULL and there is a match after is
+// set to point to the character after the match. If the string does not match
+// we leafe after unchanged.
+static inline
+bool consume_str (char *s, char *c_str, char **after)
+{
+    size_t len = strlen(c_str);
+    if (memcmp (s, c_str, len) == 0) {
+        if (after != NULL) {
+            *after = s+len;
+        }
+        return true;
+    } else {
+        return false;
+    }
+}
+
+// Same as consume_str() but ignores the case of the strings.
+static inline
+bool consume_case_str (char *s, char *c_str, char **after)
+{
+    size_t len = strlen(c_str);
+    if (strncasecmp (s, c_str, len) == 0) {
+        if (after != NULL) {
+            *after = s+len;
+        }
+        return true;
+    } else {
+        return false;
+    }
+}
+
+static inline
+bool consume_char (char *s, char c, char **after)
+{
+    if (*s == c) {
+        if (after != NULL) {
+            *after = s+1;
+        }
+        return true;
+    } else {
+        return false;
+    }
+}
+
+static inline
+bool consume_until_str (char *s, char *c_str, char **start, char **end)
+{
+    char *found = strstr (s, c_str);
+    if (found) {
+        if (start != NULL) {
+            *start = found;
+        }
+
+        if (end != NULL) {
+            *end = found + strlen(c_str);
+        }
+        return true;
+    } else {
+        return false;
+    }
+}
+
+static inline
+bool consume_spaces (char *s, char **after)
+{
+    if (is_space (s)) {
+        while (is_space(s)) {
+            s++;
+        }
+
+        if (after != NULL) {
+            *after = s;
+        }
+
+        return true;
+    } else {
+        return false;
+    }
+}
+
 // Parses a block of the form
 // <block_id> ["<block_name>"] {<block_content>};
 //
@@ -47,9 +129,9 @@ char* consume_line (char *c)
 // NOTE: This functon does not allocate anything. Resulting pointers point into
 // the given string s.
 char* parse_xkb_block (char *s,
-                      char **block_id, size_t *block_id_size,
-                      char **block_name, size_t *block_name_size,
-                      char **block_content, size_t *block_content_size)
+                       char **block_id, size_t *block_id_size,
+                       char **block_name, size_t *block_name_size,
+                       char **block_content, size_t *block_content_size)
 {
     bool success = true;
     s = consume_blanks (s);
@@ -154,11 +236,11 @@ bool strneq (const char *str1, uint32_t str1_size, const char* str2, uint32_t st
     }
 }
 
-bool xkb_keymap_xkb_install (const char *keymap_path, const char *dest_dir, const char *layout_name)
+bool xkb_keymap_xkb_install (char *xkb_file_content, const char *dest_dir, const char *layout_name)
 {
     bool success = true;
     mem_pool_t pool = {0};
-    char *s = full_file_read (&pool, keymap_path);
+    char *s = xkb_file_content;
     if (s != NULL) {
 
         string_t dest_file = str_new (dest_dir);
@@ -166,6 +248,12 @@ bool xkb_keymap_xkb_install (const char *keymap_path, const char *dest_dir, cons
             str_cat_c (&dest_file, "/");
         }
         int dest_dir_end = str_len (&dest_file);
+
+        // TODO: Correctly ignore comments anywhere. Switch to a proper scanner
+        // API to parse .xkb files.
+        while (consume_str (s, "//", &s)) {
+            s = consume_line (s);
+        }
 
         char *keymap_id;
         size_t keymap_id_size;
@@ -224,7 +312,7 @@ bool xkb_keymap_xkb_install (const char *keymap_path, const char *dest_dir, cons
 }
 
 struct keymap_t {
-    const char *name;
+    char *name;
     char *short_description;
     char *description;
     char **languages;
@@ -590,88 +678,6 @@ bool xkb_keymap_rules_install (const char *keymap_name)
     return success;
 }
 
-// Compares the beginning of s with the null terminated c_str, returns true if
-// it matches and false otherwise. If after!=NULL and there is a match after is
-// set to point to the character after the match. If the string does not match
-// we leafe after unchanged.
-static inline
-bool consume_str (char *s, char *c_str, char **after)
-{
-    size_t len = strlen(c_str);
-    if (memcmp (s, c_str, len) == 0) {
-        if (after != NULL) {
-            *after = s+len;
-        }
-        return true;
-    } else {
-        return false;
-    }
-}
-
-// Same as consume_str() but ignores the case of the strings.
-static inline
-bool consume_case_str (char *s, char *c_str, char **after)
-{
-    size_t len = strlen(c_str);
-    if (strncasecmp (s, c_str, len) == 0) {
-        if (after != NULL) {
-            *after = s+len;
-        }
-        return true;
-    } else {
-        return false;
-    }
-}
-
-static inline
-bool consume_char (char *s, char c, char **after)
-{
-    if (*s == c) {
-        if (after != NULL) {
-            *after = s+1;
-        }
-        return true;
-    } else {
-        return false;
-    }
-}
-
-static inline
-bool consume_until_str (char *s, char *c_str, char **start, char **end)
-{
-    char *found = strstr (s, c_str);
-    if (found) {
-        if (start != NULL) {
-            *start = found;
-        }
-
-        if (end != NULL) {
-            *end = found + strlen(c_str);
-        }
-        return true;
-    } else {
-        return false;
-    }
-}
-
-static inline
-bool consume_spaces (char *s, char **after)
-{
-    if (is_space (s)) {
-        while (is_space(s)) {
-            s++;
-        }
-
-        if (after != NULL) {
-            *after = s;
-        }
-
-        return true;
-    } else {
-        return false;
-    }
-}
-
 // This seems useful, maybe move it into common.h?
 // NOTE: This must be zero initialized
 struct ptrarr_t {
@@ -847,15 +853,14 @@ bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keyma
 //
 //                                                  Santiago (April 20, 2018)
 //
-bool xkb_keymap_install (const char *keymap_path, const char *layout_name)
+bool xkb_keymap_install (const char *keymap_path)
 {
     bool success = true;
     struct keymap_t keymap = {0};
-    keymap.name = layout_name;
-    keymap.short_description = "su";
-    keymap.description = "Test custom layout";
-    keymap.languages = (char *[]){"es", "us"};
-    keymap.num_languages = 2;
+
+    mem_pool_t pool = {0};
+    char *xkb_file_content = full_file_read (&pool, keymap_path);
+    extract_keymap_info (&pool, xkb_file_content, &keymap);
 
     bool new_layout;
     success = xkb_keymap_info_install (&keymap, &new_layout);
@@ -864,9 +869,10 @@ bool xkb_keymap_install (const char *keymap_path, const char *layout_name)
     }
 
     if (success) {
-        success = xkb_keymap_xkb_install (keymap_path, "/usr/share/X11/xkb", keymap.name);
+        success = xkb_keymap_xkb_install (xkb_file_content, "/usr/share/X11/xkb", keymap.name);
     }
 
+    mem_pool_destroy (&pool);
     return success;
 }
 
@@ -897,7 +903,9 @@ char* delete_lines (mem_pool_t *pool, const char *str,
         s--;
     }
     s++;
-    e += strlen (end);
+
+    // The -1 avoids consuming an extra line if end has '\n' as final character.
+    e += strlen (end) - 1;
     e = consume_line (e);
 
     string_t res_str = strn_new (str, s - str);
@@ -1145,27 +1153,17 @@ bool xkb_keymap_uninstall_everything ()
 
 int main (int argc, char *argv[])
 {
-#if 0
-    if (xkb_keymap_install ("./custom_keyboard.xkb", "my_layout")) {
+#if 1
+    if (xkb_keymap_install ("./custom_keyboard.xkb")) {
         return 0;
     } else {
         return 1;
     }
 #else
-//    if (xkb_keymap_uninstall ("my_layout")) {
-//        return 0;
-//    } else {
-//        return 1;
-//    }
-//    xkb_keymap_uninstall_everything ();
-#endif
-    mem_pool_t pool = {0};
-    struct keymap_t keymap;
-    char *f = full_file_read (&pool, "./custom_keyboard.xkb");
-    extract_keymap_info (&pool, f, &keymap);
-    int i;
-    for (i=0; i<keymap.num_languages; i++) {
-        printf ("%s\n", keymap.languages[i]);
+    if (xkb_keymap_uninstall ("my_layout")) {
+        return 0;
+    } else {
+        return 1;
     }
-    mem_pool_destroy (&pool);
+#endif
 }

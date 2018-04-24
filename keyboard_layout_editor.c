@@ -757,6 +757,9 @@ bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keyma
                 }
 
             } else if (consume_case_str (s, "languages", &s)) {
+                // TODO: Check we actually get iso639 codes. Debian has them in
+                // /usr/share/iso-codes/json/ or /usr/share/xml/iso-codes/, the
+                // XML verison seems to be deprecated.
                 consume_spaces(s, &s);
                 if (consume_char(s, ':', &s)) {
                     struct ptrarr_t languages = {0};

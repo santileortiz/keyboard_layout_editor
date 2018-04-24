@@ -599,16 +599,37 @@ bool xkb_keymap_rules_install (const char *keymap_name)
     return success;
 }
 
+// Compares the beginning of s with the null terminated c_str, returns true if
+// it matches and false otherwise. If after!=NULL and there is a match after is
+// set to point to the character after the match. If the string does not match
+// we leafe after unchanged.
 static inline
-bool match_c_str (const char *s, const char *c_str)
+bool match_c_str (char *s, const char *c_str, char **after)
 {
-    return memcmp (s, c_str, strlen(c_str)) == 0;
+    size_t len = strlen(c_str);
+    if (memcmp (s, c_str, len) == 0) {
+        if (after != NULL) {
+            *after = s+len;
+        }
+        return true;
+    } else {
+        return false;
+    }
 }
 
+// Same as match_c_str() but ignores the case of the strings.
 static inline
-bool match_case_c_str (const char *s, const char *c_str)
+bool consume_str (char *s, const char *c_str, char **after)
 {
-    return strncasecmp (s, c_str, strlen(c_str)) == 0;
+    size_t len = strlen(c_str);
+    if (strncasecmp (s, c_str, len) == 0) {
+        if (after != NULL) {
+            *after = s+len;
+        }
+        return true;
+    } else {
+        return false;
+    }
 }
 
 bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keymap_t *res)
@@ -621,11 +642,9 @@ bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keyma
     bool success = true;
     char *s = xkb_file_content;
     while (s && *s) {
-        if (match_c_str (s, "//")) {
-            s += 2; //consume "//"
+        if (consume_str (s, "//", &s)) {
             s = consume_spaces (s);
-            if (match_case_c_str (s, "name")) {
-                s += 4;
+            if (consume_str (s, "name", &s)) {
                 s = consume_spaces(s);
                 if (*s == ':') {
                     s++;
@@ -634,8 +653,7 @@ bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keyma
                     res->name = pom_strndup (pool, s, end - s - 1);
                 }
 
-            } else if (match_case_c_str (s, "description")) {
-                s += 11;
+            } else if (consume_str (s, "description", &s)) {
                 s = consume_spaces(s);
                 if (*s == ':') {
                     s++;
@@ -644,8 +662,7 @@ bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keyma
                     res->description = pom_strndup (pool, s, end - s - 1);
                 }
 
-            } else if (match_case_c_str (s, "short description")) {
-                s += 17;
+            } else if (consume_str (s, "short description", &s)) {
                 s = consume_spaces(s);
                 if (*s == ':') {
                     s++;
@@ -653,6 +670,7 @@ bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keyma
                     char *end = consume_line (s);
                     res->short_description = pom_strndup (pool, s, end - s - 1);
                 }
+
             }
 
             // TODO: Parse language list.

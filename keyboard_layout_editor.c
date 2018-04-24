@@ -35,15 +35,6 @@ char* consume_line (char *c)
     return c;
 }
 
-static inline
-char* consume_spaces (char *c)
-{
-    while (is_space(c)) {
-           c++;
-    }
-    return c;
-}
-
 // Parses a block of the form
 // <block_id> ["<block_name>"] {<block_content>};
 //
@@ -604,7 +595,7 @@ bool xkb_keymap_rules_install (const char *keymap_name)
 // set to point to the character after the match. If the string does not match
 // we leafe after unchanged.
 static inline
-bool match_c_str (char *s, const char *c_str, char **after)
+bool consume_str (char *s, char *c_str, char **after)
 {
     size_t len = strlen(c_str);
     if (memcmp (s, c_str, len) == 0) {
@@ -617,9 +608,9 @@ bool match_c_str (char *s, const char *c_str, char **after)
     }
 }
 
-// Same as match_c_str() but ignores the case of the strings.
+// Same as consume_str() but ignores the case of the strings.
 static inline
-bool consume_str (char *s, const char *c_str, char **after)
+bool consume_case_str (char *s, char *c_str, char **after)
 {
     size_t len = strlen(c_str);
     if (strncasecmp (s, c_str, len) == 0) {
@@ -630,6 +621,92 @@ bool consume_str (char *s, const char *c_str, char **after)
     } else {
         return false;
     }
+}
+
+static inline
+bool consume_char (char *s, char c, char **after)
+{
+    if (*s == c) {
+        if (after != NULL) {
+            *after = s+1;
+        }
+        return true;
+    } else {
+        return false;
+    }
+}
+
+static inline
+bool consume_until_str (char *s, char *c_str, char **start, char **end)
+{
+    char *found = strstr (s, c_str);
+    if (found) {
+        if (start != NULL) {
+            *start = found;
+        }
+
+        if (end != NULL) {
+            *end = found + strlen(c_str);
+        }
+        return true;
+    } else {
+        return false;
+    }
+}
+
+static inline
+bool consume_spaces (char *s, char **after)
+{
+    if (is_space (s)) {
+        while (is_space(s)) {
+            s++;
+        }
+
+        if (after != NULL) {
+            *after = s;
+        }
+
+        return true;
+    } else {
+        return false;
+    }
+}
+
+// This seems useful, maybe move it into common.h?
+// NOTE: This must be zero initialized
+struct ptrarr_t {
+    void **data;
+    size_t len;
+    size_t size;
+};
+
+bool ptrarr_push (struct ptrarr_t *arr, void *ptr)
+{
+    if (arr->len == arr->size) {
+        if (arr->size == 0) {
+            arr->size = 10;
+        }
+
+        // For a new array this is equivalent to malloc.
+        void *tmp = realloc (arr->data, arr->size*2);
+        if (tmp == NULL) {
+            printf ("Realloc failed\n");
+            return false;
+        } else {
+            arr->data = tmp;
+            arr->size *= 2;
+        }
+    }
+
+    arr->data[arr->len] = ptr;
+    arr->len++;
+    return true;
+}
+
+bool ptrarr_free (struct ptrarr_t *arr)
+{
+    free (arr->data);
+    return true;
 }
 
 bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keymap_t *res)
@@ -643,41 +720,66 @@ bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keyma
     char *s = xkb_file_content;
     while (s && *s) {
         if (consume_str (s, "//", &s)) {
-            s = consume_spaces (s);
-            if (consume_str (s, "name", &s)) {
-                s = consume_spaces(s);
-                if (*s == ':') {
-                    s++;
-                    s = consume_spaces (s);
+            consume_spaces (s, &s);
+            if (consume_case_str (s, "name", &s)) {
+                consume_spaces(s, &s);
+                if (consume_char(s, ':', &s)) {
+                    consume_spaces (s, &s);
                     char *end = consume_line (s);
                     res->name = pom_strndup (pool, s, end - s - 1);
                 }
 
-            } else if (consume_str (s, "description", &s)) {
-                s = consume_spaces(s);
-                if (*s == ':') {
-                    s++;
-                    s = consume_spaces (s);
+            } else if (consume_case_str (s, "description", &s)) {
+                consume_spaces(s, &s);
+                if (consume_char(s, ':', &s)) {
+                    consume_spaces (s, &s);
                     char *end = consume_line (s);
                     res->description = pom_strndup (pool, s, end - s - 1);
                 }
 
-            } else if (consume_str (s, "short description", &s)) {
-                s = consume_spaces(s);
-                if (*s == ':') {
-                    s++;
-                    s = consume_spaces (s);
+            } else if (consume_case_str (s, "short description", &s)) {
+                consume_spaces(s, &s);
+                if (consume_char(s, ':', &s)) {
+                    consume_spaces (s, &s);
                     char *end = consume_line (s);
                     res->short_description = pom_strndup (pool, s, end - s - 1);
                 }
 
-            }
+            } else if (consume_case_str (s, "languages", &s)) {
+                consume_spaces(s, &s);
+                if (consume_char(s, ':', &s)) {
+                    struct ptrarr_t languages = {0};
+                    while (*s && *s != '\n') {
+                        char *start = s;
+                        consume_spaces (s, &start);
+                        char *end = start;
+                        while (*end != ',' && *end != '\n') {
+                            end++;
+                        }
+                        s = end + 1;
 
-            // TODO: Parse language list.
-            s = consume_spaces (s);
-        } else {
-            s = consume_line(s);
-        }
+                        end--;
+                        while (is_space(end)) {
+                            end--;
+                        }
+                        end++;
+
+                        res->num_languages++;
+                        char* lang = pom_strndup (pool, start, end - start);
+                        ptrarr_push (&languages, lang);
+                    }
+
+                    res->languages = pom_push_size (pool, sizeof(char*)*res->num_languages);
+                    int i;
+                    for (i=0; i<res->num_languages; i++) {
+                        res->languages[i] = languages.data[i];
+                    }
+                    ptrarr_free (&languages);
+                }
+            }
+        } 
+
+        s = consume_line (s);
     }
 
     return success;
@@ -1061,5 +1163,9 @@ int main (int argc, char *argv[])
     struct keymap_t keymap;
     char *f = full_file_read (&pool, "./custom_keyboard.xkb");
     extract_keymap_info (&pool, f, &keymap);
+    int i;
+    for (i=0; i<keymap.num_languages; i++) {
+        printf ("%s\n", keymap.languages[i]);
+    }
     mem_pool_destroy (&pool);
 }

@@ -302,13 +302,14 @@ bool xkb_keymap_xkb_install (char *xkb_file_content, const char *dest_dir, const
         }
 
         char *keymap_id;
-        size_t keymap_id_size;
-        parse_xkb_block (s, &keymap_id, &keymap_id_size, NULL, NULL, &s, NULL);
+        size_t keymap_id_size, sections_size;
+        parse_xkb_block (s, &keymap_id, &keymap_id_size, NULL, NULL, &s, &sections_size);
         if (!strneq (keymap_id, keymap_id_size, C_STR("xkb_keymap"))) {
             success = false;
         }
+        char* sections_end = s+sections_size-1;
 
-        while (*s && success) {
+        while (*s && s != sections_end && success) {
             char *block_name;
             size_t block_name_size;
             s = parse_xkb_block (s, &block_name, &block_name_size, NULL, NULL, NULL, NULL);
@@ -335,6 +336,9 @@ bool xkb_keymap_xkb_install (char *xkb_file_content, const char *dest_dir, const
             } else if (strneq (block_name, block_name_size, C_STR("xkb_symbols"))) {
                 str_put_c (&dest_file, dest_dir_end, "symbols/");
                 str_cat_c (&dest_file, layout_name);
+            } else if (strneq (block_name, block_name_size, C_STR("xkb_geometry"))) {
+                // Ignore
+                continue;
             } else {
                 success = false;
                 break;
@@ -842,6 +846,12 @@ bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keyma
         s = consume_line (s);
     }
 
+    // TODO: Make some fields optional.
+    if (res->name == NULL || res->description == NULL ||
+        res->short_description == NULL || res->languages == NULL) {
+        success = false;
+    }
+
     return success;
 }
 
@@ -914,10 +924,16 @@ bool xkb_keymap_install (const char *keymap_path)
 
     mem_pool_t pool = {0};
     char *xkb_file_content = full_file_read (&pool, keymap_path);
-    extract_keymap_info (&pool, xkb_file_content, &keymap);
+    success = extract_keymap_info (&pool, xkb_file_content, &keymap);
+    if (!success) {
+        printf ("Error parsing %s.\n", keymap_path);
+    }
 
     bool new_layout;
-    success = xkb_keymap_info_install (&keymap, &new_layout);
+    if (success) {
+        success = xkb_keymap_info_install (&keymap, &new_layout);
+    }
+
     if (success && new_layout) {
         success = xkb_keymap_rules_install (keymap.name);
     }
@@ -1038,7 +1054,9 @@ bool xkb_keymap_components_remove (const char *layout_name)
     str_cat_c (&xkb_file, "_t");
     if (unlink (str_data(&xkb_file)) == -1) {
         success = false;
-        printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
+        if (errno != EACCES) {
+            printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
+        }
     }
 
     str_put_c (&xkb_file, xkb_root_end, "keycodes/");
@@ -1046,7 +1064,9 @@ bool xkb_keymap_components_remove (const char *layout_name)
     str_cat_c (&xkb_file, "_k");
     if (unlink (str_data(&xkb_file)) == -1) {
         success = false;
-        printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
+        if (errno != EACCES) {
+            printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
+        }
     }
 
     str_put_c (&xkb_file, xkb_root_end, "compat/");
@@ -1054,14 +1074,18 @@ bool xkb_keymap_components_remove (const char *layout_name)
     str_cat_c (&xkb_file, "_c");
     if (unlink (str_data(&xkb_file)) == -1) {
         success = false;
-        printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
+        if (errno != EACCES) {
+            printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
+        }
     }
 
     str_put_c (&xkb_file, xkb_root_end, "symbols/");
     str_cat_c (&xkb_file, layout_name);
     if (unlink (str_data(&xkb_file)) == -1) {
         success = false;
-        printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
+        if (errno != EACCES) {
+            printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
+        }
     }
     str_free (&xkb_file);
     return success;

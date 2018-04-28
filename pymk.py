@@ -4,7 +4,7 @@ from mkpy.utility import *
 assert sys.version_info >= (3,2)
 
 modes = {
-        'debug': '-Og -g -Wall',
+        'debug': '-O0 -g -Wall',
         'profile_debug': '-O2 -g -pg -Wall',
         'release': '-O2 -g -DNDEBUG -Wall'
         }

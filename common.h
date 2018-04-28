@@ -1976,12 +1976,17 @@ bool full_file_write (const void *data, ssize_t size, const char *path)
             }
             bytes_written += status;
         } while (bytes_written != size);
+        close (file);
+
     } else {
         failed = true;
-        printf ("Error opening %s: %s\n", path, strerror(errno));
+        if (errno != EACCES) {
+            // If we don't have permissions fail silently so that the caller can
+            // detect this with errno and maybe retry.
+            printf ("Error opening %s: %s\n", path, strerror(errno));
+        }
     }
 
-    close (file);
     free (dir_path);
     return failed;
 }

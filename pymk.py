@@ -10,6 +10,7 @@ modes = {
         }
 cli_mode = get_cli_option('-M,--mode', modes.keys())
 FLAGS = modes[pers('mode', 'debug', cli_mode)]
+GTK_FLAGS = ex ('pkg-config --cflags --libs gtk+-3.0', ret_stdout=True, echo=False)
 ensure_dir ("bin")
 
 def default():
@@ -17,7 +18,7 @@ def default():
     call_user_function(target)
 
 def keyboard_layout_editor ():
-    ex ('gcc {FLAGS} -o bin/keyboard-layout-editor keyboard_layout_editor.c -I/usr/include/libxml2 -lxml2 -lm')
+    ex ('gcc {FLAGS} -o bin/keyboard-layout-editor keyboard_layout_editor.c -I/usr/include/libxml2 -lxml2 {GTK_FLAGS} -lm')
 
 if __name__ == "__main__":
     # Everything above this line will be executed for each TAB press.

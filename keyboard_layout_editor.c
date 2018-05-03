@@ -176,7 +176,8 @@ int main (int argc, char *argv[])
         g_signal_connect (G_OBJECT(window), "delete-event", G_CALLBACK (delete_callback), NULL);
 
         GtkWidget *keyboard = gtk_drawing_area_new ();
-        gtk_widget_set_size_request (keyboard, 100, 100);
+        gtk_widget_set_vexpand (keyboard, TRUE);
+        gtk_widget_set_hexpand (keyboard, TRUE);
         g_signal_connect (G_OBJECT (keyboard), "draw", G_CALLBACK (render_keyboard), NULL);
         gtk_widget_show (keyboard);
 
@@ -245,7 +246,6 @@ int main (int argc, char *argv[])
                                "}");
         gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
         gtk_paned_pack2 (GTK_PANED(paned), keyboard, TRUE, TRUE);
-        gtk_paned_set_position (GTK_PANED(paned), 200);
         gtk_container_add(GTK_CONTAINER(window), paned);
         gtk_widget_show (paned);
 

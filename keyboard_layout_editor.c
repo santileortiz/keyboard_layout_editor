@@ -113,6 +113,30 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
     return FALSE;
 }
 
+GtkWidget* intro_button_new (char *icon_name, char *title, char *subtitle)
+{
+    GtkWidget *new_button = gtk_button_new ();
+    add_css_class (new_button, "flat");
+    GtkWidget *grid = gtk_grid_new ();
+
+    GtkWidget *title_label = gtk_label_new (title);
+    add_css_class (title_label, "h3");
+    gtk_widget_set_halign (title_label, GTK_ALIGN_START);
+    gtk_grid_attach (GTK_GRID(grid), title_label, 1, 0, 1, 1);
+
+    GtkWidget *subtitle_label = gtk_label_new (subtitle);
+    add_css_class (subtitle_label, "dim-label");
+    gtk_widget_set_halign (subtitle_label, GTK_ALIGN_START);
+    gtk_grid_attach (GTK_GRID(grid), subtitle_label, 1, 1, 1, 1);
+
+    GtkWidget *image = gtk_image_new_from_icon_name (icon_name, GTK_ICON_SIZE_DIALOG);
+    gtk_grid_attach (GTK_GRID(grid), image, 0, 0, 1, 2);
+
+    gtk_container_add (GTK_CONTAINER(new_button), grid);
+    gtk_widget_show_all (new_button);
+    return new_button;
+}
+
 int main (int argc, char *argv[])
 {
     bool success = true;
@@ -139,7 +163,7 @@ int main (int argc, char *argv[])
         gtk_init(&argc, &argv);
 
         window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-        gtk_window_resize (GTK_WINDOW(window), 970, 650);
+        gtk_window_resize (GTK_WINDOW(window), 1120, 510);
         gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
         gtk_widget_show (window);
 
@@ -192,34 +216,20 @@ int main (int argc, char *argv[])
         }
         gtk_widget_show (custom_layout_list);
 
-        GtkWidget *new_layout_button = gtk_button_new ();
-        {
-            new_layout_button = gtk_button_new ();
-            add_css_class (new_layout_button, "flat");
-            GtkWidget *grid = gtk_grid_new ();
-
-            GtkWidget *title = gtk_label_new ("New Layout");
-            add_css_class (title, "h3");
-            gtk_widget_set_halign (title, GTK_ALIGN_START);
-            gtk_grid_attach (GTK_GRID(grid), title, 1, 0, 1, 1);
-
-            GtkWidget *subtitle = gtk_label_new ("Create a layout based on an existing one.");
-            add_css_class (subtitle, "dim-label");
-            gtk_widget_set_halign (subtitle, GTK_ALIGN_START);
-            gtk_grid_attach (GTK_GRID(grid), subtitle, 1, 1, 1, 1);
-
-            GtkWidget *image = gtk_image_new_from_icon_name ("document-new", GTK_ICON_SIZE_DIALOG);
-            gtk_grid_attach (GTK_GRID(grid), image, 0, 0, 1, 2);
-
-            gtk_container_add (GTK_CONTAINER(new_layout_button), grid);
-        }
-        gtk_widget_show_all (new_layout_button);
+        GtkWidget *new_layout_button =
+            intro_button_new ("document-new", "New Layout", "Create a layout based on an existing one.");
+        GtkWidget *open_layout_button =
+            intro_button_new ("document-open", "Open Layout", "Open an existing .xkb file.");
+        GtkWidget *install_layout_button =
+            intro_button_new ("document-save", "Install Layout", "Install an .xkb file into the system.");
 
         GtkWidget *sidebar = gtk_grid_new ();
         gtk_grid_set_row_spacing (GTK_GRID(sidebar), 12);
         add_custom_css (sidebar, ".grid, grid { margin: 12px; }");
         gtk_grid_attach (GTK_GRID(sidebar), custom_layout_list, 0, 0, 1, 1);
         gtk_grid_attach (GTK_GRID(sidebar), new_layout_button, 0, 1, 1, 1);
+        gtk_grid_attach (GTK_GRID(sidebar), open_layout_button, 0, 2, 1, 1);
+        gtk_grid_attach (GTK_GRID(sidebar), install_layout_button, 0, 3, 1, 1);
         gtk_widget_show (sidebar);
 
         GtkWidget *paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);

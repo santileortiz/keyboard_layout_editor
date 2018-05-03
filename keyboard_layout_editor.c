@@ -191,18 +191,10 @@ int main (int argc, char *argv[])
 
             // Create rows
             int i;
-            bool first = true;
             for (i=0; i < ARRAY_SIZE(custom_layouts); i++) {
                 GtkWidget *row = gtk_label_new (custom_layouts[i]);
                 gtk_container_add (GTK_CONTAINER(list), row);
                 gtk_widget_set_halign (row, GTK_ALIGN_START);
-
-                // Select the first entry
-                if (first) {
-                    first = true;
-                    GtkWidget *r = gtk_widget_get_parent (row);
-                    gtk_list_box_select_row (GTK_LIST_BOX(list), GTK_LIST_BOX_ROW(r));
-                }
 
                 gtk_widget_set_margin_start (row, 6);
                 gtk_widget_set_margin_end (row, 6);
@@ -211,6 +203,10 @@ int main (int argc, char *argv[])
                 gtk_widget_show (row);
             }
             gtk_widget_show (list);
+
+            // Select first row
+            GtkListBoxRow *first_row = gtk_list_box_get_row_at_index (GTK_LIST_BOX(list), 0);
+            gtk_list_box_select_row (GTK_LIST_BOX(list), GTK_LIST_BOX_ROW(first_row));
 
             custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
             gtk_container_add (GTK_CONTAINER (custom_layout_list), list);

@@ -50,6 +50,12 @@ bool xkb_keymap_uninstall (const char *layout_name);
 //   implementation could just remove a directory under home.
 bool xkb_keymap_uninstall_everything ();
 
+// Returns the names of custom layouts installed in the system. Sets res to a
+// pointer to a string list and res_len to the number of layouts available. The
+// pointer array and the strings are allocated inside pool, if pool==NULL then
+// they are allocated with malloc, and should be freed individually.
+void xkb_keymap_list (mem_pool_t *pool, char ***res, int *res_len);
+
 //////////////////
 // IMPLEMENTATION
 //
@@ -988,7 +994,7 @@ char* delete_lines (mem_pool_t *pool, const char *str,
     return res;
 }
 
-void get_custom_layout_names (mem_pool_t *pool, char ***res, int *res_len)
+void xkb_keymap_list (mem_pool_t *pool, char ***res, int *res_len)
 {
     if (res == NULL || res_len == NULL) {
         return;
@@ -1097,7 +1103,7 @@ bool xkb_keymap_uninstall (const char *layout_name)
     mem_pool_t pool = {0};
     char **custom_layouts;
     int num_custom_layouts;
-    get_custom_layout_names (&pool, &custom_layouts, &num_custom_layouts);
+    xkb_keymap_list (&pool, &custom_layouts, &num_custom_layouts);
     bool found = false;
     int i;
     for (i=0; i<num_custom_layouts; i++) {
@@ -1191,7 +1197,7 @@ bool xkb_keymap_uninstall_everything ()
     mem_pool_t pool = {0};
     char **custom_layouts;
     int num_custom_layouts;
-    get_custom_layout_names (&pool, &custom_layouts, &num_custom_layouts);
+    xkb_keymap_list (&pool, &custom_layouts, &num_custom_layouts);
     int i;
     for (i=0; i<num_custom_layouts; i++) {
         xkb_keymap_components_remove (custom_layouts[i]);

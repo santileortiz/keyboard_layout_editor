@@ -137,6 +137,39 @@ GtkWidget* intro_button_new (char *icon_name, char *title, char *subtitle)
     return new_button;
 }
 
+GtkWidget *window;
+
+// This is done from a callback queued by the button handler to let the main
+// loop destroy the GtkFileChooserDialog before asking for authentication. If
+// authentication was not required then this should not be necessary.
+gboolean install_layout_callback (gpointer layout_path)
+{
+    unprivileged_xkb_keymap_install (layout_path);
+    g_free (layout_path);
+    return G_SOURCE_REMOVE;
+}
+
+void install_layout_handler (GtkButton *button, gpointer   user_data)
+{
+    GtkWidget *dialog =
+        gtk_file_chooser_dialog_new ("Install Layout",
+                                     GTK_WINDOW(window),
+                                     GTK_FILE_CHOOSER_ACTION_OPEN,
+                                     "_Cancel",
+                                     GTK_RESPONSE_CANCEL,
+                                     "_Install",
+                                     GTK_RESPONSE_ACCEPT,
+                                     NULL);
+
+    char *fname;
+    gint result = gtk_dialog_run (GTK_DIALOG (dialog));
+    if (result == GTK_RESPONSE_ACCEPT) {
+        fname = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER(dialog));
+        g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, install_layout_callback, fname, NULL);
+    }
+    gtk_widget_destroy (dialog);
+}
+
 int main (int argc, char *argv[])
 {
     bool success = true;
@@ -158,8 +191,6 @@ int main (int argc, char *argv[])
             success = unprivileged_xkb_keymap_uninstall_everything ();
         }
     } else {
-        GtkWidget *window;
-
         gtk_init(&argc, &argv);
 
         window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -224,6 +255,7 @@ int main (int argc, char *argv[])
             intro_button_new ("document-open", "Open Layout", "Open an existing .xkb file.");
         GtkWidget *install_layout_button =
             intro_button_new ("document-save", "Install Layout", "Install an .xkb file into the system.");
+        g_signal_connect (G_OBJECT(install_layout_button), "clicked", G_CALLBACK (install_layout_handler), NULL);
 
         GtkWidget *sidebar = gtk_grid_new ();
         gtk_grid_set_row_spacing (GTK_GRID(sidebar), 12);

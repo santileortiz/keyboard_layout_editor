@@ -181,7 +181,6 @@ int main (int argc, char *argv[])
         g_signal_connect (G_OBJECT (keyboard), "draw", G_CALLBACK (render_keyboard), NULL);
         gtk_widget_show (keyboard);
 
-        char *custom_layouts[] = {"my_layout", "my_other_layout"};
         GtkWidget *custom_layout_list;
         {
             GtkWidget *list = gtk_list_box_new ();
@@ -189,9 +188,14 @@ int main (int argc, char *argv[])
             gtk_widget_set_hexpand (list, TRUE);
             //g_signal_connect (G_OBJECT(list), "row-selected", G_CALLBACK (on_custom_layout_selected), NULL);
 
+            mem_pool_t tmp = {0};
+            char **custom_layouts;
+            int num_custom_layouts;
+            xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
+
             // Create rows
             int i;
-            for (i=0; i < ARRAY_SIZE(custom_layouts); i++) {
+            for (i=0; i < num_custom_layouts; i++) {
                 GtkWidget *row = gtk_label_new (custom_layouts[i]);
                 gtk_container_add (GTK_CONTAINER(list), row);
                 gtk_widget_set_halign (row, GTK_ALIGN_START);
@@ -203,6 +207,7 @@ int main (int argc, char *argv[])
                 gtk_widget_show (row);
             }
             gtk_widget_show (list);
+            mem_pool_destroy (&tmp);
 
             // Select first row
             GtkListBoxRow *first_row = gtk_list_box_get_row_at_index (GTK_LIST_BOX(list), 0);

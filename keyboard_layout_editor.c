@@ -141,16 +141,20 @@ int main (int argc, char *argv[])
         window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
         gtk_window_resize (GTK_WINDOW(window), 970, 650);
         gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
+        gtk_widget_show (window);
+
         GtkWidget *header_bar = gtk_header_bar_new ();
         gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
         gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
         gtk_window_set_titlebar (GTK_WINDOW(window), header_bar);
+        gtk_widget_show (header_bar);
 
         g_signal_connect (G_OBJECT(window), "delete-event", G_CALLBACK (delete_callback), NULL);
 
         GtkWidget *keyboard = gtk_drawing_area_new ();
         gtk_widget_set_size_request (keyboard, 100, 100);
         g_signal_connect (G_OBJECT (keyboard), "draw", G_CALLBACK (render_keyboard), NULL);
+        gtk_widget_show (keyboard);
 
         char *custom_layouts[] = {"my_layout", "my_other_layout"};
         GtkWidget *custom_layout_list;
@@ -179,11 +183,14 @@ int main (int argc, char *argv[])
                 gtk_widget_set_margin_end (row, 6);
                 gtk_widget_set_margin_top (row, 3);
                 gtk_widget_set_margin_bottom (row, 3);
+                gtk_widget_show (row);
             }
+            gtk_widget_show (list);
 
             custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
             gtk_container_add (GTK_CONTAINER (custom_layout_list), list);
         }
+        gtk_widget_show (custom_layout_list);
 
         GtkWidget *new_layout_button = gtk_button_new ();
         {
@@ -206,45 +213,31 @@ int main (int argc, char *argv[])
 
             gtk_container_add (GTK_CONTAINER(new_layout_button), grid);
         }
+        gtk_widget_show_all (new_layout_button);
 
         GtkWidget *sidebar = gtk_grid_new ();
         gtk_grid_set_row_spacing (GTK_GRID(sidebar), 12);
         add_custom_css (sidebar, ".grid, grid { margin: 12px; }");
         gtk_grid_attach (GTK_GRID(sidebar), custom_layout_list, 0, 0, 1, 1);
         gtk_grid_attach (GTK_GRID(sidebar), new_layout_button, 0, 1, 1, 1);
+        gtk_widget_show (sidebar);
 
-        // FIXME: Using panned here causes a lot of assertion fails inside the
-        // function _gtk_widget_get_preferred_size_for_size(). The issue seems
-        // to be inside GtkPaned for the following reasons:
-        //
-        //   Stops the failed assert:
-        //     - Not attaching custom_layout_list to sidebar.
-        //     - Using a less wide button for new_layout_button.
-        //     - Using a GtkGrid instead of GtkPaned.
-        //
-        //   Does not stop the assert from failing:
-        //    - Creating custom_layout_list as GtkListBox (don't wrap it inside
-        //      a GtkScrolledWindow), although it reduces the number of errors
-        //      by half.
-        //    - Wrapping GtkListBox inside a GtkBox. This also reduces the
-        //      number of errors by half.
-        //
-        //  Also seems to be related to elementary OS as in Fedora 27 the issue
-        //  does not happen.
-#if 1
         GtkWidget *paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
+        // FIXME: The following CSS is used to work around 2 issues with
+        // GtkPaned. One is a failed assert which is a bug in GTK (see
+        // https://github.com/elementary/stylesheet/issues/328). The other
+        // one is the vanishing of the separator, which seems to be related
+        // to elementary OS using a negative margin in the separator.
+        add_custom_css (paned, "paned > separator {"
+                               "    margin-right: 0;"
+                               "    min-width: 2px;"
+                               "    min-height: 2px;"
+                               "}");
         gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
         gtk_paned_pack2 (GTK_PANED(paned), keyboard, TRUE, TRUE);
         gtk_paned_set_position (GTK_PANED(paned), 200);
         gtk_container_add(GTK_CONTAINER(window), paned);
-#else
-        GtkWidget *no_warn = gtk_grid_new();
-        gtk_grid_attach (GTK_GRID(no_warn), sidebar, 0, 0, 1, 1);
-        gtk_grid_attach (GTK_GRID(no_warn), keyboard, 1, 0, 1, 1);
-        gtk_container_add(GTK_CONTAINER(window), no_warn);
-#endif
-
-        gtk_widget_show_all(window);
+        gtk_widget_show (paned);
 
         gtk_main();
     }

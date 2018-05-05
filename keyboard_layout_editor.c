@@ -19,6 +19,17 @@ void str_cat_full_path (string_t *str, char *path)
     free (abs_path);
 }
 
+// The following are wrapper functions that use Polkit's pkexec to call the
+// layout installation API. If we ever get to install layout locally for a user,
+// then this should not be necessary.
+//
+// @Polkit_wrapper
+//
+// TODO: Redirect stderr so we don't cluttter the user's output, when they press
+// the cancel button.
+// TODO: Internationalization of the authentication dialog has to be done
+// through a .policy file (see man pkexec). There is not a lot of control over
+// the buttons or message in the dialog.
 bool unprivileged_xkb_keymap_install (char *keymap_path)
 {
     bool success = true;
@@ -31,7 +42,7 @@ bool unprivileged_xkb_keymap_install (char *keymap_path)
 
             int retval = system (str_data (&command));
             if (!WIFEXITED (retval)) {
-                printf ("Could not call pkexec\n");
+                printf ("Could not call pkexec. %i\n", retval);
             }
             str_free (&command);
         } else {
@@ -41,6 +52,7 @@ bool unprivileged_xkb_keymap_install (char *keymap_path)
     return success;
 }
 
+// @Polkit_wrapper
 bool unprivileged_xkb_keymap_uninstall (char *layout_name)
 {
     bool success = true;
@@ -63,6 +75,7 @@ bool unprivileged_xkb_keymap_uninstall (char *layout_name)
     return success;
 }
 
+// @Polkit_wrapper
 bool unprivileged_xkb_keymap_uninstall_everything ()
 {
     bool success = true;

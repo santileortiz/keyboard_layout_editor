@@ -53,7 +53,7 @@ bool unprivileged_xkb_keymap_install (char *keymap_path)
 }
 
 // @Polkit_wrapper
-bool unprivileged_xkb_keymap_uninstall (char *layout_name)
+bool unprivileged_xkb_keymap_uninstall (const char *layout_name)
 {
     bool success = true;
     if (!xkb_keymap_uninstall (layout_name)) {
@@ -151,6 +151,7 @@ GtkWidget* intro_button_new (char *icon_name, char *title, char *subtitle)
 }
 
 GtkWidget *window;
+GtkWidget *custom_layout_list;
 
 // This is done from a callback queued by the button handler to let the main
 // loop destroy the GtkFileChooserDialog before asking for authentication. If
@@ -183,6 +184,15 @@ void install_layout_handler (GtkButton *button, gpointer   user_data)
     gtk_widget_destroy (dialog);
 }
 
+gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
+{
+    GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX(custom_layout_list));
+    GtkWidget *label = gtk_bin_get_child (GTK_BIN(row));
+    const gchar *curr_layout = gtk_label_get_text (GTK_LABEL (label));
+    unprivileged_xkb_keymap_uninstall (curr_layout);
+    return G_SOURCE_REMOVE;
+}
+
 int main (int argc, char *argv[])
 {
     bool success = true;
@@ -209,15 +219,24 @@ int main (int argc, char *argv[])
         window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
         gtk_window_resize (GTK_WINDOW(window), 1120, 510);
         gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
+        g_signal_connect (G_OBJECT(window), "delete-event", G_CALLBACK (delete_callback), NULL);
         gtk_widget_show (window);
 
         GtkWidget *header_bar = gtk_header_bar_new ();
         gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
         gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
+
+        // TODO: For some reason the highlight circle on this button button has
+        // height 32px but width 30px. Code's circle on header buttons is 30px by 30px.
+        GtkWidget *delete_layout_button = gtk_button_new_from_icon_name ("list-remove", GTK_ICON_SIZE_LARGE_TOOLBAR);
+        g_signal_connect (delete_layout_button, "clicked", G_CALLBACK (delete_layout_handler), NULL);
+        gtk_widget_set_halign (delete_layout_button, GTK_ALIGN_FILL);
+        gtk_widget_set_valign (delete_layout_button, GTK_ALIGN_FILL);
+        gtk_widget_show (delete_layout_button);
+        gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), delete_layout_button);
+
         gtk_window_set_titlebar (GTK_WINDOW(window), header_bar);
         gtk_widget_show (header_bar);
-
-        g_signal_connect (G_OBJECT(window), "delete-event", G_CALLBACK (delete_callback), NULL);
 
         GtkWidget *keyboard = gtk_drawing_area_new ();
         gtk_widget_set_vexpand (keyboard, TRUE);
@@ -225,12 +244,12 @@ int main (int argc, char *argv[])
         g_signal_connect (G_OBJECT (keyboard), "draw", G_CALLBACK (render_keyboard), NULL);
         gtk_widget_show (keyboard);
 
-        GtkWidget *custom_layout_list;
+        GtkWidget *scrolled_custom_layout_list;
         {
-            GtkWidget *list = gtk_list_box_new ();
-            gtk_widget_set_vexpand (list, TRUE);
-            gtk_widget_set_hexpand (list, TRUE);
-            //g_signal_connect (G_OBJECT(list), "row-selected", G_CALLBACK (on_custom_layout_selected), NULL);
+            custom_layout_list = gtk_list_box_new ();
+            gtk_widget_set_vexpand (custom_layout_list, TRUE);
+            gtk_widget_set_hexpand (custom_layout_list, TRUE);
+            //g_signal_connect (G_OBJECT(custom_layout_list), "row-selected", G_CALLBACK (on_custom_layout_selected), NULL);
 
             mem_pool_t tmp = {0};
             char **custom_layouts;
@@ -241,7 +260,7 @@ int main (int argc, char *argv[])
             int i;
             for (i=0; i < num_custom_layouts; i++) {
                 GtkWidget *row = gtk_label_new (custom_layouts[i]);
-                gtk_container_add (GTK_CONTAINER(list), row);
+                gtk_container_add (GTK_CONTAINER(custom_layout_list), row);
                 gtk_widget_set_halign (row, GTK_ALIGN_START);
 
                 gtk_widget_set_margin_start (row, 6);
@@ -250,17 +269,17 @@ int main (int argc, char *argv[])
                 gtk_widget_set_margin_bottom (row, 3);
                 gtk_widget_show (row);
             }
-            gtk_widget_show (list);
+            gtk_widget_show (custom_layout_list);
             mem_pool_destroy (&tmp);
 
             // Select first row
-            GtkListBoxRow *first_row = gtk_list_box_get_row_at_index (GTK_LIST_BOX(list), 0);
-            gtk_list_box_select_row (GTK_LIST_BOX(list), GTK_LIST_BOX_ROW(first_row));
+            GtkListBoxRow *first_row = gtk_list_box_get_row_at_index (GTK_LIST_BOX(custom_layout_list), 0);
+            gtk_list_box_select_row (GTK_LIST_BOX(custom_layout_list), GTK_LIST_BOX_ROW(first_row));
 
-            custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
-            gtk_container_add (GTK_CONTAINER (custom_layout_list), list);
+            scrolled_custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
+            gtk_container_add (GTK_CONTAINER (scrolled_custom_layout_list), custom_layout_list);
         }
-        gtk_widget_show (custom_layout_list);
+        gtk_widget_show (scrolled_custom_layout_list);
 
         GtkWidget *new_layout_button =
             intro_button_new ("document-new", "New Layout", "Create a layout based on an existing one.");
@@ -273,7 +292,7 @@ int main (int argc, char *argv[])
         GtkWidget *sidebar = gtk_grid_new ();
         gtk_grid_set_row_spacing (GTK_GRID(sidebar), 12);
         add_custom_css (sidebar, ".grid, grid { margin: 12px; }");
-        gtk_grid_attach (GTK_GRID(sidebar), custom_layout_list, 0, 0, 1, 1);
+        gtk_grid_attach (GTK_GRID(sidebar), scrolled_custom_layout_list, 0, 0, 1, 1);
         gtk_grid_attach (GTK_GRID(sidebar), new_layout_button, 0, 1, 1, 1);
         gtk_grid_attach (GTK_GRID(sidebar), open_layout_button, 0, 2, 1, 1);
         gtk_grid_attach (GTK_GRID(sidebar), install_layout_button, 0, 3, 1, 1);

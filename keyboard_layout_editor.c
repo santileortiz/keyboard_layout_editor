@@ -4,6 +4,8 @@
 
 #include "common.h"
 #include "xkb_keymap_installer.c"
+#include "xkb_keymap_loader.c"
+#include <xkbcommon/xkbcommon.h>
 
 #include <gtk/gtk.h>
 
@@ -150,6 +152,39 @@ GtkWidget* intro_button_new (char *icon_name, char *title, char *subtitle)
     return new_button;
 }
 
+void on_custom_layout_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
+{
+    if (row == NULL) {
+        return;
+    }
+
+    mem_pool_t pool = {0};
+    GtkWidget *label = gtk_bin_get_child (GTK_BIN(row));
+    const gchar *curr_layout = gtk_label_get_text (GTK_LABEL (label));
+    char *keymap_str = reconstruct_installed_custom_layout (&pool, curr_layout);
+    struct xkb_context *ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    struct xkb_keymap *keymap =
+        xkb_keymap_new_from_string (ctx, keymap_str,
+                                    XKB_KEYMAP_FORMAT_TEXT_V1,
+                                    XKB_KEYMAP_COMPILE_NO_FLAGS);
+    mem_pool_destroy (&pool);
+
+    if (!keymap) {
+        printf ("Error creating keymap.\n");
+    }
+
+    struct xkb_state *state = xkb_state_new(keymap);
+    xkb_keysym_t keysym = xkb_state_key_get_one_sym(state, 66);
+
+    char keysym_name[64];
+    xkb_keysym_get_name(keysym, keysym_name, sizeof(keysym_name));
+    printf ("%.*s\n", (int)sizeof(keysym_name), keysym_name);
+
+    xkb_state_unref(state);
+    xkb_keymap_unref(keymap);
+    xkb_context_unref(ctx);
+}
+
 void set_custom_layouts_list (GtkWidget **custom_layout_list)
 {
     GtkWidget *parent = NULL;
@@ -161,7 +196,7 @@ void set_custom_layouts_list (GtkWidget **custom_layout_list)
     *custom_layout_list = gtk_list_box_new ();
     gtk_widget_set_vexpand (*custom_layout_list, TRUE);
     gtk_widget_set_hexpand (*custom_layout_list, TRUE);
-    //g_signal_connect (G_OBJECT(*custom_layout_list), "row-selected", G_CALLBACK (on_custom_layout_selected), NULL);
+    g_signal_connect (G_OBJECT(*custom_layout_list), "row-selected", G_CALLBACK (on_custom_layout_selected), NULL);
 
     mem_pool_t tmp = {0};
     char **custom_layouts;

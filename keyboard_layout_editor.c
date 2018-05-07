@@ -150,8 +150,52 @@ GtkWidget* intro_button_new (char *icon_name, char *title, char *subtitle)
     return new_button;
 }
 
+void set_custom_layouts_list (GtkWidget **custom_layout_list)
+{
+    GtkWidget *parent = NULL;
+    if (*custom_layout_list != NULL) {
+        parent = gtk_widget_get_parent (*custom_layout_list);
+        gtk_container_remove (GTK_CONTAINER(parent), *custom_layout_list);
+    }
+
+    *custom_layout_list = gtk_list_box_new ();
+    gtk_widget_set_vexpand (*custom_layout_list, TRUE);
+    gtk_widget_set_hexpand (*custom_layout_list, TRUE);
+    //g_signal_connect (G_OBJECT(*custom_layout_list), "row-selected", G_CALLBACK (on_custom_layout_selected), NULL);
+
+    mem_pool_t tmp = {0};
+    char **custom_layouts;
+    int num_custom_layouts;
+    xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
+
+    // Create rows
+    int i;
+    for (i=0; i < num_custom_layouts; i++) {
+        GtkWidget *row = gtk_label_new (custom_layouts[i]);
+        gtk_container_add (GTK_CONTAINER(*custom_layout_list), row);
+        gtk_widget_set_halign (row, GTK_ALIGN_START);
+
+        gtk_widget_set_margin_start (row, 6);
+        gtk_widget_set_margin_end (row, 6);
+        gtk_widget_set_margin_top (row, 3);
+        gtk_widget_set_margin_bottom (row, 3);
+        gtk_widget_show (row);
+    }
+    gtk_widget_show (*custom_layout_list);
+    mem_pool_destroy (&tmp);
+
+    // Select first row
+    GtkListBoxRow *first_row = gtk_list_box_get_row_at_index (GTK_LIST_BOX(*custom_layout_list), 0);
+    gtk_list_box_select_row (GTK_LIST_BOX(*custom_layout_list), GTK_LIST_BOX_ROW(first_row));
+
+    // If we are updating the list then reparent ourselves
+    if (parent != NULL) {
+        gtk_container_add (GTK_CONTAINER(parent), *custom_layout_list);
+    }
+}
+
 GtkWidget *window;
-GtkWidget *custom_layout_list;
+GtkWidget *custom_layout_list = NULL;
 
 // This is done from a callback queued by the button handler to let the main
 // loop destroy the GtkFileChooserDialog before asking for authentication. If
@@ -160,6 +204,8 @@ gboolean install_layout_callback (gpointer layout_path)
 {
     unprivileged_xkb_keymap_install (layout_path);
     g_free (layout_path);
+
+    set_custom_layouts_list (&custom_layout_list);
     return G_SOURCE_REMOVE;
 }
 
@@ -190,6 +236,7 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
     GtkWidget *label = gtk_bin_get_child (GTK_BIN(row));
     const gchar *curr_layout = gtk_label_get_text (GTK_LABEL (label));
     unprivileged_xkb_keymap_uninstall (curr_layout);
+    set_custom_layouts_list (&custom_layout_list);
     return G_SOURCE_REMOVE;
 }
 
@@ -244,41 +291,9 @@ int main (int argc, char *argv[])
         g_signal_connect (G_OBJECT (keyboard), "draw", G_CALLBACK (render_keyboard), NULL);
         gtk_widget_show (keyboard);
 
-        GtkWidget *scrolled_custom_layout_list;
-        {
-            custom_layout_list = gtk_list_box_new ();
-            gtk_widget_set_vexpand (custom_layout_list, TRUE);
-            gtk_widget_set_hexpand (custom_layout_list, TRUE);
-            //g_signal_connect (G_OBJECT(custom_layout_list), "row-selected", G_CALLBACK (on_custom_layout_selected), NULL);
-
-            mem_pool_t tmp = {0};
-            char **custom_layouts;
-            int num_custom_layouts;
-            xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
-
-            // Create rows
-            int i;
-            for (i=0; i < num_custom_layouts; i++) {
-                GtkWidget *row = gtk_label_new (custom_layouts[i]);
-                gtk_container_add (GTK_CONTAINER(custom_layout_list), row);
-                gtk_widget_set_halign (row, GTK_ALIGN_START);
-
-                gtk_widget_set_margin_start (row, 6);
-                gtk_widget_set_margin_end (row, 6);
-                gtk_widget_set_margin_top (row, 3);
-                gtk_widget_set_margin_bottom (row, 3);
-                gtk_widget_show (row);
-            }
-            gtk_widget_show (custom_layout_list);
-            mem_pool_destroy (&tmp);
-
-            // Select first row
-            GtkListBoxRow *first_row = gtk_list_box_get_row_at_index (GTK_LIST_BOX(custom_layout_list), 0);
-            gtk_list_box_select_row (GTK_LIST_BOX(custom_layout_list), GTK_LIST_BOX_ROW(first_row));
-
-            scrolled_custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
-            gtk_container_add (GTK_CONTAINER (scrolled_custom_layout_list), custom_layout_list);
-        }
+        GtkWidget *scrolled_custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
+        set_custom_layouts_list (&custom_layout_list);
+        gtk_container_add (GTK_CONTAINER (scrolled_custom_layout_list), custom_layout_list);
         gtk_widget_show (scrolled_custom_layout_list);
 
         GtkWidget *new_layout_button =

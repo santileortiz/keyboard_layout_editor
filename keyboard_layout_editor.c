@@ -121,10 +121,25 @@ gboolean delete_callback (GtkWidget *widget, GdkEvent *event, gpointer user_data
     return FALSE;
 }
 
+struct xkb_context *xkb_ctx = NULL;
+struct xkb_keymap *xkb_keymap = NULL;
+struct xkb_state *xkb_state = NULL;
+
+GtkWidget *window = NULL;
+GtkWidget *keyboard = NULL;
+GtkWidget *custom_layout_list = NULL;
+
 gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
 {
     cairo_set_source_rgba (cr, 1, 1, 1, 1);
     cairo_paint(cr);
+
+    xkb_keysym_t keysym = xkb_state_key_get_one_sym(xkb_state, 66);
+
+    char keysym_name[64];
+    xkb_keysym_get_name(keysym, keysym_name, sizeof(keysym_name));
+    printf ("%.*s\n", (int)sizeof(keysym_name), keysym_name);
+
     return FALSE;
 }
 
@@ -158,31 +173,43 @@ void on_custom_layout_selected (GtkListBox *box, GtkListBoxRow *row, gpointer us
         return;
     }
 
+    if (xkb_ctx != NULL) {
+        xkb_context_unref(xkb_ctx);
+    }
+
+    if (xkb_keymap != NULL) {
+        xkb_keymap_unref(xkb_keymap);
+    }
+
+    if (xkb_state != NULL) {
+        xkb_state_unref(xkb_state);
+    }
+
     mem_pool_t pool = {0};
     GtkWidget *label = gtk_bin_get_child (GTK_BIN(row));
     const gchar *curr_layout = gtk_label_get_text (GTK_LABEL (label));
     char *keymap_str = reconstruct_installed_custom_layout (&pool, curr_layout);
-    struct xkb_context *ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    struct xkb_keymap *keymap =
-        xkb_keymap_new_from_string (ctx, keymap_str,
-                                    XKB_KEYMAP_FORMAT_TEXT_V1,
-                                    XKB_KEYMAP_COMPILE_NO_FLAGS);
-    mem_pool_destroy (&pool);
 
-    if (!keymap) {
-        printf ("Error creating keymap.\n");
+    xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    if (!xkb_ctx) {
+        printf ("Error creating xkb_context.\n");
     }
 
-    struct xkb_state *state = xkb_state_new(keymap);
-    xkb_keysym_t keysym = xkb_state_key_get_one_sym(state, 66);
+    xkb_keymap = xkb_keymap_new_from_string (xkb_ctx, keymap_str,
+                                             XKB_KEYMAP_FORMAT_TEXT_V1,
+                                             XKB_KEYMAP_COMPILE_NO_FLAGS);
+    if (!xkb_keymap) {
+        printf ("Error creating xkb_keymap.\n");
+    }
 
-    char keysym_name[64];
-    xkb_keysym_get_name(keysym, keysym_name, sizeof(keysym_name));
-    printf ("%.*s\n", (int)sizeof(keysym_name), keysym_name);
+    xkb_state = xkb_state_new(xkb_keymap);
+    if (!xkb_state) {
+        printf ("Error creating xkb_state.\n");
+    }
 
-    xkb_state_unref(state);
-    xkb_keymap_unref(keymap);
-    xkb_context_unref(ctx);
+    gtk_widget_queue_draw (keyboard);
+
+    mem_pool_destroy (&pool);
 }
 
 void set_custom_layouts_list (GtkWidget **custom_layout_list)
@@ -228,9 +255,6 @@ void set_custom_layouts_list (GtkWidget **custom_layout_list)
         gtk_container_add (GTK_CONTAINER(parent), *custom_layout_list);
     }
 }
-
-GtkWidget *window;
-GtkWidget *custom_layout_list = NULL;
 
 // This is done from a callback queued by the button handler to let the main
 // loop destroy the GtkFileChooserDialog before asking for authentication. If
@@ -320,7 +344,7 @@ int main (int argc, char *argv[])
         gtk_window_set_titlebar (GTK_WINDOW(window), header_bar);
         gtk_widget_show (header_bar);
 
-        GtkWidget *keyboard = gtk_drawing_area_new ();
+        keyboard = gtk_drawing_area_new ();
         gtk_widget_set_vexpand (keyboard, TRUE);
         gtk_widget_set_hexpand (keyboard, TRUE);
         g_signal_connect (G_OBJECT (keyboard), "draw", G_CALLBACK (render_keyboard), NULL);

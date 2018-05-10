@@ -129,13 +129,32 @@ GtkWidget *window = NULL;
 GtkWidget *keyboard = NULL;
 GtkWidget *custom_layout_list = NULL;
 
+struct key {
+    int kc; //keycode
+    float ar; // aspect ratio
+};
+#define KEY(kc,ar) (struct key){kc,ar}
+struct key key_data[] = {KEY(9,1), KEY(10,1), KEY(11,2), KEY(12,1)};
+
 gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
 {
     cairo_set_source_rgba (cr, 1, 1, 1, 1);
     cairo_paint(cr);
 
-    xkb_keysym_t keysym = xkb_state_key_get_one_sym(xkb_state, 66);
+    float key_height = 40;
+    float x_pos = 0.5;
+    int i;
+    for (i = 0; i < ARRAY_SIZE (key_data); i++) {
+        struct key *curr_key = key_data + i;
+        float key_width = key_height*curr_key->ar;
+        cairo_set_source_rgb (cr, 0, 0, 0);
+        cairo_set_line_width (cr, 2);
+        cairo_rectangle (cr, x_pos, 0.5, key_width, key_height);
+        cairo_stroke (cr);
+        x_pos += key_width;
+    }
 
+    xkb_keysym_t keysym = xkb_state_key_get_one_sym(xkb_state, 66);
     char keysym_name[64];
     xkb_keysym_get_name(keysym, keysym_name, sizeof(keysym_name));
     printf ("%.*s\n", (int)sizeof(keysym_name), keysym_name);

@@ -129,29 +129,105 @@ GtkWidget *window = NULL;
 GtkWidget *keyboard = NULL;
 GtkWidget *custom_layout_list = NULL;
 
-struct key {
+struct key_t {
     int kc; //keycode
-    float ar; // aspect ratio
+    float width; // normalized to default_key_size
+    struct key_t *next_key;
 };
-#define KEY(kc,ar) (struct key){kc,ar}
-struct key key_data[] = {KEY(9,1), KEY(10,1), KEY(11,2), KEY(12,1)};
+
+struct row_t {
+    float height; // normalized to default_key_size
+    struct row_t *next_row;
+
+    struct key_t *first_key;
+    struct key_t *last_key;
+};
+
+struct keyboard_t {
+    float default_key_size; // In pixels
+    struct row_t *first_row;
+    struct row_t *last_row;
+};
+
+#define kbd_new_row(pool,kbd) kbd_new_row_h(pool,kbd,1)
+void kbd_new_row_h (mem_pool_t *pool, struct keyboard_t *kbd, float height)
+{
+    struct row_t *new_row = (struct row_t*)pom_push_struct (pool, struct row_t);
+    *new_row = (struct row_t){0};
+    new_row->height = height;
+
+    if (kbd->last_row != NULL) {
+        kbd->last_row->next_row = new_row;
+        kbd->last_row = new_row;
+
+    } else {
+        kbd->first_row = new_row;
+        kbd->last_row = new_row;
+    }
+}
+
+#define kbd_add_key(pool,kbd,keycode) kbd_add_key_w(pool,kbd,keycode,1)
+void kbd_add_key_w (mem_pool_t *pool, struct keyboard_t *kbd, int keycode, float width)
+{
+    struct key_t *new_key = (struct key_t*)pom_push_struct (pool, struct key_t);
+    *new_key = (struct key_t){0};
+    new_key->width = width;
+    new_key->kc = keycode;
+
+    struct row_t *curr_row = kbd->last_row;
+    assert (curr_row != NULL && "Must create a row before adding a key.");
+
+    if (curr_row->last_key != NULL) {
+        curr_row->last_key->next_key = new_key;
+        curr_row->last_key = new_key;
+
+    } else {
+        curr_row->first_key = new_key;
+        curr_row->last_key = new_key;
+    }
+}
+
+struct keyboard_t* build_keyboard (mem_pool_t *pool)
+{
+    struct keyboard_t *result = (struct keyboard_t*)pom_push_struct (pool, struct keyboard_t);
+    *result = (struct keyboard_t){0};
+    result->default_key_size = 40;
+    kbd_new_row (pool, result);
+    kbd_add_key (pool, result, 9);
+    kbd_add_key (pool, result, 10);
+    kbd_add_key (pool, result, 11);
+    kbd_new_row (pool, result);
+    kbd_add_key (pool, result, 12);
+    kbd_add_key_w (pool, result, 13, 2);
+    return result;
+}
 
 gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
 {
     cairo_set_source_rgba (cr, 1, 1, 1, 1);
     cairo_paint(cr);
 
-    float key_height = 40;
-    float x_pos = 0.5;
-    int i;
-    for (i = 0; i < ARRAY_SIZE (key_data); i++) {
-        struct key *curr_key = key_data + i;
-        float key_width = key_height*curr_key->ar;
-        cairo_set_source_rgb (cr, 0, 0, 0);
-        cairo_set_line_width (cr, 2);
-        cairo_rectangle (cr, x_pos, 0.5, key_width, key_height);
-        cairo_stroke (cr);
-        x_pos += key_width;
+    cairo_set_line_width (cr, 2);
+    cairo_set_source_rgb (cr, 0, 0, 0);
+    mem_pool_t pool = {0};
+    struct keyboard_t *kbd = build_keyboard (&pool);
+    struct row_t *curr_row = kbd->first_row;
+
+    float y_pos = 1;
+    while (curr_row != NULL) {
+        struct key_t *curr_key = curr_row->first_key;
+        float x_pos = 1;
+        while (curr_key != NULL) {
+            cairo_rectangle (cr, x_pos, y_pos,
+                             curr_key->width*kbd->default_key_size,
+                             curr_row->height*kbd->default_key_size);
+            cairo_stroke (cr);
+            x_pos += curr_key->width*kbd->default_key_size;
+            curr_key = curr_key->next_key;
+        }
+
+        y_pos += curr_row->height*kbd->default_key_size;
+        curr_row = curr_row->next_row;
     }
 
     xkb_keysym_t keysym = xkb_state_key_get_one_sym(xkb_state, 66);

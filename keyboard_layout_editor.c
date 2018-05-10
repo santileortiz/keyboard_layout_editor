@@ -6,6 +6,7 @@
 #include "xkb_keymap_installer.c"
 #include "xkb_keymap_loader.c"
 #include <xkbcommon/xkbcommon.h>
+#include <linux/input-event-codes.h>
 
 #include <gtk/gtk.h>
 
@@ -187,18 +188,110 @@ void kbd_add_key_w (mem_pool_t *pool, struct keyboard_t *kbd, int keycode, float
     }
 }
 
+// Simple keyboard geometry.
+// NOTE: Keycodes are used as defined in the linux kernel. To translate them
+// into X11 keycodes offset them by 8 (x11_kc = kc+8).
 struct keyboard_t* build_keyboard (mem_pool_t *pool)
 {
     struct keyboard_t *result = (struct keyboard_t*)pom_push_struct (pool, struct keyboard_t);
     *result = (struct keyboard_t){0};
-    result->default_key_size = 40;
+    result->default_key_size = 60;
     kbd_new_row (pool, result);
-    kbd_add_key (pool, result, 9);
-    kbd_add_key (pool, result, 10);
-    kbd_add_key (pool, result, 11);
+    kbd_add_key (pool, result, KEY_ESC);
+    kbd_add_key (pool, result, KEY_F1);
+    kbd_add_key (pool, result, KEY_F2);
+    kbd_add_key (pool, result, KEY_F3);
+    kbd_add_key (pool, result, KEY_F4);
+    kbd_add_key (pool, result, KEY_F5);
+    kbd_add_key (pool, result, KEY_F6);
+    kbd_add_key (pool, result, KEY_F7);
+    kbd_add_key (pool, result, KEY_F8);
+    kbd_add_key (pool, result, KEY_F9);
+    kbd_add_key (pool, result, KEY_F10);
+    kbd_add_key (pool, result, KEY_F11);
+    kbd_add_key (pool, result, KEY_F12);
+    kbd_add_key (pool, result, KEY_NUMLOCK);
+    kbd_add_key (pool, result, KEY_SCROLLLOCK);
+    kbd_add_key (pool, result, KEY_INSERT);
+
     kbd_new_row (pool, result);
-    kbd_add_key (pool, result, 12);
-    kbd_add_key_w (pool, result, 13, 2);
+    kbd_add_key (pool, result, KEY_GRAVE);
+    kbd_add_key (pool, result, KEY_1);
+    kbd_add_key (pool, result, KEY_2);
+    kbd_add_key (pool, result, KEY_3);
+    kbd_add_key (pool, result, KEY_4);
+    kbd_add_key (pool, result, KEY_5);
+    kbd_add_key (pool, result, KEY_6);
+    kbd_add_key (pool, result, KEY_7);
+    kbd_add_key (pool, result, KEY_8);
+    kbd_add_key (pool, result, KEY_9);
+    kbd_add_key (pool, result, KEY_0);
+    kbd_add_key (pool, result, KEY_MINUS);
+    kbd_add_key (pool, result, KEY_EQUAL);
+    kbd_add_key_w (pool, result, KEY_BACKSPACE, 2);
+    kbd_add_key (pool, result, KEY_HOME);
+
+    kbd_new_row (pool, result);
+    kbd_add_key_w (pool, result, KEY_TAB, 1.5);
+    kbd_add_key (pool, result, KEY_Q);
+    kbd_add_key (pool, result, KEY_W);
+    kbd_add_key (pool, result, KEY_E);
+    kbd_add_key (pool, result, KEY_R);
+    kbd_add_key (pool, result, KEY_T);
+    kbd_add_key (pool, result, KEY_Y);
+    kbd_add_key (pool, result, KEY_U);
+    kbd_add_key (pool, result, KEY_I);
+    kbd_add_key (pool, result, KEY_O);
+    kbd_add_key (pool, result, KEY_P);
+    kbd_add_key (pool, result, KEY_LEFTBRACE);
+    kbd_add_key (pool, result, KEY_RIGHTBRACE);
+    kbd_add_key_w (pool, result, KEY_BACKSLASH, 1.5);
+    kbd_add_key (pool, result, KEY_PAGEUP);
+
+    kbd_new_row (pool, result);
+    kbd_add_key_w (pool, result, KEY_CAPSLOCK, 1.75);
+    kbd_add_key (pool, result, KEY_A);
+    kbd_add_key (pool, result, KEY_S);
+    kbd_add_key (pool, result, KEY_D);
+    kbd_add_key (pool, result, KEY_F);
+    kbd_add_key (pool, result, KEY_G);
+    kbd_add_key (pool, result, KEY_H);
+    kbd_add_key (pool, result, KEY_J);
+    kbd_add_key (pool, result, KEY_K);
+    kbd_add_key (pool, result, KEY_L);
+    kbd_add_key (pool, result, KEY_SEMICOLON);
+    kbd_add_key (pool, result, KEY_APOSTROPHE);
+    kbd_add_key_w (pool, result, KEY_ENTER, 2.25);
+    kbd_add_key (pool, result, KEY_PAGEDOWN);
+
+    kbd_new_row (pool, result);
+    kbd_add_key_w (pool, result, KEY_LEFTSHIFT, 2.25);
+    kbd_add_key (pool, result, KEY_Z);
+    kbd_add_key (pool, result, KEY_X);
+    kbd_add_key (pool, result, KEY_C);
+    kbd_add_key (pool, result, KEY_V);
+    kbd_add_key (pool, result, KEY_B);
+    kbd_add_key (pool, result, KEY_N);
+    kbd_add_key (pool, result, KEY_M);
+    kbd_add_key (pool, result, KEY_COMMA);
+    kbd_add_key (pool, result, KEY_DOT);
+    kbd_add_key (pool, result, KEY_SLASH);
+    kbd_add_key_w (pool, result, KEY_RIGHTSHIFT, 1.75);
+    kbd_add_key (pool, result, KEY_UP);
+    kbd_add_key (pool, result, KEY_END);
+
+    kbd_new_row (pool, result);
+    kbd_add_key_w (pool, result, KEY_LEFTCTRL, 1.25);
+    kbd_add_key_w (pool, result, KEY_LEFTMETA, 1.25);
+    kbd_add_key_w (pool, result, KEY_LEFTALT, 1.25);
+    kbd_add_key_w (pool, result, KEY_SPACE, 6.25);
+    kbd_add_key (pool, result, KEY_RIGHTALT);
+    // NOTE: Fn key should be handled carefuly, most of the times it won't produce any keycode.
+    kbd_add_key (pool, result, KEY_FN);
+    kbd_add_key (pool, result, KEY_RIGHTCTRL);
+    kbd_add_key (pool, result, KEY_LEFT);
+    kbd_add_key (pool, result, KEY_DOWN);
+    kbd_add_key (pool, result, KEY_RIGHT);
     return result;
 }
 
@@ -418,7 +511,7 @@ int main (int argc, char *argv[])
         gtk_init(&argc, &argv);
 
         window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-        gtk_window_resize (GTK_WINDOW(window), 1120, 510);
+        gtk_window_resize (GTK_WINDOW(window), 1320, 570);
         gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
         g_signal_connect (G_OBJECT(window), "delete-event", G_CALLBACK (delete_callback), NULL);
         gtk_widget_show (window);

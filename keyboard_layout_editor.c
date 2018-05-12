@@ -130,6 +130,8 @@ struct keyboard_t *kbd = NULL;
 GtkWidget *window = NULL;
 GtkWidget *keyboard = NULL;
 GtkWidget *custom_layout_list = NULL;
+GtkWidget *keyboard_grabbing_button = NULL;
+GdkSeat *gdk_seat = NULL;
 
 struct key_t {
     int kc; //keycode
@@ -705,6 +707,105 @@ gboolean key_release_handler (GtkWidget *widget, GdkEvent *event, gpointer user_
     return TRUE;
 }
 
+
+#define new_icon_button(icon_name,click_handler) new_icon_button_gcallback(icon_name,G_CALLBACK(click_handler))
+GtkWidget* new_icon_button_gcallback (const char *icon_name, GCallback click_handler)
+{
+    // TODO: For some reason the highlight circle on this button button has
+    // height 32px but width 30px. Code's circle on header buttons is 30px by 30px.
+    GtkWidget *new_button = gtk_button_new_from_icon_name (icon_name, GTK_ICON_SIZE_LARGE_TOOLBAR);
+    g_signal_connect (new_button, "clicked", G_CALLBACK (click_handler), NULL);
+    gtk_widget_set_halign (new_button, GTK_ALIGN_FILL);
+    gtk_widget_set_valign (new_button, GTK_ALIGN_FILL);
+    gtk_widget_show (new_button);
+    return new_button;
+}
+
+#define set_header_icon_button(wdgt,icon_name,click_handler) \
+    set_header_icon_button_gcallback(wdgt,icon_name,G_CALLBACK(click_handler))
+void set_header_icon_button_gcallback (GtkWidget **button, const char *icon_name, GCallback click_handler)
+{
+    GtkWidget *parent = gtk_widget_get_parent (*button);
+    gtk_container_remove (GTK_CONTAINER(parent), *button);
+    *button = new_icon_button_gcallback (icon_name, click_handler);
+    gtk_header_bar_pack_start (GTK_HEADER_BAR(parent), *button);
+}
+
+// TODO: @requires:GTK_3.20
+// TODO: Get better icon for this. I'm thinking a gripper grabbing/ungrabbing a
+// key.
+gboolean ungrab_keyboard_handler (GtkButton *button, gpointer user_data);
+gboolean grab_keyboard_handler (GtkButton *button, gpointer user_data)
+{
+    GdkDisplay *disp = gdk_display_get_default ();
+    gdk_seat = gdk_display_get_default_seat (disp);
+    GdkWindow *gdk_window = gtk_widget_get_window (window);
+    GdkGrabStatus status = gdk_seat_grab (gdk_seat,
+                                          gdk_window,
+                                          GDK_SEAT_CAPABILITY_ALL, // See @why_not_GDK_SEAT_CAPABILITY_KEYBOARD
+                                          TRUE, // If this is FALSE we don't get any pointer events, why?
+                                          NULL, NULL, NULL, NULL);
+    if (status == GDK_GRAB_SUCCESS) {
+        set_header_icon_button (&keyboard_grabbing_button, "media-playback-stop", ungrab_keyboard_handler);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+// TODO: @requires:GTK_3.20
+gboolean ungrab_keyboard_handler (GtkButton *button, gpointer user_data)
+{
+    set_header_icon_button (&keyboard_grabbing_button, "process-completed", grab_keyboard_handler);
+    gdk_seat_ungrab (gdk_seat);
+    gdk_seat = NULL;
+    return G_SOURCE_REMOVE;
+}
+
+// NOTE: There can only be one Gdk event handler at a time. Currently we ony use
+// it to detect GdkEventGrabBroken events and show the initial button.
+void handle_grab_broken (GdkEvent *event, gpointer data)
+{
+    // NOTE: When debugging grabbing events we may completely freeze the system.
+    // Better enable the following code to be able to get out pressing ESC in
+    // case things go wrong.
+#if 0
+    // TODO: @requires:GTK_3.20
+    if (event->type == GDK_KEY_PRESS ) {
+        if (((GdkEventKey*)event)->keyval == GDK_KEY_Escape) {
+            gdk_seat_ungrab (gdk_seat);
+            gdk_seat = NULL;
+            set_header_icon_button (&keyboard_grabbing_button, "process-completed", grab_keyboard_handler);
+        }
+    }
+#endif
+
+    // FIXME: I don't know when these events are sent. I have not ever seen one
+    // being received, so this codepath is untested (do we need to propagate
+    // GdkGrabBroken to gtk?). I tried running 2 instances of the application,
+    // taking a grab in one, and then taking it in the other. This hid the
+    // instance that attempted to steal the grab, while it's process kept
+    // running and had to be terminated with Ctrl+C. The grab made by the other
+    // instance wasn't broken.
+    //
+    // @why_not_GDK_SEAT_CAPABILITY_KEYBOARD
+    // If the grab is made for GDK_SEAT_CAPABILITY_KEYBOARD, then the user can
+    // move the window by dragging the header bar. Doing this breaks the grab
+    // but we don't get a GdkGrabBroken event, making impossible to update the
+    // button with set_header_icon_button(). This is the reason why we grab
+    // GDK_SEAT_CAPABILITY_ALL, freezing the window in place and not allowing
+    // the grab to be broken. Also, from a UX perspective GDK_SEAT_CAPABILITY_ALL
+    // may be the right choice to communicte to the user what a grab is.
+    //
+    // All tests were made in elementary OS Juno. It's possible the problem is
+    // in Gala, maybe in Mutter, or I'm doing something wrong (I thought I was
+    // missing an event mask but there is no mask for GdkGrabBroken). I need to
+    // test in GNOME.
+    if (event->type == GDK_GRAB_BROKEN) {
+        set_header_icon_button (&keyboard_grabbing_button, "process-completed", grab_keyboard_handler);
+    } else {
+        gtk_main_do_event (event);
+    }
+}
+
 int main (int argc, char *argv[])
 {
     bool success = true;
@@ -728,6 +829,8 @@ int main (int argc, char *argv[])
     } else {
         gtk_init(&argc, &argv);
 
+        gdk_event_handler_set (handle_grab_broken, NULL, NULL);
+
         window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
         gtk_window_resize (GTK_WINDOW(window), 1320, 570);
         gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
@@ -740,14 +843,11 @@ int main (int argc, char *argv[])
         gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
         gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
 
-        // TODO: For some reason the highlight circle on this button button has
-        // height 32px but width 30px. Code's circle on header buttons is 30px by 30px.
-        GtkWidget *delete_layout_button = gtk_button_new_from_icon_name ("list-remove", GTK_ICON_SIZE_LARGE_TOOLBAR);
-        g_signal_connect (delete_layout_button, "clicked", G_CALLBACK (delete_layout_handler), NULL);
-        gtk_widget_set_halign (delete_layout_button, GTK_ALIGN_FILL);
-        gtk_widget_set_valign (delete_layout_button, GTK_ALIGN_FILL);
-        gtk_widget_show (delete_layout_button);
+        GtkWidget *delete_layout_button = new_icon_button ("list-remove", delete_layout_handler);
         gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), delete_layout_button);
+
+        keyboard_grabbing_button = new_icon_button ("process-completed", grab_keyboard_handler);
+        gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), keyboard_grabbing_button);
 
         gtk_window_set_titlebar (GTK_WINDOW(window), header_bar);
         gtk_widget_show (header_bar);

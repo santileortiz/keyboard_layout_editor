@@ -326,14 +326,12 @@ struct keyboard_t* build_keyboard (mem_pool_t *pool)
     kbd_add_key (pool, result, KEY_END);
 
     kbd_new_row (pool, result);
-    kbd_add_key_w (pool, result, KEY_LEFTCTRL, 1.25);
-    kbd_add_key_w (pool, result, KEY_LEFTMETA, 1.25);
-    kbd_add_key_w (pool, result, KEY_LEFTALT, 1.25);
-    kbd_add_key_w (pool, result, KEY_SPACE, 6.25);
-    kbd_add_key (pool, result, KEY_RIGHTALT);
-    // NOTE: Fn key should be handled carefuly, most of the times it won't produce any keycode.
-    kbd_add_key (pool, result, KEY_FN);
-    kbd_add_key (pool, result, KEY_RIGHTCTRL);
+    kbd_add_key_w (pool, result, KEY_LEFTCTRL, 1.5);
+    kbd_add_key_w (pool, result, KEY_LEFTMETA, 1.5);
+    kbd_add_key_w (pool, result, KEY_LEFTALT, 1.5);
+    kbd_add_key_w (pool, result, KEY_SPACE, 5.5);
+    kbd_add_key_w (pool, result, KEY_RIGHTALT, 1.5);
+    kbd_add_key_w (pool, result, KEY_RIGHTCTRL, 1.5);
     kbd_add_key (pool, result, KEY_LEFT);
     kbd_add_key (pool, result, KEY_DOWN);
     kbd_add_key (pool, result, KEY_RIGHT);

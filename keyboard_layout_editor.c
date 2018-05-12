@@ -188,6 +188,38 @@ void kbd_add_key_w (mem_pool_t *pool, struct keyboard_t *kbd, int keycode, float
     }
 }
 
+void kbd_get_size (struct keyboard_t *kbd, double *width, double *height)
+{
+    struct row_t *curr_row = kbd->first_row;
+
+    double w = 0;
+    double h = 0;
+    while (curr_row != NULL) {
+        h += curr_row->height*kbd->default_key_size;
+
+        double row_w = 0;
+        struct key_t *curr_key = curr_row->first_key;
+        while (curr_key != NULL) {
+            row_w += curr_key->width*kbd->default_key_size;
+            curr_key = curr_key->next_key;
+        }
+
+        if (row_w > w) {
+            w = row_w;
+        }
+
+        curr_row = curr_row->next_row;
+    }
+
+    if (width != NULL) {
+        *width = w;
+    }
+
+    if (height != NULL) {
+        *height = h;
+    }
+}
+
 void cr_rounded_box (cairo_t *cr, double x, double y, double width, double height, double radius)
 {
     double r = radius;
@@ -392,15 +424,31 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
     cairo_set_line_width (cr, 1);
     mem_pool_t pool = {0};
     struct keyboard_t *kbd = build_keyboard (&pool);
-    struct row_t *curr_row = kbd->first_row;
 
-    float y_pos = 1;
+    double left_margin = 0;
+    double top_margin = 0;
+    {
+        double kbd_width, kbd_height;
+        kbd_get_size (kbd, &kbd_width, &kbd_height);
+        int canvas_w = gtk_widget_get_allocated_width (widget);
+        if (kbd_width < canvas_w) {
+            left_margin = floor((canvas_w - kbd_width)/2);
+        }
+
+        int canvas_h = gtk_widget_get_allocated_height (widget);
+        if (kbd_height < canvas_h) {
+            top_margin = floor((canvas_h - kbd_height)/2);
+        }
+    }
+
+    double y_pos = top_margin;
+    struct row_t *curr_row = kbd->first_row;
     while (curr_row != NULL) {
         struct key_t *curr_key = curr_row->first_key;
-        float x_pos = 1;
-        float key_height = curr_row->height*kbd->default_key_size;
+        double x_pos = left_margin;
+        double key_height = curr_row->height*kbd->default_key_size;
         while (curr_key != NULL) {
-            float key_width = curr_key->width*kbd->default_key_size;
+            double key_width = curr_key->width*kbd->default_key_size;
             char buff[5];
             snprintf (buff, ARRAY_SIZE (buff), "%i", curr_key->kc);
             if (curr_key->kc == 1) {
@@ -421,6 +469,7 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
     xkb_keysym_get_name(keysym, keysym_name, sizeof(keysym_name));
     printf ("%.*s\n", (int)sizeof(keysym_name), keysym_name);
 
+    mem_pool_destroy (&pool);
     return FALSE;
 }
 

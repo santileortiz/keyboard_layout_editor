@@ -116,15 +116,16 @@ void add_css_class (GtkWidget *widget, char *class)
     gtk_style_context_add_class (ctx, class);
 }
 
-gboolean delete_callback (GtkWidget *widget, GdkEvent *event, gpointer user_data)
-{
-    gtk_main_quit ();
-    return FALSE;
-}
-
 struct xkb_context *xkb_ctx = NULL;
 struct xkb_keymap *xkb_keymap = NULL;
 struct xkb_state *xkb_state = NULL;
+
+// For now kbd is the only thing stored inside kbd_pool, if there are things
+// with the same lifetime, then we should rename this and store them here too.
+// If it turns out kbd has a unique lifetime then better make kbd_pool a member
+// of keyboard_t and create a kbd_free function.
+mem_pool_t kbd_pool = {0};
+struct keyboard_t *kbd = NULL;
 
 GtkWidget *window = NULL;
 GtkWidget *keyboard = NULL;
@@ -133,6 +134,7 @@ GtkWidget *custom_layout_list = NULL;
 struct key_t {
     int kc; //keycode
     float width; // normalized to default_key_size
+    bool is_pressed;
     struct key_t *next_key;
 };
 
@@ -146,6 +148,9 @@ struct row_t {
 
 struct keyboard_t {
     float default_key_size; // In pixels
+    // Array of key_t pointers indexed by keycode. Provides fast access to keys
+    // from a keycode. It's about 6KB in memory, maybe too much?
+    struct key_t *keys_by_kc[KEY_MAX];
     struct row_t *first_row;
     struct row_t *last_row;
 };
@@ -171,6 +176,7 @@ void kbd_new_row_h (mem_pool_t *pool, struct keyboard_t *kbd, float height)
 void kbd_add_key_w (mem_pool_t *pool, struct keyboard_t *kbd, int keycode, float width)
 {
     struct key_t *new_key = (struct key_t*)pom_push_struct (pool, struct key_t);
+    kbd->keys_by_kc[keycode] = new_key;
     *new_key = (struct key_t){0};
     new_key->width = width;
     new_key->kc = keycode;
@@ -434,9 +440,8 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
     cairo_paint(cr);
 
     cairo_set_line_width (cr, 1);
-    mem_pool_t pool = {0};
-    struct keyboard_t *kbd = build_keyboard (&pool);
 
+    mem_pool_t pool = {0};
     double left_margin = 0;
     double top_margin = 0;
     {
@@ -491,7 +496,7 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
                 buff[buff_len] = '\0';
             }
 
-            if (curr_key->kc == 1) {
+            if (curr_key->is_pressed) {
                 cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB_HEX(0x90de4d));
             } else {
                 cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB(1,1,1));
@@ -571,6 +576,12 @@ void on_custom_layout_selected (GtkListBox *box, GtkListBoxRow *row, gpointer us
     if (!xkb_state) {
         printf ("Error creating xkb_state.\n");
     }
+
+    if (kbd != NULL) {
+        mem_pool_destroy (&kbd_pool);
+        kbd_pool = (mem_pool_t){0};
+    }
+    kbd = build_keyboard (&kbd_pool);
 
     gtk_widget_queue_draw (keyboard);
 
@@ -664,6 +675,32 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
     return G_SOURCE_REMOVE;
 }
 
+gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+{
+    gtk_main_quit ();
+    return FALSE;
+}
+
+gboolean key_press_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+{
+    struct key_t *key = kbd->keys_by_kc[((GdkEventKey*)event)->hardware_keycode-8];
+    if (key != NULL) {
+        key->is_pressed = true;
+    }
+    gtk_widget_queue_draw (keyboard);
+    return TRUE;
+}
+
+gboolean key_release_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+{
+    struct key_t *key = kbd->keys_by_kc[((GdkEventKey*)event)->hardware_keycode-8];
+    if (key != NULL) {
+        key->is_pressed = false;
+    }
+    gtk_widget_queue_draw (keyboard);
+    return TRUE;
+}
+
 int main (int argc, char *argv[])
 {
     bool success = true;
@@ -690,7 +727,9 @@ int main (int argc, char *argv[])
         window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
         gtk_window_resize (GTK_WINDOW(window), 1320, 570);
         gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
-        g_signal_connect (G_OBJECT(window), "delete-event", G_CALLBACK (delete_callback), NULL);
+        g_signal_connect (G_OBJECT(window), "delete-event", G_CALLBACK (window_delete_handler), NULL);
+        g_signal_connect (G_OBJECT(window), "key-press-event", G_CALLBACK (key_press_handler), NULL);
+        g_signal_connect (G_OBJECT(window), "key-release-event", G_CALLBACK (key_release_handler), NULL);
         gtk_widget_show (window);
 
         GtkWidget *header_bar = gtk_header_bar_new ();

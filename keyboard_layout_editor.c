@@ -683,20 +683,24 @@ gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer use
 
 gboolean key_press_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-    struct key_t *key = kbd->keys_by_kc[((GdkEventKey*)event)->hardware_keycode-8];
+    uint16_t kc = ((GdkEventKey*)event)->hardware_keycode;
+    struct key_t *key = kbd->keys_by_kc[kc-8];
     if (key != NULL) {
         key->is_pressed = true;
     }
+    xkb_state_update_key(xkb_state, kc, XKB_KEY_DOWN);
     gtk_widget_queue_draw (keyboard);
     return TRUE;
 }
 
 gboolean key_release_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-    struct key_t *key = kbd->keys_by_kc[((GdkEventKey*)event)->hardware_keycode-8];
+    uint16_t kc = ((GdkEventKey*)event)->hardware_keycode;
+    struct key_t *key = kbd->keys_by_kc[kc-8];
     if (key != NULL) {
         key->is_pressed = false;
     }
+    xkb_state_update_key(xkb_state, kc, XKB_KEY_UP);
     gtk_widget_queue_draw (keyboard);
     return TRUE;
 }

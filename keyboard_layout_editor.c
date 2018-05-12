@@ -364,8 +364,22 @@ void cr_render_key_label (cairo_t *cr, const char *label, double x, double y, do
 
     pango_layout_set_text (text_layout, label, strlen(label));
 
+    // Reduce font size untill the lable fits inside the key.
+    // NOTE: This should be just a fallback for special cases, most keys should
+    // have a lable that fits inside them.
     PangoRectangle logical;
+    int font_size = 13;
     pango_layout_get_pixel_extents (text_layout, NULL, &logical);
+    while ((logical.width + 4 >= width || logical.height >= height) && font_size > 0) {
+        font_size--;
+        PangoFontDescription *font_desc =
+            pango_font_description_copy (pango_layout_get_font_description (text_layout));
+        pango_font_description_set_size (font_desc, font_size*PANGO_SCALE);
+        pango_layout_set_font_description (text_layout, font_desc);
+        pango_layout_get_pixel_extents (text_layout, NULL, &logical);
+        pango_font_description_free(font_desc);
+    }
+
     if (logical.width < width && logical.height < height) {
         double text_x_pos = x + (width - logical.width)/2;
         double text_y_pos = y + (height - logical.height)/2;
@@ -377,7 +391,7 @@ void cr_render_key_label (cairo_t *cr, const char *label, double x, double y, do
     } else {
         // We don't want to resize keys so we instead should make sure that this
         // never happens.
-        printf ("Label too long for key, skip rendering\n");
+        printf ("Skipping rendering for label: %s\n", label);
     }
     g_object_unref (text_layout);
 }
@@ -449,8 +463,36 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
         double key_height = curr_row->height*kbd->default_key_size;
         while (curr_key != NULL) {
             double key_width = curr_key->width*kbd->default_key_size;
-            char buff[5];
-            snprintf (buff, ARRAY_SIZE (buff), "%i", curr_key->kc);
+
+            // Get an apropriate representation of the key to use as label.
+            // This code is likely to get a lot of special cases in the future.
+            char buff[64];
+            int buff_len = 0;
+            {
+                if (curr_key->kc == KEY_FN) {
+                    strcpy (buff, "Fn");
+                    buff_len = strlen (buff);
+                }
+
+                xkb_keysym_t keysym;
+                if (buff_len == 0) {
+                    keysym = xkb_state_key_get_one_sym(xkb_state, curr_key->kc + 8);
+                    buff_len = xkb_keysym_to_utf8(keysym, buff, sizeof(buff-1));
+                }
+
+                if (buff_len == 0 ||
+                    buff[0] == ' ' ||
+                    buff[0] == '\x1b' || // Escape
+                    buff[0] == '\n' ||
+                    buff[0] == '\r' ||
+                    buff[0] == '\b' ||
+                    buff[0] == '\t' )
+                {
+                    buff_len = xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
+                }
+                buff[buff_len] = '\0';
+            }
+
             if (curr_key->kc == 1) {
                 cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB_HEX(0x90de4d));
             } else {
@@ -463,11 +505,6 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
         y_pos += key_height;
         curr_row = curr_row->next_row;
     }
-
-    xkb_keysym_t keysym = xkb_state_key_get_one_sym(xkb_state, 66);
-    char keysym_name[64];
-    xkb_keysym_get_name(keysym, keysym_name, sizeof(keysym_name));
-    printf ("%.*s\n", (int)sizeof(keysym_name), keysym_name);
 
     mem_pool_destroy (&pool);
     return FALSE;

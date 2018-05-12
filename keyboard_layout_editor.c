@@ -188,6 +188,19 @@ void kbd_add_key_w (mem_pool_t *pool, struct keyboard_t *kbd, int keycode, float
     }
 }
 
+void cr_rounded_box (cairo_t *cr, double x, double y, double width, double height, double radius)
+{
+    double r = radius;
+    double w = width;
+    double h = height;
+    cairo_move_to (cr, x, y+r);
+    cairo_arc (cr, x+r, y+r, r, M_PI, 3*M_PI/2);
+    cairo_arc (cr, x+w - r, y+r, r, 3*M_PI/2, 0);
+    cairo_arc (cr, x+w - r, y+h - r, r, 0, M_PI/2);
+    cairo_arc (cr, x+r, y+h - r, r, M_PI/2, M_PI);
+    cairo_close_path (cr);
+}
+
 // Simple keyboard geometry.
 // NOTE: Keycodes are used as defined in the linux kernel. To translate them
 // into X11 keycodes offset them by 8 (x11_kc = kc+8).
@@ -195,7 +208,7 @@ struct keyboard_t* build_keyboard (mem_pool_t *pool)
 {
     struct keyboard_t *result = (struct keyboard_t*)pom_push_struct (pool, struct keyboard_t);
     *result = (struct keyboard_t){0};
-    result->default_key_size = 60;
+    result->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
     kbd_new_row (pool, result);
     kbd_add_key (pool, result, KEY_ESC);
     kbd_add_key (pool, result, KEY_F1);
@@ -295,13 +308,88 @@ struct keyboard_t* build_keyboard (mem_pool_t *pool)
     return result;
 }
 
+#define RGBA DVEC4
+#define RGB(r,g,b) DVEC4(r,g,b,1)
+#define ARGS_RGBA(c) (c).r, (c).g, (c).b, (c).a
+#define ARGS_RGB(c) (c.r), (c).g, (c).b
+#define RGB_HEX(hex) DVEC4(((double)(((hex)&0xFF0000) >> 16))/255, \
+                           ((double)(((hex)&0x00FF00) >>  8))/255, \
+                           ((double)((hex)&0x0000FF))/255, 1)
+
+void cr_render_key_label (cairo_t *cr, const char *label, double x, double y, double width, double height)
+{
+    PangoLayout *text_layout;
+    {
+        PangoFontDescription *font_desc = pango_font_description_new ();
+        pango_font_description_set_family (font_desc, "Open Sans");
+        pango_font_description_set_size (font_desc, 13*PANGO_SCALE);
+        pango_font_description_set_weight (font_desc, PANGO_WEIGHT_NORMAL);
+
+        text_layout = pango_cairo_create_layout (cr);
+        pango_layout_set_font_description (text_layout, font_desc);
+        pango_font_description_free(font_desc);
+    }
+
+    pango_layout_set_text (text_layout, label, strlen(label));
+
+    PangoRectangle logical;
+    pango_layout_get_pixel_extents (text_layout, NULL, &logical);
+    if (logical.width < width && logical.height < height) {
+        double text_x_pos = x + (width - logical.width)/2;
+        double text_y_pos = y + (height - logical.height)/2;
+
+        cairo_set_source_rgb (cr, 0,0,0);
+        cairo_move_to (cr, text_x_pos, text_y_pos);
+        pango_cairo_show_layout (cr, text_layout);
+
+    } else {
+        // We don't want to resize keys so we instead should make sure that this
+        // never happens.
+        printf ("Label too long for key, skip rendering\n");
+    }
+    g_object_unref (text_layout);
+}
+
+void cr_render_key (cairo_t *cr, double x, double y, double width, double height,
+                    const char *label, dvec4 color)
+{
+    float margin = 5;
+    float top_margin = 2;
+    cr_rounded_box (cr, x+0.5, y+0.5,
+                    width-1,
+                    height-1,
+                    5);
+    cairo_set_source_rgb (cr, ARGS_RGB(color));
+    cairo_fill_preserve (cr);
+
+    cairo_set_source_rgba (cr, 0, 0, 0, 0.05);
+    cairo_fill_preserve (cr);
+
+    cairo_set_source_rgb (cr, 0, 0, 0);
+    cairo_stroke (cr);
+
+    float cap_x = x+margin+0.5;
+    float cap_y = y+top_margin+0.5;
+    float cap_w = width-2*margin-1;
+    float cap_h = height-2*margin-1;
+    cr_rounded_box (cr, cap_x, cap_y,
+                    cap_w, cap_h,
+                    5);
+    cairo_set_source_rgb (cr, ARGS_RGB(color));
+    cairo_fill_preserve (cr);
+
+    cairo_set_source_rgba (cr, 0, 0, 0, 0.1);
+    cairo_stroke (cr);
+
+    cr_render_key_label (cr, label, cap_x, cap_y, cap_w, cap_h);
+}
+
 gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
 {
     cairo_set_source_rgba (cr, 1, 1, 1, 1);
     cairo_paint(cr);
 
-    cairo_set_line_width (cr, 2);
-    cairo_set_source_rgb (cr, 0, 0, 0);
+    cairo_set_line_width (cr, 1);
     mem_pool_t pool = {0};
     struct keyboard_t *kbd = build_keyboard (&pool);
     struct row_t *curr_row = kbd->first_row;
@@ -310,16 +398,21 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
     while (curr_row != NULL) {
         struct key_t *curr_key = curr_row->first_key;
         float x_pos = 1;
+        float key_height = curr_row->height*kbd->default_key_size;
         while (curr_key != NULL) {
-            cairo_rectangle (cr, x_pos, y_pos,
-                             curr_key->width*kbd->default_key_size,
-                             curr_row->height*kbd->default_key_size);
-            cairo_stroke (cr);
-            x_pos += curr_key->width*kbd->default_key_size;
+            float key_width = curr_key->width*kbd->default_key_size;
+            char buff[5];
+            snprintf (buff, ARRAY_SIZE (buff), "%i", curr_key->kc);
+            if (curr_key->kc == 1) {
+                cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB_HEX(0x90de4d));
+            } else {
+                cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB(1,1,1));
+            }
+            x_pos += key_width;
             curr_key = curr_key->next_key;
         }
 
-        y_pos += curr_row->height*kbd->default_key_size;
+        y_pos += key_height;
         curr_row = curr_row->next_row;
     }
 

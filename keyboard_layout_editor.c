@@ -494,6 +494,9 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
                     buff[0] == '\t' )
                 {
                     buff_len = xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
+                    if (strcmp (buff, "NoSymbol") == 0) {
+                        buff_len = 0;
+                    }
                 }
                 buff[buff_len] = '\0';
             }

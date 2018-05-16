@@ -472,20 +472,21 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
             // Get an apropriate representation of the key to use as label.
             // This code is likely to get a lot of special cases in the future.
             char buff[64];
-            int buff_len = 0;
+            buff[0] = '\0';
             {
                 if (curr_key->kc == KEY_FN) {
                     strcpy (buff, "Fn");
-                    buff_len = strlen (buff);
                 }
 
                 xkb_keysym_t keysym;
-                if (buff_len == 0) {
+                if (buff[0] == '\0') {
+                    int buff_len = 0;
                     keysym = xkb_state_key_get_one_sym(xkb_state, curr_key->kc + 8);
                     buff_len = xkb_keysym_to_utf8(keysym, buff, sizeof(buff-1));
+                    buff[buff_len] = '\0';
                 }
 
-                if (buff_len == 0 ||
+                if (buff[0] == '\0' ||
                     buff[0] == ' ' ||
                     buff[0] == '\x1b' || // Escape
                     buff[0] == '\n' ||
@@ -493,12 +494,91 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
                     buff[0] == '\b' ||
                     buff[0] == '\t' )
                 {
-                    buff_len = xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
+                    xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
                     if (strcmp (buff, "NoSymbol") == 0) {
-                        buff_len = 0;
+                        buff[0] = '\0';
+                    }
+
+                    if (strcmp (buff, "Alt_L") == 0) {
+                        strcpy (buff, "Alt");
+                    }
+
+                    if (strcmp (buff, "Alt_R") == 0) {
+                        strcpy (buff, "AltGr");
+                    }
+
+                    if (strcmp (buff, "ISO_Level3_Shift") == 0) {
+                        strcpy (buff, "AltGr");
+                    }
+
+                    if (strcmp (buff, "Control_L") == 0) {
+                        strcpy (buff, "Ctrl");
+                    }
+
+                    if (strcmp (buff, "Control_R") == 0) {
+                        strcpy (buff, "Ctrl");
+                    }
+
+                    if (strcmp (buff, "Shift_L") == 0) {
+                        strcpy (buff, "Shift");
+                    }
+
+                    if (strcmp (buff, "Shift_R") == 0) {
+                        strcpy (buff, "Shift");
+                    }
+
+                    if (strcmp (buff, "Caps_Lock") == 0) {
+                        strcpy (buff, "CapsLock");
+                    }
+
+                    if (strcmp (buff, "Super_L") == 0) {
+                        strcpy (buff, "⌘ ");
+                    }
+
+                    if (strcmp (buff, "Super_R") == 0) {
+                        strcpy (buff, "⌘ ");
+                    }
+
+                    if (strcmp (buff, "Prior") == 0) {
+                        strcpy (buff, "Page\nUp");
+                    }
+
+                    if (strcmp (buff, "Next") == 0) {
+                        strcpy (buff, "Page\nDown");
+                    }
+
+                    if (strcmp (buff, "Num_Lock") == 0) {
+                        strcpy (buff, "Num\nLock");
+                    }
+
+                    if (strcmp (buff, "Scroll_Lock") == 0) {
+                        strcpy (buff, "Scroll\nLock");
+                    }
+
+                    if (strcmp (buff, "Escape") == 0) {
+                        strcpy (buff, "Esc");
+                    }
+
+                    if (strcmp (buff, "Up") == 0) {
+                        strcpy (buff, "↑");
+                    }
+
+                    if (strcmp (buff, "Down") == 0) {
+                        strcpy (buff, "↓");
+                    }
+
+                    if (strcmp (buff, "Right") == 0) {
+                        strcpy (buff, "→");
+                    }
+
+                    if (strcmp (buff, "Left") == 0) {
+                        strcpy (buff, "←");
+                    }
+
+                    if (strcmp (buff, "Return") == 0) {
+                        strcpy (buff, "↵ ");
                     }
                 }
-                buff[buff_len] = '\0';
             }
 
             if (curr_key->is_pressed) {

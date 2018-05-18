@@ -140,9 +140,10 @@ struct xkb_state *xkb_state = NULL;
 // of keyboard_t and create a kbd_free function.
 mem_pool_t kbd_pool = {0};
 struct keyboard_t *kbd = NULL;
+int clicked_kc = 0;
 
 GtkWidget *window = NULL;
-GtkWidget *keyboard = NULL;
+GtkWidget *keyboard_view = NULL;
 GtkWidget *custom_layout_list = NULL;
 GtkWidget *keyboard_grabbing_button = NULL;
 GdkSeat *gdk_seat = NULL;
@@ -451,6 +452,28 @@ void cr_render_key (cairo_t *cr, double x, double y, double width, double height
     cr_render_key_label (cr, label, cap_x, cap_y, cap_w, cap_h);
 }
 
+void keyboard_view_get_margins (GtkWidget *keyboard_view, double *left_margin, double *top_margin)
+{
+    double kbd_width, kbd_height;
+    kbd_get_size (kbd, &kbd_width, &kbd_height);
+
+    if (left_margin != NULL) {
+        *left_margin = 0;
+        int canvas_w = gtk_widget_get_allocated_width (keyboard_view);
+        if (kbd_width < canvas_w) {
+            *left_margin = floor((canvas_w - kbd_width)/2);
+        }
+    }
+
+    if (top_margin != NULL) {
+        *top_margin = 0;
+        int canvas_h = gtk_widget_get_allocated_height (keyboard_view);
+        if (kbd_height < canvas_h) {
+            *top_margin = floor((canvas_h - kbd_height)/2);
+        }
+    }
+}
+
 gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
 {
     cairo_set_source_rgba (cr, 1, 1, 1, 1);
@@ -459,21 +482,8 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
     cairo_set_line_width (cr, 1);
 
     mem_pool_t pool = {0};
-    double left_margin = 0;
-    double top_margin = 0;
-    {
-        double kbd_width, kbd_height;
-        kbd_get_size (kbd, &kbd_width, &kbd_height);
-        int canvas_w = gtk_widget_get_allocated_width (widget);
-        if (kbd_width < canvas_w) {
-            left_margin = floor((canvas_w - kbd_width)/2);
-        }
-
-        int canvas_h = gtk_widget_get_allocated_height (widget);
-        if (kbd_height < canvas_h) {
-            top_margin = floor((canvas_h - kbd_height)/2);
-        }
-    }
+    double left_margin, top_margin;
+    keyboard_view_get_margins (widget, &left_margin, &top_margin);
 
     double y_pos = top_margin;
     struct row_t *curr_row = kbd->first_row;
@@ -596,7 +606,7 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
                 }
             }
 
-            if (curr_key->is_pressed) {
+            if (curr_key->is_pressed || curr_key->kc == clicked_kc) {
                 cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB_HEX(0x90de4d));
             } else {
                 cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB(1,1,1));
@@ -683,7 +693,7 @@ void on_custom_layout_selected (GtkListBox *box, GtkListBoxRow *row, gpointer us
     }
     kbd = build_keyboard (&kbd_pool);
 
-    gtk_widget_queue_draw (keyboard);
+    gtk_widget_queue_draw (keyboard_view);
 
     mem_pool_destroy (&pool);
 }
@@ -814,7 +824,7 @@ gboolean key_press_handler (GtkWidget *widget, GdkEvent *event, gpointer user_da
         key->is_pressed = true;
     }
     xkb_state_update_key(xkb_state, kc, XKB_KEY_DOWN);
-    gtk_widget_queue_draw (keyboard);
+    gtk_widget_queue_draw (keyboard_view);
     return TRUE;
 }
 
@@ -826,7 +836,7 @@ gboolean key_release_handler (GtkWidget *widget, GdkEvent *event, gpointer user_
         key->is_pressed = false;
     }
     xkb_state_update_key(xkb_state, kc, XKB_KEY_UP);
-    gtk_widget_queue_draw (keyboard);
+    gtk_widget_queue_draw (keyboard_view);
     return TRUE;
 }
 
@@ -929,6 +939,65 @@ void handle_grab_broken (GdkEvent *event, gpointer data)
     }
 }
 
+gboolean keyboard_view_button_press (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+{
+    GdkEventButton *button_event = (GdkEventButton*)event;
+    if (button_event->type == GDK_2BUTTON_PRESS || button_event->type == GDK_3BUTTON_PRESS) {
+        // Ignore double and triple clicks.
+        return FALSE;
+    }
+
+    double kbd_x, kbd_y;
+    keyboard_view_get_margins (widget, &kbd_x, &kbd_y);
+
+    struct row_t *curr_row = kbd->first_row;
+    while (curr_row != NULL) {
+        kbd_y += curr_row->height*kbd->default_key_size;
+        if (kbd_y > button_event->y) {
+            break;
+        }
+
+        curr_row = curr_row->next_row;
+    }
+
+    struct key_t *curr_key = curr_row->first_key;
+    while (curr_key != NULL) {
+        kbd_x += curr_key->width*kbd->default_key_size;
+        if (kbd_x > button_event->x) {
+            break;
+        }
+
+        curr_key = curr_key->next_key;
+    }
+
+
+    clicked_kc = curr_key->kc;
+    xkb_state_update_key(xkb_state, clicked_kc+8, XKB_KEY_DOWN);
+    gtk_widget_queue_draw (keyboard_view);
+    return TRUE;
+}
+
+gboolean keyboard_view_button_release (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+{
+    xkb_state_update_key(xkb_state, clicked_kc+8, XKB_KEY_UP);
+    gtk_widget_queue_draw (keyboard_view);
+    clicked_kc = 0;
+    return TRUE;
+}
+
+GtkWidget* keyboard_view_new ()
+{
+    GtkWidget *new_keyboard_view = gtk_drawing_area_new ();
+    gtk_widget_add_events (new_keyboard_view, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
+    gtk_widget_set_vexpand (new_keyboard_view, TRUE);
+    gtk_widget_set_hexpand (new_keyboard_view, TRUE);
+    g_signal_connect (G_OBJECT (new_keyboard_view), "draw", G_CALLBACK (render_keyboard), NULL);
+    g_signal_connect (G_OBJECT (new_keyboard_view), "button-press-event", G_CALLBACK (keyboard_view_button_press), NULL);
+    g_signal_connect (G_OBJECT (new_keyboard_view), "button-release-event", G_CALLBACK (keyboard_view_button_release), NULL);
+    gtk_widget_show (new_keyboard_view);
+    return new_keyboard_view;
+}
+
 // Build a welcome screen that shows installed layouts and a preview when
 // selected from a list.
 void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_layouts)
@@ -952,11 +1021,7 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
     gtk_window_set_titlebar (GTK_WINDOW(window), header_bar);
     gtk_widget_show (header_bar);
 
-    keyboard = gtk_drawing_area_new ();
-    gtk_widget_set_vexpand (keyboard, TRUE);
-    gtk_widget_set_hexpand (keyboard, TRUE);
-    g_signal_connect (G_OBJECT (keyboard), "draw", G_CALLBACK (render_keyboard), NULL);
-    gtk_widget_show (keyboard);
+    keyboard_view = keyboard_view_new ();
 
     GtkWidget *scrolled_custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
     set_custom_layouts_list (&custom_layout_list, custom_layouts, num_custom_layouts);
@@ -992,7 +1057,7 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
                     "    min-height: 2px;"
                     "}");
     gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
-    gtk_paned_pack2 (GTK_PANED(paned), keyboard, TRUE, TRUE);
+    gtk_paned_pack2 (GTK_PANED(paned), keyboard_view, TRUE, TRUE);
     gtk_container_add(GTK_CONTAINER(window), paned);
     gtk_widget_show (paned);
 }

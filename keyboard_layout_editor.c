@@ -100,6 +100,20 @@ bool unprivileged_xkb_keymap_uninstall_everything ()
     return success;
 }
 
+// Wrapper used to destroy all children from a container
+void destroy_children_callback (GtkWidget *widget, gpointer data)
+{
+    gtk_widget_destroy (widget);
+}
+
+void window_resize_centered (GtkWidget *window, gint w, gint h)
+{
+    gint x, y;
+    gtk_window_get_position (GTK_WINDOW(window), &x, &y);
+    gtk_window_resize (GTK_WINDOW(window), w, h);
+    gtk_window_move (GTK_WINDOW(window), x, y);
+}
+
 void add_custom_css (GtkWidget *widget, gchar *css_data)
 {
     GtkStyleContext *style_context = gtk_widget_get_style_context (widget);
@@ -132,6 +146,7 @@ GtkWidget *keyboard = NULL;
 GtkWidget *custom_layout_list = NULL;
 GtkWidget *keyboard_grabbing_button = NULL;
 GdkSeat *gdk_seat = NULL;
+bool no_custom_layouts_welcome_view = false;
 
 struct key_t {
     int kc; //keycode
@@ -673,8 +688,10 @@ void on_custom_layout_selected (GtkListBox *box, GtkListBoxRow *row, gpointer us
     mem_pool_destroy (&pool);
 }
 
-void set_custom_layouts_list (GtkWidget **custom_layout_list)
+void set_custom_layouts_list (GtkWidget **custom_layout_list, char **custom_layouts, int num_custom_layouts)
 {
+    assert (num_custom_layouts > 0 && "set_custom_layouts_list() expects at least to have one custom layout");
+
     GtkWidget *parent = NULL;
     if (*custom_layout_list != NULL) {
         parent = gtk_widget_get_parent (*custom_layout_list);
@@ -685,11 +702,6 @@ void set_custom_layouts_list (GtkWidget **custom_layout_list)
     gtk_widget_set_vexpand (*custom_layout_list, TRUE);
     gtk_widget_set_hexpand (*custom_layout_list, TRUE);
     g_signal_connect (G_OBJECT(*custom_layout_list), "row-selected", G_CALLBACK (on_custom_layout_selected), NULL);
-
-    mem_pool_t tmp = {0};
-    char **custom_layouts;
-    int num_custom_layouts;
-    xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
 
     // Create rows
     int i;
@@ -705,7 +717,6 @@ void set_custom_layouts_list (GtkWidget **custom_layout_list)
         gtk_widget_show (row);
     }
     gtk_widget_show (*custom_layout_list);
-    mem_pool_destroy (&tmp);
 
     // Select first row
     GtkListBoxRow *first_row = gtk_list_box_get_row_at_index (GTK_LIST_BOX(*custom_layout_list), 0);
@@ -717,15 +728,32 @@ void set_custom_layouts_list (GtkWidget **custom_layout_list)
     }
 }
 
+void transition_to_welcome_with_custom_layouts (char **custom_layouts, int num_custom_layouts);
+void transition_to_welcome_with_no_custom_layouts (void);
+
 // This is done from a callback queued by the button handler to let the main
 // loop destroy the GtkFileChooserDialog before asking for authentication. If
 // authentication was not required then this should not be necessary.
 gboolean install_layout_callback (gpointer layout_path)
 {
-    unprivileged_xkb_keymap_install (layout_path);
-    g_free (layout_path);
+    bool success = unprivileged_xkb_keymap_install (layout_path);
 
-    set_custom_layouts_list (&custom_layout_list);
+    if (success) {
+        mem_pool_t tmp = {0};
+        char **custom_layouts;
+        int num_custom_layouts;
+        xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
+
+        // If installataion was successful then num_custom_layouts > 0.
+        if (no_custom_layouts_welcome_view) {
+            transition_to_welcome_with_custom_layouts (custom_layouts, num_custom_layouts);
+        } else {
+            set_custom_layouts_list (&custom_layout_list, custom_layouts, num_custom_layouts);
+        }
+
+        mem_pool_destroy (&tmp);
+    }
+    g_free (layout_path);
     return G_SOURCE_REMOVE;
 }
 
@@ -755,8 +783,20 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
     GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX(custom_layout_list));
     GtkWidget *label = gtk_bin_get_child (GTK_BIN(row));
     const gchar *curr_layout = gtk_label_get_text (GTK_LABEL (label));
-    unprivileged_xkb_keymap_uninstall (curr_layout);
-    set_custom_layouts_list (&custom_layout_list);
+
+    if (unprivileged_xkb_keymap_uninstall (curr_layout)) {
+
+        mem_pool_t tmp = {0};
+        char **custom_layouts;
+        int num_custom_layouts;
+        xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
+        if (num_custom_layouts > 0) {
+            set_custom_layouts_list (&custom_layout_list, custom_layouts, num_custom_layouts);
+        } else {
+            transition_to_welcome_with_no_custom_layouts ();
+        }
+        mem_pool_destroy (&tmp);
+    }
     return G_SOURCE_REMOVE;
 }
 
@@ -889,6 +929,162 @@ void handle_grab_broken (GdkEvent *event, gpointer data)
     }
 }
 
+// Build a welcome screen that shows installed layouts and a preview when
+// selected from a list.
+void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_layouts)
+{
+    no_custom_layouts_welcome_view = false;
+    gdk_event_handler_set (handle_grab_broken, NULL, NULL);
+
+    g_signal_connect (G_OBJECT(window), "key-press-event", G_CALLBACK (key_press_handler), NULL);
+    g_signal_connect (G_OBJECT(window), "key-release-event", G_CALLBACK (key_release_handler), NULL);
+
+    GtkWidget *header_bar = gtk_header_bar_new ();
+    gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
+    gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
+
+    GtkWidget *delete_layout_button = new_icon_button ("list-remove", delete_layout_handler);
+    gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), delete_layout_button);
+
+    keyboard_grabbing_button = new_icon_button ("process-completed", grab_keyboard_handler);
+    gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), keyboard_grabbing_button);
+
+    gtk_window_set_titlebar (GTK_WINDOW(window), header_bar);
+    gtk_widget_show (header_bar);
+
+    keyboard = gtk_drawing_area_new ();
+    gtk_widget_set_vexpand (keyboard, TRUE);
+    gtk_widget_set_hexpand (keyboard, TRUE);
+    g_signal_connect (G_OBJECT (keyboard), "draw", G_CALLBACK (render_keyboard), NULL);
+    gtk_widget_show (keyboard);
+
+    GtkWidget *scrolled_custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
+    set_custom_layouts_list (&custom_layout_list, custom_layouts, num_custom_layouts);
+    gtk_container_add (GTK_CONTAINER (scrolled_custom_layout_list), custom_layout_list);
+    gtk_widget_show (scrolled_custom_layout_list);
+
+    GtkWidget *new_layout_button =
+        intro_button_new ("document-new", "New Layout", "Create a layout based on an existing one.");
+    GtkWidget *open_layout_button =
+        intro_button_new ("document-open", "Open Layout", "Open an existing .xkb file.");
+    GtkWidget *install_layout_button =
+        intro_button_new ("document-save", "Install Layout", "Install an .xkb file into the system.");
+    g_signal_connect (G_OBJECT(install_layout_button), "clicked", G_CALLBACK (install_layout_handler), NULL);
+
+    GtkWidget *sidebar = gtk_grid_new ();
+    gtk_grid_set_row_spacing (GTK_GRID(sidebar), 12);
+    add_custom_css (sidebar, ".grid, grid { margin: 12px; }");
+    gtk_grid_attach (GTK_GRID(sidebar), scrolled_custom_layout_list, 0, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(sidebar), new_layout_button, 0, 1, 1, 1);
+    gtk_grid_attach (GTK_GRID(sidebar), open_layout_button, 0, 2, 1, 1);
+    gtk_grid_attach (GTK_GRID(sidebar), install_layout_button, 0, 3, 1, 1);
+    gtk_widget_show (sidebar);
+
+    GtkWidget *paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
+    // FIXME: The following CSS is used to work around 2 issues with
+    // GtkPaned. One is a failed assert which is a bug in GTK (see
+    // https://github.com/elementary/stylesheet/issues/328). The other
+    // one is the vanishing of the separator, which seems to be related
+    // to elementary OS using a negative margin in the separator.
+    add_custom_css (paned, "paned > separator {"
+                    "    margin-right: 0;"
+                    "    min-width: 2px;"
+                    "    min-height: 2px;"
+                    "}");
+    gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
+    gtk_paned_pack2 (GTK_PANED(paned), keyboard, TRUE, TRUE);
+    gtk_container_add(GTK_CONTAINER(window), paned);
+    gtk_widget_show (paned);
+}
+
+// Build a welcome screen with only introductory buttons and no list or preview
+// of keyboards.
+void build_welcome_screen_no_custom_layouts ()
+{
+    no_custom_layouts_welcome_view = true;
+
+    GtkWidget *header_bar = gtk_header_bar_new ();
+    gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
+    gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
+    gtk_window_set_titlebar (GTK_WINDOW(window), header_bar);
+    gtk_widget_show (header_bar);
+
+    GtkWidget *no_custom_layouts_message;
+    {
+        no_custom_layouts_message = gtk_grid_new ();
+        GtkWidget *title_label = gtk_label_new ("No Custom Keymaps");
+        add_css_class (title_label, "h1");
+        gtk_widget_set_halign (title_label, GTK_ALIGN_CENTER);
+        gtk_grid_attach (GTK_GRID(no_custom_layouts_message),
+                         title_label, 1, 0, 1, 1);
+
+        GtkWidget *subtitle_label = gtk_label_new ("Open an .xkb file to edit it.");
+        add_css_class (subtitle_label, "h2");
+        add_css_class (subtitle_label, "dim-label");
+        gtk_widget_set_halign (subtitle_label, GTK_ALIGN_CENTER);
+        gtk_grid_attach (GTK_GRID(no_custom_layouts_message),
+                         subtitle_label, 1, 1, 1, 1);
+        gtk_widget_show_all (no_custom_layouts_message);
+    }
+
+    GtkWidget *new_layout_button =
+        intro_button_new ("document-new", "New Layout", "Create a layout based on an existing one.");
+    GtkWidget *open_layout_button =
+        intro_button_new ("document-open", "Open Layout", "Open an existing .xkb file.");
+    GtkWidget *install_layout_button =
+        intro_button_new ("document-save", "Install Layout", "Install an .xkb file into the system.");
+    g_signal_connect (G_OBJECT(install_layout_button), "clicked", G_CALLBACK (install_layout_handler), NULL);
+
+    GtkWidget *sidebar = gtk_grid_new ();
+    gtk_widget_set_halign (sidebar, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign (sidebar, GTK_ALIGN_CENTER);
+    gtk_grid_set_row_spacing (GTK_GRID(sidebar), 12);
+    add_custom_css (sidebar, ".grid, grid { margin: 12px; }");
+    gtk_grid_attach (GTK_GRID(sidebar), no_custom_layouts_message, 0, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(sidebar), new_layout_button, 0, 1, 1, 1);
+    gtk_grid_attach (GTK_GRID(sidebar), open_layout_button, 0, 2, 1, 1);
+    gtk_grid_attach (GTK_GRID(sidebar), install_layout_button, 0, 3, 1, 1);
+    gtk_widget_show (sidebar);
+
+    GtkWidget *welcome_view = gtk_event_box_new ();
+    add_css_class (welcome_view, "view");
+    add_css_class (welcome_view, "welcome");
+    gtk_widget_set_halign (welcome_view, GTK_ALIGN_FILL);
+    gtk_widget_set_valign (welcome_view, GTK_ALIGN_FILL);
+    gtk_container_add (GTK_CONTAINER(welcome_view), sidebar);
+    gtk_widget_show (welcome_view);
+
+    gtk_container_add(GTK_CONTAINER(window), welcome_view);
+}
+
+// There are two welcome screens, one for the case where there are already
+// custom layouts installed, another for when there are not.
+//
+// TODO: Transitioning between both welcome screens is currently done by
+// resetting everything an building the other view. It would be better to have a
+// unique build_welcome_view() function that transitions nicely between both,
+// maybe using animations.
+void transition_to_welcome_with_custom_layouts (char **custom_layouts, int num_custom_layouts)
+{
+    assert (num_custom_layouts > 0);
+    GtkWidget *child = gtk_bin_get_child (GTK_BIN (window));
+    gtk_widget_destroy (child);
+    window_resize_centered (window, 1320, 570);
+    build_welcome_screen_custom_layouts (custom_layouts, num_custom_layouts);
+}
+
+void transition_to_welcome_with_no_custom_layouts (void)
+{
+    GtkWidget *child = gtk_bin_get_child (GTK_BIN (window));
+    GtkWidget *header_bar = gtk_window_get_titlebar (GTK_WINDOW(window));
+    gtk_container_foreach (GTK_CONTAINER(header_bar),
+                           destroy_children_callback,
+                           NULL);
+    gtk_widget_destroy (child);
+    window_resize_centered (window, 900, 570);
+    build_welcome_screen_no_custom_layouts ();
+}
+
 int main (int argc, char *argv[])
 {
     bool success = true;
@@ -912,72 +1108,24 @@ int main (int argc, char *argv[])
     } else {
         gtk_init(&argc, &argv);
 
-        gdk_event_handler_set (handle_grab_broken, NULL, NULL);
+        mem_pool_t tmp = {0};
+        char **custom_layouts;
+        int num_custom_layouts = 0;
+        xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
 
         window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-        gtk_window_resize (GTK_WINDOW(window), 1320, 570);
-        gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
         g_signal_connect (G_OBJECT(window), "delete-event", G_CALLBACK (window_delete_handler), NULL);
-        g_signal_connect (G_OBJECT(window), "key-press-event", G_CALLBACK (key_press_handler), NULL);
-        g_signal_connect (G_OBJECT(window), "key-release-event", G_CALLBACK (key_release_handler), NULL);
+        gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
+        gtk_window_set_gravity (GTK_WINDOW(window), GDK_GRAVITY_CENTER);
+
+        if (num_custom_layouts > 0) {
+            gtk_window_resize (GTK_WINDOW(window), 1320, 570);
+            build_welcome_screen_custom_layouts (custom_layouts, num_custom_layouts);
+        } else {
+            gtk_window_resize (GTK_WINDOW(window), 900, 570);
+            build_welcome_screen_no_custom_layouts ();
+        }
         gtk_widget_show (window);
-
-        GtkWidget *header_bar = gtk_header_bar_new ();
-        gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
-        gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
-
-        GtkWidget *delete_layout_button = new_icon_button ("list-remove", delete_layout_handler);
-        gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), delete_layout_button);
-
-        keyboard_grabbing_button = new_icon_button ("process-completed", grab_keyboard_handler);
-        gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), keyboard_grabbing_button);
-
-        gtk_window_set_titlebar (GTK_WINDOW(window), header_bar);
-        gtk_widget_show (header_bar);
-
-        keyboard = gtk_drawing_area_new ();
-        gtk_widget_set_vexpand (keyboard, TRUE);
-        gtk_widget_set_hexpand (keyboard, TRUE);
-        g_signal_connect (G_OBJECT (keyboard), "draw", G_CALLBACK (render_keyboard), NULL);
-        gtk_widget_show (keyboard);
-
-        GtkWidget *scrolled_custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
-        set_custom_layouts_list (&custom_layout_list);
-        gtk_container_add (GTK_CONTAINER (scrolled_custom_layout_list), custom_layout_list);
-        gtk_widget_show (scrolled_custom_layout_list);
-
-        GtkWidget *new_layout_button =
-            intro_button_new ("document-new", "New Layout", "Create a layout based on an existing one.");
-        GtkWidget *open_layout_button =
-            intro_button_new ("document-open", "Open Layout", "Open an existing .xkb file.");
-        GtkWidget *install_layout_button =
-            intro_button_new ("document-save", "Install Layout", "Install an .xkb file into the system.");
-        g_signal_connect (G_OBJECT(install_layout_button), "clicked", G_CALLBACK (install_layout_handler), NULL);
-
-        GtkWidget *sidebar = gtk_grid_new ();
-        gtk_grid_set_row_spacing (GTK_GRID(sidebar), 12);
-        add_custom_css (sidebar, ".grid, grid { margin: 12px; }");
-        gtk_grid_attach (GTK_GRID(sidebar), scrolled_custom_layout_list, 0, 0, 1, 1);
-        gtk_grid_attach (GTK_GRID(sidebar), new_layout_button, 0, 1, 1, 1);
-        gtk_grid_attach (GTK_GRID(sidebar), open_layout_button, 0, 2, 1, 1);
-        gtk_grid_attach (GTK_GRID(sidebar), install_layout_button, 0, 3, 1, 1);
-        gtk_widget_show (sidebar);
-
-        GtkWidget *paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
-        // FIXME: The following CSS is used to work around 2 issues with
-        // GtkPaned. One is a failed assert which is a bug in GTK (see
-        // https://github.com/elementary/stylesheet/issues/328). The other
-        // one is the vanishing of the separator, which seems to be related
-        // to elementary OS using a negative margin in the separator.
-        add_custom_css (paned, "paned > separator {"
-                               "    margin-right: 0;"
-                               "    min-width: 2px;"
-                               "    min-height: 2px;"
-                               "}");
-        gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
-        gtk_paned_pack2 (GTK_PANED(paned), keyboard, TRUE, TRUE);
-        gtk_container_add(GTK_CONTAINER(window), paned);
-        gtk_widget_show (paned);
 
         gtk_main();
     }

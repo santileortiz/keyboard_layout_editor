@@ -144,6 +144,14 @@ enum keyboard_view_mode_t {
     KEYBOARD_VIEW_EDIT
 };
 
+enum keyboard_view_edit_mode_t {
+    KEYBOARD_VIEW_EDIT_DEFAULT,
+    KEYBOARD_VIEW_EDIT_KEYCODE_KEYPRESS,
+    //KEYBOARD_VIEW_EDIT_KEYCODE_LOOKUP,
+    //KEYBOARD_VIEW_EDIT_KEY_WIDTH,
+    //KEYBOARD_VIEW_EDIT_KEY_POSITION
+};
+
 struct xkb_context *xkb_ctx = NULL;
 struct xkb_keymap *xkb_keymap = NULL;
 struct xkb_state *xkb_state = NULL;
@@ -155,7 +163,9 @@ struct xkb_state *xkb_state = NULL;
 mem_pool_t kbd_pool = {0};
 struct keyboard_t *kbd = NULL;
 int clicked_kc = 0;
+struct key_t *selected_key = NULL;
 enum keyboard_view_mode_t keyboard_view_mode = KEYBOARD_VIEW_EDIT;
+enum keyboard_view_edit_mode_t edit_mode = KEYBOARD_VIEW_EDIT_DEFAULT;
 
 GtkWidget *window = NULL;
 GtkWidget *keyboard_view = NULL;
@@ -648,11 +658,14 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
                 char buff[5];
                 snprintf (buff, ARRAY_SIZE(buff), "%i", curr_key->kc);
 
-                if (curr_key->is_pressed || curr_key->kc == clicked_kc) {
+                if (selected_key != NULL && curr_key->kc == selected_key->kc) {
+                    cr_render_key (cr, x_pos, y_pos, key_width, key_height, "", RGB_HEX(0xe34442));
+                } else if (curr_key->is_pressed) {
                     cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB_HEX(0x90de4d));
                 } else {
                     cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB(1,1,1));
                 }
+
                 x_pos += key_width;
                 curr_key = curr_key->next_key;
             }
@@ -859,14 +872,41 @@ gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer use
     return FALSE;
 }
 
+gboolean ungrab_keyboard_handler (GtkButton *button, gpointer user_data);
 gboolean key_press_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
     uint16_t kc = ((GdkEventKey*)event)->hardware_keycode;
     struct key_t *key = kbd->keys_by_kc[kc-8];
-    if (key != NULL) {
-        key->is_pressed = true;
+    switch (keyboard_view_mode) {
+        case KEYBOARD_VIEW_PREVIEW:
+            if (key != NULL) {
+                key->is_pressed = true;
+            }
+            xkb_state_update_key(xkb_state, kc, XKB_KEY_DOWN);
+            break;
+        case KEYBOARD_VIEW_EDIT:
+            if (edit_mode == KEYBOARD_VIEW_EDIT_KEYCODE_KEYPRESS) {
+                if (key == NULL) {
+                    // NOTE: We only update the keycode if it wasn't assigned
+                    // before.
+                    kbd->keys_by_kc[selected_key->kc] = NULL;
+                    selected_key->kc = kc-8;
+                    kbd->keys_by_kc[kc-8] = selected_key;
+                }
+
+                selected_key = NULL;
+                edit_mode = KEYBOARD_VIEW_EDIT_DEFAULT;
+                ungrab_keyboard_handler (NULL, NULL);
+            }
+
+            if (key != NULL) {
+                key->is_pressed = true;
+            }
+            break;
+        default:
+            invalid_code_path;
     }
-    xkb_state_update_key(xkb_state, kc, XKB_KEY_DOWN);
+
     gtk_widget_queue_draw (keyboard_view);
     return TRUE;
 }
@@ -910,7 +950,6 @@ void set_header_icon_button_gcallback (GtkWidget **button, const char *icon_name
 // TODO: @requires:GTK_3.20
 // TODO: Get better icon for this. I'm thinking a gripper grabbing/ungrabbing a
 // key.
-gboolean ungrab_keyboard_handler (GtkButton *button, gpointer user_data);
 gboolean grab_keyboard_handler (GtkButton *button, gpointer user_data)
 {
     GdkDisplay *disp = gdk_display_get_default ();
@@ -1031,8 +1070,16 @@ gboolean keyboard_view_button_press (GtkWidget *widget, GdkEvent *event, gpointe
 
     struct key_t *key = keyboard_view_get_key (widget, button_event->x, button_event->y, NULL);
     if (key != NULL) {
-        clicked_kc = key->kc;
-        xkb_state_update_key(xkb_state, clicked_kc+8, XKB_KEY_DOWN);
+        switch (keyboard_view_mode) {
+            case KEYBOARD_VIEW_PREVIEW:
+                clicked_kc = key->kc;
+                xkb_state_update_key(xkb_state, key->kc+8, XKB_KEY_DOWN);
+                break;
+            case KEYBOARD_VIEW_EDIT:
+                break;
+            default:
+                invalid_code_path;
+        }
         gtk_widget_queue_draw (keyboard_view);
     }
     return TRUE;
@@ -1040,9 +1087,38 @@ gboolean keyboard_view_button_press (GtkWidget *widget, GdkEvent *event, gpointe
 
 gboolean keyboard_view_button_release (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-    xkb_state_update_key(xkb_state, clicked_kc+8, XKB_KEY_UP);
+    switch (keyboard_view_mode) {
+        case KEYBOARD_VIEW_PREVIEW:
+            xkb_state_update_key(xkb_state, clicked_kc+8, XKB_KEY_UP);
+            clicked_kc = 0;
+            break;
+        case KEYBOARD_VIEW_EDIT:
+            {
+                // NOTE: We handle this on release because we are taking a grab
+                // of all input. Doing so on a key press breaks GTK's grab
+                // created before sending the event, which may cause trouble.
+                GdkEventButton *button_event = (GdkEventButton*)event;
+                struct key_t *key = keyboard_view_get_key (widget, button_event->x, button_event->y, NULL);
+                if (edit_mode == KEYBOARD_VIEW_EDIT_DEFAULT) {
+                    selected_key = key;
+                    grab_keyboard_handler (NULL, NULL);
+                    edit_mode = KEYBOARD_VIEW_EDIT_KEYCODE_KEYPRESS;
+
+                } else if (edit_mode == KEYBOARD_VIEW_EDIT_KEYCODE_KEYPRESS) {
+                    if (key == selected_key) {
+                        ungrab_keyboard_handler (NULL, NULL);
+                        selected_key = NULL;
+                        edit_mode = KEYBOARD_VIEW_EDIT_DEFAULT;
+                    } else {
+                        // We will now edit the newly clicked key.
+                        selected_key = key;
+                    }
+                }
+            } break;
+        default:
+            invalid_code_path;
+    }
     gtk_widget_queue_draw (keyboard_view);
-    clicked_kc = 0;
     return TRUE;
 }
 

@@ -7,6 +7,7 @@
 #include "xkb_keymap_loader.c"
 #include <xkbcommon/xkbcommon.h>
 #include <linux/input-event-codes.h>
+#include "keycode_names.h"
 
 #include <gtk/gtk.h>
 
@@ -128,6 +129,14 @@ void add_css_class (GtkWidget *widget, char *class)
 {
     GtkStyleContext *ctx = gtk_widget_get_style_context (widget);
     gtk_style_context_add_class (ctx, class);
+}
+
+void g_object_set_property_bool (GObject *object, const char *property_name, bool value)
+{
+    GValue val = G_VALUE_INIT;
+    g_value_init (&val, G_TYPE_BOOLEAN);
+    g_value_set_boolean (&val, value);
+    g_object_set_property (object, property_name, &val);
 }
 
 enum keyboard_view_mode_t {
@@ -627,6 +636,30 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
         }
     } else if (keyboard_view_mode == KEYBOARD_VIEW_EDIT) {
 
+        double y_pos = top_margin;
+        struct row_t *curr_row = kbd->first_row;
+        while (curr_row != NULL) {
+            struct key_t *curr_key = curr_row->first_key;
+            double x_pos = left_margin;
+            double key_height = curr_row->height*kbd->default_key_size;
+            while (curr_key != NULL) {
+                double key_width = curr_key->width*kbd->default_key_size;
+
+                char buff[5];
+                snprintf (buff, ARRAY_SIZE(buff), "%i", curr_key->kc);
+
+                if (curr_key->is_pressed || curr_key->kc == clicked_kc) {
+                    cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB_HEX(0x90de4d));
+                } else {
+                    cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB(1,1,1));
+                }
+                x_pos += key_width;
+                curr_key = curr_key->next_key;
+            }
+
+            y_pos += key_height;
+            curr_row = curr_row->next_row;
+        }
     }
 
     mem_pool_destroy (&pool);
@@ -949,6 +982,45 @@ void handle_grab_broken (GdkEvent *event, gpointer data)
     }
 }
 
+struct key_t* keyboard_view_get_key (GtkWidget *keyboard_view, double x, double y, GdkRectangle *rect)
+{
+    double kbd_x, kbd_y;
+    keyboard_view_get_margins (keyboard_view, &kbd_x, &kbd_y);
+
+    struct row_t *curr_row = kbd->first_row;
+    while (curr_row != NULL) {
+        kbd_y += curr_row->height*kbd->default_key_size;
+        if (kbd_y > y) {
+            break;
+        }
+
+        curr_row = curr_row->next_row;
+    }
+
+    struct key_t *curr_key = NULL;
+    if (curr_row != NULL) {
+        curr_key = curr_row->first_key;
+        while (curr_key != NULL) {
+            kbd_x += curr_key->width*kbd->default_key_size;
+            if (kbd_x > x) {
+                break;
+            }
+
+            curr_key = curr_key->next_key;
+        }
+    }
+
+    if (curr_key != NULL && rect != NULL) {
+        rect->height = curr_row->height*kbd->default_key_size;
+        rect->y = kbd_y - rect->height;
+
+        rect->width = curr_key->width*kbd->default_key_size;
+        rect->x = kbd_x - rect->width;
+    }
+
+    return curr_key;
+}
+
 gboolean keyboard_view_button_press (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
     GdkEventButton *button_event = (GdkEventButton*)event;
@@ -957,33 +1029,12 @@ gboolean keyboard_view_button_press (GtkWidget *widget, GdkEvent *event, gpointe
         return FALSE;
     }
 
-    double kbd_x, kbd_y;
-    keyboard_view_get_margins (widget, &kbd_x, &kbd_y);
-
-    struct row_t *curr_row = kbd->first_row;
-    while (curr_row != NULL) {
-        kbd_y += curr_row->height*kbd->default_key_size;
-        if (kbd_y > button_event->y) {
-            break;
-        }
-
-        curr_row = curr_row->next_row;
+    struct key_t *key = keyboard_view_get_key (widget, button_event->x, button_event->y, NULL);
+    if (key != NULL) {
+        clicked_kc = key->kc;
+        xkb_state_update_key(xkb_state, clicked_kc+8, XKB_KEY_DOWN);
+        gtk_widget_queue_draw (keyboard_view);
     }
-
-    struct key_t *curr_key = curr_row->first_key;
-    while (curr_key != NULL) {
-        kbd_x += curr_key->width*kbd->default_key_size;
-        if (kbd_x > button_event->x) {
-            break;
-        }
-
-        curr_key = curr_key->next_key;
-    }
-
-
-    clicked_kc = curr_key->kc;
-    xkb_state_update_key(xkb_state, clicked_kc+8, XKB_KEY_DOWN);
-    gtk_widget_queue_draw (keyboard_view);
     return TRUE;
 }
 
@@ -995,6 +1046,26 @@ gboolean keyboard_view_button_release (GtkWidget *widget, GdkEvent *event, gpoin
     return TRUE;
 }
 
+gboolean keyboard_view_tooltip_handler (GtkWidget *widget, gint x, gint y,
+                                        gboolean keyboard_mode, GtkTooltip *tooltip,
+                                        gpointer user_data)
+{
+    if (keyboard_mode) {
+        return FALSE;
+    }
+
+    GdkRectangle rect = {0};
+    struct key_t *key = keyboard_view_get_key (widget, x, y, &rect);
+    if (key != NULL) {
+        gtk_tooltip_set_text (tooltip, keycode_names[key->kc]);
+
+        gtk_tooltip_set_tip_area (tooltip, &rect);
+        return TRUE;
+    } else {
+        return FALSE;
+    }
+}
+
 GtkWidget* keyboard_view_new ()
 {
     GtkWidget *new_keyboard_view = gtk_drawing_area_new ();
@@ -1004,6 +1075,8 @@ GtkWidget* keyboard_view_new ()
     g_signal_connect (G_OBJECT (new_keyboard_view), "draw", G_CALLBACK (render_keyboard), NULL);
     g_signal_connect (G_OBJECT (new_keyboard_view), "button-press-event", G_CALLBACK (keyboard_view_button_press), NULL);
     g_signal_connect (G_OBJECT (new_keyboard_view), "button-release-event", G_CALLBACK (keyboard_view_button_release), NULL);
+    g_object_set_property_bool (G_OBJECT (new_keyboard_view), "has-tooltip", true);
+    g_signal_connect (G_OBJECT (new_keyboard_view), "query-tooltip", G_CALLBACK (keyboard_view_tooltip_handler), NULL);
     gtk_widget_show (new_keyboard_view);
     return new_keyboard_view;
 }
@@ -1181,6 +1254,7 @@ int main (int argc, char *argv[])
             success = unprivileged_xkb_keymap_uninstall_everything ();
         }
     } else {
+        init_keycode_names ();
         gtk_init(&argc, &argv);
 
         mem_pool_t tmp = {0};

@@ -337,7 +337,30 @@ void keyboard_view_get_margins (struct keyboard_view_t *kv, double *left_margin,
     }
 }
 
-gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
+char *keysym_representations[][2] = {
+      {"Alt_L", "Alt"},
+      {"Alt_R", "AltGr"},
+      {"ISO_Level3_Shift", "AltGr"},
+      {"Control_L", "Ctrl"},
+      {"Control_R", "Ctrl"},
+      {"Shift_L", "Shift"},
+      {"Shift_R", "Shift"},
+      {"Caps_Lock", "CapsLock"},
+      {"Super_L", "⌘ "},
+      {"Super_R", "⌘ "},
+      {"Prior", "Page\nUp"},
+      {"Next", "Page\nDown"},
+      {"Num_Lock", "Num\nLock"},
+      {"Scroll_Lock", "Scroll\nLock"},
+      {"Escape", "Esc"},
+      {"Up", "↑"},
+      {"Down", "↓"},
+      {"Right", "→"},
+      {"Left", "←"},
+      {"Return", "↵ "}
+      };
+
+gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
 {
     struct keyboard_view_t *kv = keyboard_view;
     cairo_set_source_rgba (cr, 1, 1, 1, 1);
@@ -349,169 +372,73 @@ gboolean render_keyboard (GtkWidget *widget, cairo_t *cr, gpointer data)
     double left_margin, top_margin;
     keyboard_view_get_margins (keyboard_view, &left_margin, &top_margin);
 
-    if (keyboard_view->keyboard_view_mode == KEYBOARD_VIEW_PREVIEW) {
-        double y_pos = top_margin;
-        struct row_t *curr_row = kv->first_row;
-        while (curr_row != NULL) {
-            struct key_t *curr_key = curr_row->first_key;
-            double x_pos = left_margin;
-            double key_height = curr_row->height*kv->default_key_size;
-            while (curr_key != NULL) {
-                double key_width = curr_key->width*kv->default_key_size;
+    double y_pos = top_margin;
+    struct row_t *curr_row = kv->first_row;
+    while (curr_row != NULL) {
+        struct key_t *curr_key = curr_row->first_key;
+        double x_pos = left_margin;
+        double key_height = curr_row->height*kv->default_key_size;
+        while (curr_key != NULL) {
+            double key_width = curr_key->width*kv->default_key_size;
 
-                // Get an apropriate representation of the key to use as label.
-                // This code is likely to get a lot of special cases in the future.
-                char buff[64];
-                buff[0] = '\0';
+            // Compute the label for the key
+            char buff[64];
+            buff[0] = '\0';
+            if (keyboard_view->keyboard_view_mode == KEYBOARD_VIEW_PREVIEW) {
+                if (curr_key->kc == KEY_FN) {
+                    strcpy (buff, "Fn");
+                }
+
+                xkb_keysym_t keysym;
+                if (buff[0] == '\0') {
+                    int buff_len = 0;
+                    keysym = xkb_state_key_get_one_sym(keyboard_view->xkb_state, curr_key->kc + 8);
+                    buff_len = xkb_keysym_to_utf8(keysym, buff, sizeof(buff) - 1);
+                    buff[buff_len] = '\0';
+                }
+
+                if (buff[0] == '\0' || // Keysym is non printable
+                    buff[0] == ' ' ||
+                    buff[0] == '\x1b' || // Escape
+                    buff[0] == '\n' ||
+                    buff[0] == '\r' ||
+                    buff[0] == '\b' ||
+                    buff[0] == '\t' )
                 {
-                    if (curr_key->kc == KEY_FN) {
-                        strcpy (buff, "Fn");
+                    xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
+                    if (strcmp (buff, "NoSymbol") == 0) {
+                        buff[0] = '\0';
                     }
 
-                    xkb_keysym_t keysym;
-                    if (buff[0] == '\0') {
-                        int buff_len = 0;
-                        keysym = xkb_state_key_get_one_sym(keyboard_view->xkb_state, curr_key->kc + 8);
-                        buff_len = xkb_keysym_to_utf8(keysym, buff, sizeof(buff-1));
-                        buff[buff_len] = '\0';
-                    }
-
-                    if (buff[0] == '\0' ||
-                        buff[0] == ' ' ||
-                        buff[0] == '\x1b' || // Escape
-                        buff[0] == '\n' ||
-                        buff[0] == '\r' ||
-                        buff[0] == '\b' ||
-                        buff[0] == '\t' )
-                    {
-                        xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
-                        if (strcmp (buff, "NoSymbol") == 0) {
-                            buff[0] = '\0';
-                        }
-
-                        if (strcmp (buff, "Alt_L") == 0) {
-                            strcpy (buff, "Alt");
-                        }
-
-                        if (strcmp (buff, "Alt_R") == 0) {
-                            strcpy (buff, "AltGr");
-                        }
-
-                        if (strcmp (buff, "ISO_Level3_Shift") == 0) {
-                            strcpy (buff, "AltGr");
-                        }
-
-                        if (strcmp (buff, "Control_L") == 0) {
-                            strcpy (buff, "Ctrl");
-                        }
-
-                        if (strcmp (buff, "Control_R") == 0) {
-                            strcpy (buff, "Ctrl");
-                        }
-
-                        if (strcmp (buff, "Shift_L") == 0) {
-                            strcpy (buff, "Shift");
-                        }
-
-                        if (strcmp (buff, "Shift_R") == 0) {
-                            strcpy (buff, "Shift");
-                        }
-
-                        if (strcmp (buff, "Caps_Lock") == 0) {
-                            strcpy (buff, "CapsLock");
-                        }
-
-                        if (strcmp (buff, "Super_L") == 0) {
-                            strcpy (buff, "⌘ ");
-                        }
-
-                        if (strcmp (buff, "Super_R") == 0) {
-                            strcpy (buff, "⌘ ");
-                        }
-
-                        if (strcmp (buff, "Prior") == 0) {
-                            strcpy (buff, "Page\nUp");
-                        }
-
-                        if (strcmp (buff, "Next") == 0) {
-                            strcpy (buff, "Page\nDown");
-                        }
-
-                        if (strcmp (buff, "Num_Lock") == 0) {
-                            strcpy (buff, "Num\nLock");
-                        }
-
-                        if (strcmp (buff, "Scroll_Lock") == 0) {
-                            strcpy (buff, "Scroll\nLock");
-                        }
-
-                        if (strcmp (buff, "Escape") == 0) {
-                            strcpy (buff, "Esc");
-                        }
-
-                        if (strcmp (buff, "Up") == 0) {
-                            strcpy (buff, "↑");
-                        }
-
-                        if (strcmp (buff, "Down") == 0) {
-                            strcpy (buff, "↓");
-                        }
-
-                        if (strcmp (buff, "Right") == 0) {
-                            strcpy (buff, "→");
-                        }
-
-                        if (strcmp (buff, "Left") == 0) {
-                            strcpy (buff, "←");
-                        }
-
-                        if (strcmp (buff, "Return") == 0) {
-                            strcpy (buff, "↵ ");
+                    int i;
+                    for (i=0; i < ARRAY_SIZE(keysym_representations); i++) {
+                        if (strcmp (buff, keysym_representations[i][0]) == 0) {
+                            strcpy (buff, keysym_representations[i][1]);
+                            break;
                         }
                     }
                 }
-
-                if (curr_key->is_pressed || curr_key->kc == keyboard_view->clicked_kc) {
-                    cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB_HEX(0x90de4d));
-                } else {
-                    cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB(1,1,1));
-                }
-                x_pos += key_width;
-                curr_key = curr_key->next_key;
-            }
-
-            y_pos += key_height;
-            curr_row = curr_row->next_row;
-        }
-    } else if (keyboard_view->keyboard_view_mode == KEYBOARD_VIEW_EDIT) {
-
-        double y_pos = top_margin;
-        struct row_t *curr_row = kv->first_row;
-        while (curr_row != NULL) {
-            struct key_t *curr_key = curr_row->first_key;
-            double x_pos = left_margin;
-            double key_height = curr_row->height*kv->default_key_size;
-            while (curr_key != NULL) {
-                double key_width = curr_key->width*kv->default_key_size;
-
-                char buff[5];
+            } else {
                 snprintf (buff, ARRAY_SIZE(buff), "%i", curr_key->kc);
-
-                if (keyboard_view->selected_key != NULL && curr_key->kc == keyboard_view->selected_key->kc) {
-                    cr_render_key (cr, x_pos, y_pos, key_width, key_height, "", RGB_HEX(0xe34442));
-                } else if (curr_key->is_pressed) {
-                    cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB_HEX(0x90de4d));
-                } else {
-                    cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB(1,1,1));
-                }
-
-                x_pos += key_width;
-                curr_key = curr_key->next_key;
             }
 
-            y_pos += key_height;
-            curr_row = curr_row->next_row;
+            // Draw the key with the appropiate label/color
+            if (keyboard_view->selected_key != NULL && curr_key->kc == keyboard_view->selected_key->kc) {
+                cr_render_key (cr, x_pos, y_pos, key_width, key_height, "", RGB_HEX(0xe34442));
+
+            } else if (curr_key->is_pressed || curr_key->kc == keyboard_view->clicked_kc) {
+                cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB_HEX(0x90de4d));
+
+            } else {
+                cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB(1,1,1));
+            }
+
+            x_pos += key_width;
+            curr_key = curr_key->next_key;
         }
+
+        y_pos += key_height;
+        curr_row = curr_row->next_row;
     }
 
     mem_pool_destroy (&pool);
@@ -739,7 +666,7 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool)
     gtk_widget_add_events (kv_widget, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
     gtk_widget_set_vexpand (kv_widget, TRUE);
     gtk_widget_set_hexpand (kv_widget, TRUE);
-    g_signal_connect (G_OBJECT (kv_widget), "draw", G_CALLBACK (render_keyboard), NULL);
+    g_signal_connect (G_OBJECT (kv_widget), "draw", G_CALLBACK (keyboard_view_render), NULL);
     g_signal_connect (G_OBJECT (kv_widget), "button-press-event", G_CALLBACK (keyboard_view_button_press), NULL);
     g_signal_connect (G_OBJECT (kv_widget), "button-release-event", G_CALLBACK (keyboard_view_button_release), NULL);
     g_object_set_property_bool (G_OBJECT (kv_widget), "has-tooltip", true);

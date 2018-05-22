@@ -135,49 +135,9 @@ void on_custom_layout_selected (GtkListBox *box, GtkListBoxRow *row, gpointer us
         return;
     }
 
-    if (xkb_ctx != NULL) {
-        xkb_context_unref(xkb_ctx);
-    }
-
-    if (xkb_keymap != NULL) {
-        xkb_keymap_unref(xkb_keymap);
-    }
-
-    if (xkb_state != NULL) {
-        xkb_state_unref(xkb_state);
-    }
-
-    mem_pool_t pool = {0};
     GtkWidget *label = gtk_bin_get_child (GTK_BIN(row));
     const gchar *curr_layout = gtk_label_get_text (GTK_LABEL (label));
-    char *keymap_str = reconstruct_installed_custom_layout (&pool, curr_layout);
-
-    xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    if (!xkb_ctx) {
-        printf ("Error creating xkb_context.\n");
-    }
-
-    xkb_keymap = xkb_keymap_new_from_string (xkb_ctx, keymap_str,
-                                             XKB_KEYMAP_FORMAT_TEXT_V1,
-                                             XKB_KEYMAP_COMPILE_NO_FLAGS);
-    if (!xkb_keymap) {
-        printf ("Error creating xkb_keymap.\n");
-    }
-
-    xkb_state = xkb_state_new(xkb_keymap);
-    if (!xkb_state) {
-        printf ("Error creating xkb_state.\n");
-    }
-
-    if (kbd != NULL) {
-        mem_pool_destroy (&kbd_pool);
-        kbd_pool = (mem_pool_t){0};
-    }
-    kbd = build_keyboard (&kbd_pool);
-
-    gtk_widget_queue_draw (keyboard_view);
-
-    mem_pool_destroy (&pool);
+    keyboard_view_set_keymap (keyboard_view, curr_layout);
 }
 
 void set_custom_layouts_list (GtkWidget **custom_layout_list, char **custom_layouts, int num_custom_layouts)
@@ -324,7 +284,7 @@ void set_header_icon_button_gcallback (GtkWidget **button, const char *icon_name
 // TODO: @requires:GTK_3.20
 // TODO: Get better icon for this. I'm thinking a gripper grabbing/ungrabbing a
 // key.
-gboolean grab_keyboard_handler (GtkButton *button, gpointer user_data)
+gboolean grab_input (GtkButton *button, gpointer user_data)
 {
     GdkDisplay *disp = gdk_display_get_default ();
     gdk_seat = gdk_display_get_default_seat (disp);
@@ -335,15 +295,15 @@ gboolean grab_keyboard_handler (GtkButton *button, gpointer user_data)
                                           TRUE, // If this is FALSE we don't get any pointer events, why?
                                           NULL, NULL, NULL, NULL);
     if (status == GDK_GRAB_SUCCESS) {
-        set_header_icon_button (&keyboard_grabbing_button, "media-playback-stop", ungrab_keyboard_handler);
+        set_header_icon_button (&keyboard_grabbing_button, "media-playback-stop", ungrab_input);
     }
     return G_SOURCE_REMOVE;
 }
 
 // TODO: @requires:GTK_3.20
-gboolean ungrab_keyboard_handler (GtkButton *button, gpointer user_data)
+gboolean ungrab_input (GtkButton *button, gpointer user_data)
 {
-    set_header_icon_button (&keyboard_grabbing_button, "process-completed", grab_keyboard_handler);
+    set_header_icon_button (&keyboard_grabbing_button, "process-completed", grab_input);
     gdk_seat_ungrab (gdk_seat);
     gdk_seat = NULL;
     return G_SOURCE_REMOVE;
@@ -362,7 +322,7 @@ void handle_grab_broken (GdkEvent *event, gpointer data)
         if (((GdkEventKey*)event)->keyval == GDK_KEY_Escape) {
             gdk_seat_ungrab (gdk_seat);
             gdk_seat = NULL;
-            set_header_icon_button (&keyboard_grabbing_button, "process-completed", grab_keyboard_handler);
+            set_header_icon_button (&keyboard_grabbing_button, "process-completed", grab_input);
         }
     }
 #endif
@@ -389,7 +349,7 @@ void handle_grab_broken (GdkEvent *event, gpointer data)
     // missing an event mask but there is no mask for GdkGrabBroken). I need to
     // test in GNOME.
     if (event->type == GDK_GRAB_BROKEN) {
-        set_header_icon_button (&keyboard_grabbing_button, "process-completed", grab_keyboard_handler);
+        set_header_icon_button (&keyboard_grabbing_button, "process-completed", grab_input);
     } else {
         gtk_main_do_event (event);
     }
@@ -412,13 +372,13 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
     GtkWidget *delete_layout_button = new_icon_button ("list-remove", delete_layout_handler);
     gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), delete_layout_button);
 
-    keyboard_grabbing_button = new_icon_button ("process-completed", grab_keyboard_handler);
+    keyboard_grabbing_button = new_icon_button ("process-completed", grab_input);
     gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), keyboard_grabbing_button);
 
     gtk_window_set_titlebar (GTK_WINDOW(window), header_bar);
     gtk_widget_show (header_bar);
 
-    keyboard_view = keyboard_view_new ();
+    keyboard_view = keyboard_view_new (NULL);
 
     GtkWidget *scrolled_custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
     set_custom_layouts_list (&custom_layout_list, custom_layouts, num_custom_layouts);
@@ -454,7 +414,7 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
                     "    min-height: 2px;"
                     "}");
     gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
-    gtk_paned_pack2 (GTK_PANED(paned), keyboard_view, TRUE, TRUE);
+    gtk_paned_pack2 (GTK_PANED(paned), keyboard_view->widget, TRUE, TRUE);
     gtk_container_add(GTK_CONTAINER(window), paned);
     gtk_widget_show (paned);
 }
@@ -591,6 +551,10 @@ int main (int argc, char *argv[])
         gtk_widget_show (window);
 
         gtk_main();
+
+        if (keyboard_view != NULL) {
+            keyboard_view_destroy (keyboard_view);
+        }
     }
 
     xmlCleanupParser();

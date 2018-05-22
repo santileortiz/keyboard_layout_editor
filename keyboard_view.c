@@ -2,17 +2,24 @@
  * Copiright (C) 2018 Santiago León O.
  */
 
-enum keyboard_view_mode_t {
-    KEYBOARD_VIEW_PREVIEW,
-    KEYBOARD_VIEW_EDIT
+enum keyboard_view_state_t {
+    KV_PREVIEW,
+    KV_EDIT,
+    KV_EDIT_KEYCODE_KEYPRESS,
+    //KV_EDIT_KEYCODE_LOOKUP,
+    //KV_EDIT_KEY_WIDTH,
+    //KV_EDIT_KEY_POSITION
 };
 
-enum keyboard_view_edit_mode_t {
-    KEYBOARD_VIEW_EDIT_DEFAULT,
-    KEYBOARD_VIEW_EDIT_KEYCODE_KEYPRESS,
-    //KEYBOARD_VIEW_EDIT_KEYCODE_LOOKUP,
-    //KEYBOARD_VIEW_EDIT_KEY_WIDTH,
-    //KEYBOARD_VIEW_EDIT_KEY_POSITION
+enum keyboard_view_commands_t {
+    KV_CMD_NONE,
+    KV_CMD_SET_MODE_PREVIEW,
+    KV_CMD_SET_MODE_EDIT
+};
+
+enum keyboard_view_label_mode_t {
+    KV_KEYSYM_LABELS,
+    KV_KEYCODE_LABELS,
 };
 
 struct key_t {
@@ -51,8 +58,8 @@ struct keyboard_view_t {
     float default_key_size; // In pixels
     int clicked_kc;
     struct key_t *selected_key;
-    enum keyboard_view_mode_t keyboard_view_mode;
-    enum keyboard_view_edit_mode_t edit_mode;
+    enum keyboard_view_state_t state;
+    enum keyboard_view_label_mode_t label_mode;
 };
 
 #define kv_new_row(pool,kbd) kv_new_row_h(pool,kbd,1)
@@ -228,11 +235,6 @@ void keyboard_view_build_default_geometry (mem_pool_t *pool, struct keyboard_vie
     kv_add_key (pool, kv, KEY_RIGHT);
 }
 
-void keyboard_view_queue_draw (struct keyboard_view_t *kv)
-{
-    gtk_widget_queue_draw (kv->widget);
-}
-
 void cr_render_key_label (cairo_t *cr, const char *label, double x, double y, double width, double height)
 {
     PangoLayout *text_layout;
@@ -384,42 +386,48 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
             // Compute the label for the key
             char buff[64];
             buff[0] = '\0';
-            if (keyboard_view->keyboard_view_mode == KEYBOARD_VIEW_PREVIEW) {
-                if (curr_key->kc == KEY_FN) {
-                    strcpy (buff, "Fn");
-                }
-
-                xkb_keysym_t keysym;
-                if (buff[0] == '\0') {
-                    int buff_len = 0;
-                    keysym = xkb_state_key_get_one_sym(keyboard_view->xkb_state, curr_key->kc + 8);
-                    buff_len = xkb_keysym_to_utf8(keysym, buff, sizeof(buff) - 1);
-                    buff[buff_len] = '\0';
-                }
-
-                if (buff[0] == '\0' || // Keysym is non printable
-                    buff[0] == ' ' ||
-                    buff[0] == '\x1b' || // Escape
-                    buff[0] == '\n' ||
-                    buff[0] == '\r' ||
-                    buff[0] == '\b' ||
-                    buff[0] == '\t' )
-                {
-                    xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
-                    if (strcmp (buff, "NoSymbol") == 0) {
-                        buff[0] = '\0';
+            switch (keyboard_view->label_mode) {
+                case KV_KEYSYM_LABELS:
+                    if (curr_key->kc == KEY_FN) {
+                        strcpy (buff, "Fn");
                     }
 
-                    int i;
-                    for (i=0; i < ARRAY_SIZE(keysym_representations); i++) {
-                        if (strcmp (buff, keysym_representations[i][0]) == 0) {
-                            strcpy (buff, keysym_representations[i][1]);
-                            break;
+                    xkb_keysym_t keysym;
+                    if (buff[0] == '\0') {
+                        int buff_len = 0;
+                        keysym = xkb_state_key_get_one_sym(keyboard_view->xkb_state, curr_key->kc + 8);
+                        buff_len = xkb_keysym_to_utf8(keysym, buff, sizeof(buff) - 1);
+                        buff[buff_len] = '\0';
+                    }
+
+                    if (buff[0] == '\0' || // Keysym is non printable
+                        buff[0] == ' ' ||
+                        buff[0] == '\x1b' || // Escape
+                        buff[0] == '\n' ||
+                        buff[0] == '\r' ||
+                        buff[0] == '\b' ||
+                        buff[0] == '\t' )
+                    {
+                        xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
+                        if (strcmp (buff, "NoSymbol") == 0) {
+                            buff[0] = '\0';
+                        }
+
+                        int i;
+                        for (i=0; i < ARRAY_SIZE(keysym_representations); i++) {
+                            if (strcmp (buff, keysym_representations[i][0]) == 0) {
+                                strcpy (buff, keysym_representations[i][1]);
+                                break;
+                            }
                         }
                     }
-                }
-            } else {
-                snprintf (buff, ARRAY_SIZE(buff), "%i", curr_key->kc);
+                    break;
+
+                case KV_KEYCODE_LABELS:
+                    snprintf (buff, ARRAY_SIZE(buff), "%i", curr_key->kc);
+                    break;
+
+                default: break; // Leave an empty label
             }
 
             // Draw the key with the appropiate label/color
@@ -443,58 +451,6 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
 
     mem_pool_destroy (&pool);
     return FALSE;
-}
-
-gboolean key_press_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
-{
-    struct keyboard_view_t *kv = keyboard_view;
-    uint16_t kc = ((GdkEventKey*)event)->hardware_keycode;
-    struct key_t *key = kv->keys_by_kc[kc-8];
-    switch (keyboard_view->keyboard_view_mode) {
-        case KEYBOARD_VIEW_PREVIEW:
-            if (key != NULL) {
-                key->is_pressed = true;
-            }
-            xkb_state_update_key(keyboard_view->xkb_state, kc, XKB_KEY_DOWN);
-            break;
-        case KEYBOARD_VIEW_EDIT:
-            if (keyboard_view->edit_mode == KEYBOARD_VIEW_EDIT_KEYCODE_KEYPRESS) {
-                if (key == NULL) {
-                    // NOTE: We only update the keycode if it wasn't assigned
-                    // before.
-                    kv->keys_by_kc[keyboard_view->selected_key->kc] = NULL;
-                    keyboard_view->selected_key->kc = kc-8;
-                    kv->keys_by_kc[kc-8] = keyboard_view->selected_key;
-                }
-
-                keyboard_view->selected_key = NULL;
-                keyboard_view->edit_mode = KEYBOARD_VIEW_EDIT_DEFAULT;
-                ungrab_input (NULL, NULL);
-            }
-
-            if (key != NULL) {
-                key->is_pressed = true;
-            }
-            break;
-        default:
-            invalid_code_path;
-    }
-
-    keyboard_view_queue_draw (keyboard_view);
-    return TRUE;
-}
-
-gboolean key_release_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
-{
-    struct keyboard_view_t *kv = keyboard_view;
-    uint16_t kc = ((GdkEventKey*)event)->hardware_keycode;
-    struct key_t *key = kv->keys_by_kc[kc-8];
-    if (key != NULL) {
-        key->is_pressed = false;
-    }
-    xkb_state_update_key(keyboard_view->xkb_state, kc, XKB_KEY_UP);
-    keyboard_view_queue_draw (keyboard_view);
-    return TRUE;
 }
 
 struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, double y, GdkRectangle *rect)
@@ -536,6 +492,104 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
     return curr_key;
 }
 
+void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, GdkEvent *e)
+{
+    struct key_t *button_event_key = NULL;
+    if (e->type == GDK_BUTTON_PRESS || e->type == GDK_BUTTON_RELEASE) {
+        GdkEventButton *btn_e = (GdkEventButton*)e;
+        button_event_key = keyboard_view_get_key (kv, btn_e->x, btn_e->y, NULL);
+    }
+
+    uint16_t key_event_kc;
+    struct key_t *key_event_key = NULL;
+    if (e->type == GDK_KEY_PRESS || e->type == GDK_KEY_RELEASE) {
+        key_event_kc = ((GdkEventKey*)e)->hardware_keycode;
+        key_event_key = kv->keys_by_kc[key_event_kc-8];
+    }
+
+    if (e->type == GDK_KEY_PRESS) {
+        if (key_event_key != NULL) {
+            key_event_key->is_pressed = true;
+        }
+        xkb_state_update_key(kv->xkb_state, key_event_kc, XKB_KEY_DOWN);
+    }
+
+    if (e->type == GDK_KEY_RELEASE) {
+        if (key_event_key != NULL) {
+            key_event_key->is_pressed = false;
+        }
+        xkb_state_update_key(kv->xkb_state, key_event_kc, XKB_KEY_UP);
+    }
+
+    switch (kv->state) {
+        case KV_PREVIEW:
+            if (e->type == GDK_BUTTON_PRESS) {
+                xkb_state_update_key(kv->xkb_state, button_event_key->kc+8, XKB_KEY_DOWN);
+                kv->clicked_kc = button_event_key->kc;
+
+            } else if (e->type == GDK_BUTTON_RELEASE) {
+                xkb_state_update_key(kv->xkb_state, kv->clicked_kc+8, XKB_KEY_UP);
+                kv->clicked_kc = 0;
+            }
+            break;
+
+        case KV_EDIT:
+            // NOTE: We handle this on release because we are taking a grab of
+            // all input. Doing so on a key press breaks GTK's grab created
+            // before sending the event, which may cause trouble.
+            if (e->type == GDK_BUTTON_RELEASE) {
+                kv->selected_key = button_event_key;
+                grab_input (NULL, NULL);
+                kv->state = KV_EDIT_KEYCODE_KEYPRESS;
+            }
+            break;
+
+        case KV_EDIT_KEYCODE_KEYPRESS:
+            if (e->type == GDK_KEY_PRESS) {
+                if (key_event_key == NULL) {
+                    kv->keys_by_kc[kv->selected_key->kc] = NULL;
+                    kv->selected_key->kc = key_event_kc-8;
+                    kv->keys_by_kc[key_event_kc-8] = kv->selected_key;
+                }
+
+                kv->selected_key = NULL;
+                kv->state = KV_EDIT;
+                ungrab_input (NULL, NULL);
+
+            } else if (e->type == GDK_BUTTON_PRESS) {
+                if (button_event_key == kv->selected_key) {
+                    ungrab_input (NULL, NULL);
+                    kv->selected_key = NULL;
+                    // NOTE: Transition to KV_EDIT is delayed until the next
+                    // button release so we don't handle it in KV_EDIT state.
+                    // @delay_transition_to_edit
+                } else {
+                    // Edit the newly clicked key.
+                    kv->selected_key = button_event_key;
+                }
+
+            } else if (e->type == GDK_BUTTON_RELEASE) {
+                // @delay_transition_to_edit
+                kv->state = KV_EDIT;
+            }
+            break;
+    }
+
+    gtk_widget_queue_draw (kv->widget);
+}
+
+gboolean key_press_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+{
+    kv_update (keyboard_view, KV_CMD_NONE, event);
+    return TRUE;
+}
+
+gboolean key_release_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+{
+    kv_update (keyboard_view, KV_CMD_NONE, event);
+    return TRUE;
+}
+
 gboolean keyboard_view_button_press (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
     GdkEventButton *button_event = (GdkEventButton*)event;
@@ -544,57 +598,13 @@ gboolean keyboard_view_button_press (GtkWidget *widget, GdkEvent *event, gpointe
         return FALSE;
     }
 
-    struct key_t *key = keyboard_view_get_key (keyboard_view, button_event->x, button_event->y, NULL);
-    if (key != NULL) {
-        switch (keyboard_view->keyboard_view_mode) {
-            case KEYBOARD_VIEW_PREVIEW:
-                keyboard_view->clicked_kc = key->kc;
-                xkb_state_update_key(keyboard_view->xkb_state, key->kc+8, XKB_KEY_DOWN);
-                break;
-            case KEYBOARD_VIEW_EDIT:
-                break;
-            default:
-                invalid_code_path;
-        }
-        keyboard_view_queue_draw (keyboard_view);
-    }
+    kv_update (keyboard_view, KV_CMD_NONE, event);
     return TRUE;
 }
 
 gboolean keyboard_view_button_release (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-    switch (keyboard_view->keyboard_view_mode) {
-        case KEYBOARD_VIEW_PREVIEW:
-            xkb_state_update_key(keyboard_view->xkb_state, keyboard_view->clicked_kc+8, XKB_KEY_UP);
-            keyboard_view->clicked_kc = 0;
-            break;
-        case KEYBOARD_VIEW_EDIT:
-            {
-                // NOTE: We handle this on release because we are taking a grab
-                // of all input. Doing so on a key press breaks GTK's grab
-                // created before sending the event, which may cause trouble.
-                GdkEventButton *button_event = (GdkEventButton*)event;
-                struct key_t *key = keyboard_view_get_key (keyboard_view, button_event->x, button_event->y, NULL);
-                if (keyboard_view->edit_mode == KEYBOARD_VIEW_EDIT_DEFAULT) {
-                    keyboard_view->selected_key = key;
-                    grab_input (NULL, NULL);
-                    keyboard_view->edit_mode = KEYBOARD_VIEW_EDIT_KEYCODE_KEYPRESS;
-
-                } else if (keyboard_view->edit_mode == KEYBOARD_VIEW_EDIT_KEYCODE_KEYPRESS) {
-                    if (key == keyboard_view->selected_key) {
-                        ungrab_input (NULL, NULL);
-                        keyboard_view->selected_key = NULL;
-                        keyboard_view->edit_mode = KEYBOARD_VIEW_EDIT_DEFAULT;
-                    } else {
-                        // We will now edit the newly clicked key.
-                        keyboard_view->selected_key = key;
-                    }
-                }
-            } break;
-        default:
-            invalid_code_path;
-    }
-    keyboard_view_queue_draw (keyboard_view);
+    kv_update (keyboard_view, KV_CMD_NONE, event);
     return TRUE;
 }
 
@@ -650,7 +660,7 @@ void keyboard_view_set_keymap (struct keyboard_view_t *kv, const char *keymap_na
         printf ("Error creating xkb_state.\n");
     }
 
-    keyboard_view_queue_draw (kv);
+    gtk_widget_queue_draw (kv->widget);
 
     mem_pool_destroy (&pool);
 }
@@ -684,7 +694,8 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool)
     keyboard_view_build_default_geometry (pool, res);
     res->pool = pool;
     res->widget = kv_widget;
-    res->keyboard_view_mode = KEYBOARD_VIEW_EDIT;
+    res->state = KV_EDIT;
+    res->label_mode = KV_KEYCODE_LABELS;
 
     return res;
 }

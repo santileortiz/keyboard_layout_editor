@@ -23,9 +23,10 @@ enum keyboard_view_label_mode_t {
 };
 
 struct key_t {
-    int kc; //keycode
+    int kc; //keycode, -1 means unassigned
     float width; // normalized to default_key_size
     bool is_pressed;
+    bool unassigned;
     struct key_t *next_key;
 };
 
@@ -386,52 +387,54 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
             // Compute the label for the key
             char buff[64];
             buff[0] = '\0';
-            switch (keyboard_view->label_mode) {
-                case KV_KEYSYM_LABELS:
-                    if (curr_key->kc == KEY_FN) {
-                        strcpy (buff, "Fn");
-                    }
-
-                    xkb_keysym_t keysym;
-                    if (buff[0] == '\0') {
-                        int buff_len = 0;
-                        keysym = xkb_state_key_get_one_sym(keyboard_view->xkb_state, curr_key->kc + 8);
-                        buff_len = xkb_keysym_to_utf8(keysym, buff, sizeof(buff) - 1);
-                        buff[buff_len] = '\0';
-                    }
-
-                    if (buff[0] == '\0' || // Keysym is non printable
-                        buff[0] == ' ' ||
-                        buff[0] == '\x1b' || // Escape
-                        buff[0] == '\n' ||
-                        buff[0] == '\r' ||
-                        buff[0] == '\b' ||
-                        buff[0] == '\t' )
-                    {
-                        xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
-                        if (strcmp (buff, "NoSymbol") == 0) {
-                            buff[0] = '\0';
+            if (!curr_key->unassigned) {
+                switch (keyboard_view->label_mode) {
+                    case KV_KEYSYM_LABELS:
+                        if (curr_key->kc == KEY_FN) {
+                            strcpy (buff, "Fn");
                         }
 
-                        int i;
-                        for (i=0; i < ARRAY_SIZE(keysym_representations); i++) {
-                            if (strcmp (buff, keysym_representations[i][0]) == 0) {
-                                strcpy (buff, keysym_representations[i][1]);
-                                break;
+                        xkb_keysym_t keysym;
+                        if (buff[0] == '\0') {
+                            int buff_len = 0;
+                            keysym = xkb_state_key_get_one_sym(keyboard_view->xkb_state, curr_key->kc + 8);
+                            buff_len = xkb_keysym_to_utf8(keysym, buff, sizeof(buff) - 1);
+                            buff[buff_len] = '\0';
+                        }
+
+                        if (buff[0] == '\0' || // Keysym is non printable
+                            buff[0] == ' ' ||
+                            buff[0] == '\x1b' || // Escape
+                            buff[0] == '\n' ||
+                            buff[0] == '\r' ||
+                            buff[0] == '\b' ||
+                            buff[0] == '\t' )
+                        {
+                            xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
+                            if (strcmp (buff, "NoSymbol") == 0) {
+                                buff[0] = '\0';
+                            }
+
+                            int i;
+                            for (i=0; i < ARRAY_SIZE(keysym_representations); i++) {
+                                if (strcmp (buff, keysym_representations[i][0]) == 0) {
+                                    strcpy (buff, keysym_representations[i][1]);
+                                    break;
+                                }
                             }
                         }
-                    }
-                    break;
+                        break;
 
-                case KV_KEYCODE_LABELS:
-                    snprintf (buff, ARRAY_SIZE(buff), "%i", curr_key->kc);
-                    break;
+                    case KV_KEYCODE_LABELS:
+                        snprintf (buff, ARRAY_SIZE(buff), "%i", curr_key->kc);
+                        break;
 
-                default: break; // Leave an empty label
+                    default: break; // Leave an empty label
+                }
             }
 
             // Draw the key with the appropiate label/color
-            if (keyboard_view->selected_key != NULL && curr_key->kc == keyboard_view->selected_key->kc) {
+            if (keyboard_view->selected_key != NULL && curr_key == keyboard_view->selected_key) {
                 cr_render_key (cr, x_pos, y_pos, key_width, key_height, "", RGB_HEX(0xe34442));
 
             } else if (curr_key->is_pressed || curr_key->kc == keyboard_view->clicked_kc) {
@@ -537,6 +540,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             // NOTE: We handle this on release because we are taking a grab of
             // all input. Doing so on a key press breaks GTK's grab created
             // before sending the event, which may cause trouble.
+            // @select_is_release_bassed
             if (e->type == GDK_BUTTON_RELEASE) {
                 kv->selected_key = button_event_key;
                 grab_input (NULL, NULL);
@@ -546,31 +550,43 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
         case KV_EDIT_KEYCODE_KEYPRESS:
             if (e->type == GDK_KEY_PRESS) {
-                if (key_event_key == NULL) {
-                    kv->keys_by_kc[kv->selected_key->kc] = NULL;
-                    kv->selected_key->kc = key_event_kc-8;
-                    kv->keys_by_kc[key_event_kc-8] = kv->selected_key;
+                // If the keycode was already assigned, unassign it from that
+                // key.
+                if (key_event_key != NULL) {
+                    key_event_key->unassigned = true;
+                    // NOTE: Because key_event_key won't be accessible again
+                    // through keys_by_kc (the selected key wil take it's place
+                    // there), then it would remain pressed unless we do this.
+                    key_event_key->is_pressed = false;
                 }
 
-                kv->selected_key = NULL;
-                kv->state = KV_EDIT;
-                ungrab_input (NULL, NULL);
+                // If selected_key has something assigned, remove it's pointer
+                // from keys_by_kc because it will change position.
+                if (!kv->selected_key->unassigned) {
+                    kv->keys_by_kc[kv->selected_key->kc] = NULL;
+                }
 
-            } else if (e->type == GDK_BUTTON_PRESS) {
+                // Update selected_key info
+                kv->selected_key->kc = key_event_kc-8;
+                kv->selected_key->unassigned = false;
+
+                // Put a pointer to selected_key in the correct position in
+                // keys_by_kc.
+                kv->keys_by_kc[key_event_kc-8] = kv->selected_key;
+
+                kv->selected_key = NULL;
+                ungrab_input (NULL, NULL);
+                kv->state = KV_EDIT;
+
+            } else if (e->type == GDK_BUTTON_RELEASE) { // @select_is_release_bassed
                 if (button_event_key == kv->selected_key) {
                     ungrab_input (NULL, NULL);
                     kv->selected_key = NULL;
-                    // NOTE: Transition to KV_EDIT is delayed until the next
-                    // button release so we don't handle it in KV_EDIT state.
-                    // @delay_transition_to_edit
+                    kv->state = KV_EDIT;
                 } else {
                     // Edit the newly clicked key.
                     kv->selected_key = button_event_key;
                 }
-
-            } else if (e->type == GDK_BUTTON_RELEASE) {
-                // @delay_transition_to_edit
-                kv->state = KV_EDIT;
             }
             break;
     }
@@ -618,7 +634,7 @@ gboolean keyboard_view_tooltip_handler (GtkWidget *widget, gint x, gint y,
 
     GdkRectangle rect = {0};
     struct key_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect);
-    if (key != NULL) {
+    if (key != NULL && !key->unassigned) {
         gtk_tooltip_set_text (tooltip, keycode_names[key->kc]);
 
         gtk_tooltip_set_tip_area (tooltip, &rect);

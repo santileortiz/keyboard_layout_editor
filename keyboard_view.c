@@ -56,6 +56,7 @@ struct keyboard_view_t {
 
     // GUI related information and state
     GtkWidget *widget;
+    GtkWidget *toolbar;
     float default_key_size; // In pixels
     int clicked_kc;
     struct key_t *selected_key;
@@ -495,15 +496,77 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
     return curr_key;
 }
 
+void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, GdkEvent *e);
+
+void start_edit_handler (GtkButton *button, gpointer user_data)
+{
+    kv_update (keyboard_view, KV_CMD_SET_MODE_EDIT, NULL);
+}
+void stop_edit_handler (GtkButton *button, gpointer user_data)
+{
+    kv_update (keyboard_view, KV_CMD_SET_MODE_PREVIEW, NULL);
+}
+
+void kv_set_simple_toolbar (GtkWidget **toolbar)
+{
+    assert (toolbar != NULL);
+
+    if (*toolbar == NULL) {
+        *toolbar = gtk_grid_new ();
+        gtk_widget_show (*toolbar);
+
+    } else {
+        gtk_container_foreach (GTK_CONTAINER(*toolbar),
+                               destroy_children_callback,
+                               NULL);
+    }
+
+    GtkWidget *edit_button = gtk_button_new_from_icon_name ("edit-symbolic", GTK_ICON_SIZE_SMALL_TOOLBAR);
+    g_signal_connect (G_OBJECT(edit_button), "clicked", G_CALLBACK (start_edit_handler), NULL);
+    add_css_class (edit_button, "flat");
+    gtk_widget_show (edit_button);
+    gtk_grid_attach (GTK_GRID(*toolbar), edit_button, 0, 0, 1, 1);
+
+}
+
+void kv_set_full_toolbar (GtkWidget **toolbar)
+{
+    assert (toolbar != NULL);
+
+    if (*toolbar == NULL) {
+        *toolbar = gtk_grid_new ();
+        gtk_widget_show (*toolbar);
+
+    } else {
+        gtk_container_foreach (GTK_CONTAINER(*toolbar),
+                               destroy_children_callback,
+                               NULL);
+    }
+
+    GtkWidget *stop_edit_button = gtk_button_new_from_icon_name ("close-symbolic", GTK_ICON_SIZE_SMALL_TOOLBAR);
+    add_css_class (stop_edit_button, "flat");
+    g_signal_connect (G_OBJECT(stop_edit_button), "clicked", G_CALLBACK (stop_edit_handler), NULL);
+    gtk_widget_show (stop_edit_button);
+    gtk_grid_attach (GTK_GRID(*toolbar), stop_edit_button, 0, 0, 1, 1);
+}
+
 void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, GdkEvent *e)
 {
+    // To avoid segfaults when e==NULL without having to check if e==NULL every
+    // time, create a dmmy event that has a type that will fail all checks.
+    GdkEvent null_event = {0};
+    if (e == NULL) {
+        null_event.type = GDK_NOTHING;
+        e = &null_event;
+    }
+
     struct key_t *button_event_key = NULL;
     if (e->type == GDK_BUTTON_PRESS || e->type == GDK_BUTTON_RELEASE) {
         GdkEventButton *btn_e = (GdkEventButton*)e;
         button_event_key = keyboard_view_get_key (kv, btn_e->x, btn_e->y, NULL);
     }
 
-    uint16_t key_event_kc;
+    uint16_t key_event_kc = 0;
     struct key_t *key_event_key = NULL;
     if (e->type == GDK_KEY_PRESS || e->type == GDK_KEY_RELEASE) {
         key_event_kc = ((GdkEventKey*)e)->hardware_keycode;
@@ -526,7 +589,12 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
     switch (kv->state) {
         case KV_PREVIEW:
-            if (e->type == GDK_BUTTON_PRESS) {
+            if (cmd == KV_CMD_SET_MODE_EDIT) {
+                kv_set_full_toolbar (&kv->toolbar);
+                kv->label_mode = KV_KEYCODE_LABELS;
+                kv->state = KV_EDIT;
+
+            } else if (e->type == GDK_BUTTON_PRESS) {
                 xkb_state_update_key(kv->xkb_state, button_event_key->kc+8, XKB_KEY_DOWN);
                 kv->clicked_kc = button_event_key->kc;
 
@@ -537,11 +605,16 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             break;
 
         case KV_EDIT:
-            // NOTE: We handle this on release because we are taking a grab of
-            // all input. Doing so on a key press breaks GTK's grab created
-            // before sending the event, which may cause trouble.
-            // @select_is_release_bassed
-            if (e->type == GDK_BUTTON_RELEASE) {
+            if (cmd == KV_CMD_SET_MODE_PREVIEW) {
+                kv_set_simple_toolbar (&kv->toolbar);
+                kv->label_mode = KV_KEYSYM_LABELS;
+                kv->state = KV_PREVIEW;
+
+            } else if (e->type == GDK_BUTTON_RELEASE) {
+                // NOTE: We handle this on release because we are taking a grab of
+                // all input. Doing so on a key press breaks GTK's grab created
+                // before sending the event, which may cause trouble.
+                // @select_is_release_bassed
                 kv->selected_key = button_event_key;
                 grab_input (NULL, NULL);
                 kv->state = KV_EDIT_KEYCODE_KEYPRESS;
@@ -606,7 +679,7 @@ gboolean key_release_handler (GtkWidget *widget, GdkEvent *event, gpointer user_
     return TRUE;
 }
 
-gboolean keyboard_view_button_press (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+gboolean kv_button_press (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
     GdkEventButton *button_event = (GdkEventButton*)event;
     if (button_event->type == GDK_2BUTTON_PRESS || button_event->type == GDK_3BUTTON_PRESS) {
@@ -618,13 +691,13 @@ gboolean keyboard_view_button_press (GtkWidget *widget, GdkEvent *event, gpointe
     return TRUE;
 }
 
-gboolean keyboard_view_button_release (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+gboolean kv_button_release (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
     kv_update (keyboard_view, KV_CMD_NONE, event);
     return TRUE;
 }
 
-gboolean keyboard_view_tooltip_handler (GtkWidget *widget, gint x, gint y,
+gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
                                         gboolean keyboard_mode, GtkTooltip *tooltip,
                                         gpointer user_data)
 {
@@ -688,32 +761,49 @@ void keyboard_view_set_keymap (struct keyboard_view_t *kv, const char *keymap_na
 // case keyboard_view_destroy() must be called when it is no longer needed.
 struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool)
 {
-    GtkWidget *kv_widget = gtk_drawing_area_new ();
-    gtk_widget_add_events (kv_widget, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
-    gtk_widget_set_vexpand (kv_widget, TRUE);
-    gtk_widget_set_hexpand (kv_widget, TRUE);
-    g_signal_connect (G_OBJECT (kv_widget), "draw", G_CALLBACK (keyboard_view_render), NULL);
-    g_signal_connect (G_OBJECT (kv_widget), "button-press-event", G_CALLBACK (keyboard_view_button_press), NULL);
-    g_signal_connect (G_OBJECT (kv_widget), "button-release-event", G_CALLBACK (keyboard_view_button_release), NULL);
-    g_object_set_property_bool (G_OBJECT (kv_widget), "has-tooltip", true);
-    g_signal_connect (G_OBJECT (kv_widget), "query-tooltip", G_CALLBACK (keyboard_view_tooltip_handler), NULL);
-    gtk_widget_show (kv_widget);
-
     if (pool == NULL) {
         mem_pool_t bootstrap_pool = {0};
         pool = mem_pool_push_size (&bootstrap_pool, sizeof(mem_pool_t));
         *pool = bootstrap_pool;
     }
 
-    struct keyboard_view_t *res = mem_pool_push_size (pool, sizeof(struct keyboard_view_t));
-    *res = ZERO_INIT(struct keyboard_view_t);
-    keyboard_view_build_default_geometry (pool, res);
-    res->pool = pool;
-    res->widget = kv_widget;
-    res->state = KV_EDIT;
-    res->label_mode = KV_KEYCODE_LABELS;
+    struct keyboard_view_t *kv = mem_pool_push_size (pool, sizeof(struct keyboard_view_t));
+    *kv = ZERO_INIT(struct keyboard_view_t);
 
-    return res;
+    // Build the GtkWidget as an Overlay of a GtkDrawingArea and a GtkGrid
+    // containing the toolbar.
+    //
+    // NOTE: Using a horizontal GtkBox as container for the toolbar didn't work
+    // because it took the full height of the drawing area. Which puts buttons
+    // in the center of the keyboard view vertically.
+    {
+        GtkWidget *kv_widget = gtk_overlay_new ();
+        gtk_widget_add_events (kv_widget, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
+        gtk_widget_set_vexpand (kv_widget, TRUE);
+        gtk_widget_set_hexpand (kv_widget, TRUE);
+        g_signal_connect (G_OBJECT (kv_widget), "button-press-event", G_CALLBACK (kv_button_press), NULL);
+        g_signal_connect (G_OBJECT (kv_widget), "button-release-event", G_CALLBACK (kv_button_release), NULL);
+        g_object_set_property_bool (G_OBJECT (kv_widget), "has-tooltip", true);
+        g_signal_connect (G_OBJECT (kv_widget), "query-tooltip", G_CALLBACK (kv_tooltip_handler), NULL);
+        gtk_widget_show (kv_widget);
+
+        GtkWidget *draw_area = gtk_drawing_area_new ();
+        gtk_widget_set_vexpand (draw_area, TRUE);
+        gtk_widget_set_hexpand (draw_area, TRUE);
+        g_signal_connect (G_OBJECT (draw_area), "draw", G_CALLBACK (keyboard_view_render), NULL);
+        gtk_widget_show (draw_area);
+        gtk_overlay_add_overlay (GTK_OVERLAY(kv_widget), draw_area);
+        kv->widget = kv_widget;
+    }
+
+    kv_set_simple_toolbar (&kv->toolbar);
+    gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
+
+    keyboard_view_build_default_geometry (pool, kv);
+    kv->pool = pool;
+    kv->state = KV_PREVIEW;
+
+    return kv;
 }
 
 void keyboard_view_destroy (struct keyboard_view_t *kv)

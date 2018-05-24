@@ -461,6 +461,9 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
 {
     double kbd_x, kbd_y;
     keyboard_view_get_margins (kv, &kbd_x, &kbd_y);
+    if (x < kbd_x || y < kbd_y) {
+        return NULL;
+    }
 
     struct row_t *curr_row = kv->first_row;
     while (curr_row != NULL) {
@@ -594,11 +597,11 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->label_mode = KV_KEYCODE_LABELS;
                 kv->state = KV_EDIT;
 
-            } else if (e->type == GDK_BUTTON_PRESS) {
+            } else if (e->type == GDK_BUTTON_PRESS && button_event_key != NULL) {
                 xkb_state_update_key(kv->xkb_state, button_event_key->kc+8, XKB_KEY_DOWN);
                 kv->clicked_kc = button_event_key->kc;
 
-            } else if (e->type == GDK_BUTTON_RELEASE) {
+            } else if (e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 xkb_state_update_key(kv->xkb_state, kv->clicked_kc+8, XKB_KEY_UP);
                 kv->clicked_kc = 0;
             }
@@ -610,7 +613,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->label_mode = KV_KEYSYM_LABELS;
                 kv->state = KV_PREVIEW;
 
-            } else if (e->type == GDK_BUTTON_RELEASE) {
+            } else if (e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 // NOTE: We handle this on release because we are taking a grab of
                 // all input. Doing so on a key press breaks GTK's grab created
                 // before sending the event, which may cause trouble.

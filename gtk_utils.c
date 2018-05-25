@@ -34,6 +34,18 @@ void add_custom_css (GtkWidget *widget, gchar *css_data)
                                     GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 }
 
+#define is_in_rect(x,y,rect) is_point_in_box(x,y,(rect).x,(rect).y,(rect).width,(rect).height)
+bool is_point_in_box (double p_x, double p_y, double x, double y, double width, double height)
+{
+    if (p_x < x || p_x > x+width) {
+        return false;
+    } else if (p_y < y || p_y > y+height) {
+        return false;
+    } else {
+        return true;
+    }
+}
+
 void add_css_class (GtkWidget *widget, char *class)
 {
     GtkStyleContext *ctx = gtk_widget_get_style_context (widget);

@@ -45,6 +45,12 @@ struct row_t {
     struct key_t *last_key;
 };
 
+struct manual_tooltip_t {
+    struct manual_tooltip_t *next;
+    GdkRectangle rect;
+    char *text;
+};
+
 struct keyboard_view_t {
     mem_pool_t *pool;
 
@@ -67,6 +73,11 @@ struct keyboard_view_t {
     struct key_t **splitted_key_ptr;
     struct key_t *after_key;
     GdkRectangle split_key_rect;
+
+    // Manual tooltips list
+    mem_pool_t tooltips_pool;
+    struct manual_tooltip_t *first_tooltip;
+    struct manual_tooltip_t *last_tooltip;
 
     // GUI related information and state
     GtkWidget *widget;
@@ -550,13 +561,49 @@ void keycode_keypress_handler (GtkButton *button, gpointer user_data)
     keyboard_view->active_tool = KV_TOOL_KEYCODE_KEYPRESS;
 }
 
-GtkWidget* toolbar_button_new (const char *icon_name, const char *tooltip, GCallback callback, gpointer user_data)
+void kv_push_manual_tooltip (struct keyboard_view_t *kv, GdkRectangle *rect, const char *text)
+{
+    struct manual_tooltip_t *new_tooltip =
+        (struct manual_tooltip_t*)mem_pool_push_size (&kv->tooltips_pool, sizeof (struct manual_tooltip_t));
+    *new_tooltip = ZERO_INIT (struct manual_tooltip_t);
+    new_tooltip->rect = *rect;
+    new_tooltip->text = pom_strndup (&kv->tooltips_pool, text, strlen(text));
+    if (kv->first_tooltip == NULL) {
+        kv->first_tooltip = new_tooltip;
+    } else {
+        kv->last_tooltip->next = new_tooltip;
+    }
+    kv->last_tooltip = new_tooltip;
+}
+
+void kv_clear_manual_tooltips (struct keyboard_view_t *kv)
+{
+    kv->first_tooltip = NULL;
+    kv->last_tooltip = NULL;
+    mem_pool_destroy (&kv->tooltips_pool);
+    kv->tooltips_pool = ZERO_INIT (mem_pool_t);
+}
+
+// FIXME: @broken_tooltips_in_overlay
+void button_allocated (GtkWidget *widget, GdkRectangle *rect, gpointer user_data)
+{
+    gchar *text = gtk_widget_get_tooltip_text (widget);
+    kv_push_manual_tooltip (keyboard_view, rect, text);
+    g_free (text);
+}
+
+GtkWidget* toolbar_button_new (const char *icon_name, char *tooltip, GCallback callback, gpointer user_data)
 {
     GtkWidget *new_button = gtk_button_new_from_icon_name (icon_name, GTK_ICON_SIZE_SMALL_TOOLBAR);
-    gtk_widget_set_tooltip_text (new_button, tooltip);
     add_css_class (new_button, "flat");
     g_signal_connect (G_OBJECT(new_button), "clicked", callback, user_data);
+
+    gtk_widget_set_tooltip_text (new_button, tooltip);
+    // FIXME: @broken_tooltips_in_overlay
+    g_signal_connect (G_OBJECT(new_button), "size-allocate", G_CALLBACK(button_allocated), tooltip);
+
     gtk_widget_show (new_button);
+
     return new_button;
 }
 
@@ -575,7 +622,7 @@ void kv_set_simple_toolbar (GtkWidget **toolbar)
     }
 
     GtkWidget *edit_button = toolbar_button_new ("edit-symbolic",
-                                                 "Edit this view to match your keyboard",
+                                                 "Edit the view to match your keyboard",
                                                  G_CALLBACK (start_edit_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), edit_button, 0, 0, 1, 1);
 
@@ -601,7 +648,7 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
     gtk_grid_attach (GTK_GRID(*toolbar), stop_edit_button, 0, 0, 1, 1);
 
     GtkWidget *keycode_keypress = toolbar_button_new ("bug-symbolic",
-                                                      "Assign a keycode with a by pressing a key",
+                                                      "Assign a keycode by pressing a key",
                                                       G_CALLBACK (keycode_keypress_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), keycode_keypress, 1, 0, 1, 1);
 
@@ -609,6 +656,7 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
                                                       "Split keys",
                                                       G_CALLBACK (split_key_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), split_key_button, 2, 0, 1, 1);
+
 }
 
 void kv_set_key_split (struct keyboard_view_t *kv, double ptr_x)
@@ -687,6 +735,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
     switch (kv->state) {
         case KV_PREVIEW:
             if (cmd == KV_CMD_SET_MODE_EDIT) {
+                // FIXME: @broken_tooltips_in_overlay
+                kv_clear_manual_tooltips (kv);
                 kv_set_full_toolbar (&kv->toolbar);
                 kv->label_mode = KV_KEYCODE_LABELS;
                 kv->state = KV_EDIT;
@@ -703,6 +753,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
         case KV_EDIT:
             if (cmd == KV_CMD_SET_MODE_PREVIEW) {
+                // FIXME: @broken_tooltips_in_overlay
+                kv_clear_manual_tooltips (kv);
                 kv_set_simple_toolbar (&kv->toolbar);
                 kv->label_mode = KV_KEYSYM_LABELS;
                 kv->state = KV_PREVIEW;
@@ -836,16 +888,30 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
         return FALSE;
     }
 
+    gboolean show_tooltip = FALSE;
     GdkRectangle rect = {0};
     struct key_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect, NULL);
-    if (key != NULL && !key->unassigned) {
-        gtk_tooltip_set_text (tooltip, keycode_names[key->kc]);
+    if (key != NULL) {
+        if (!key->unassigned) {
+            gtk_tooltip_set_text (tooltip, keycode_names[key->kc]);
+            gtk_tooltip_set_tip_area (tooltip, &rect);
+            show_tooltip = TRUE;
+        }
 
-        gtk_tooltip_set_tip_area (tooltip, &rect);
-        return TRUE;
     } else {
-        return FALSE;
+        struct manual_tooltip_t *curr_tooltip = keyboard_view->first_tooltip;
+        while (curr_tooltip != NULL) {
+            if (is_in_rect (x, y, curr_tooltip->rect)) {
+                gtk_tooltip_set_text (tooltip, curr_tooltip->text);
+                gtk_tooltip_set_tip_area (tooltip, &curr_tooltip->rect);
+                show_tooltip = TRUE;
+                break;
+            }
+            curr_tooltip = curr_tooltip->next;
+        }
     }
+
+    return show_tooltip;
 }
 
 void keyboard_view_set_keymap (struct keyboard_view_t *kv, const char *keymap_name)
@@ -921,6 +987,17 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool, GtkWidget *window)
         g_signal_connect (G_OBJECT (kv_widget), "button-release-event", G_CALLBACK (kv_button_release), NULL);
         g_signal_connect (G_OBJECT (kv_widget), "motion-notify-event", G_CALLBACK (kv_motion_notify), NULL);
         g_object_set_property_bool (G_OBJECT (kv_widget), "has-tooltip", true);
+
+        // FIXME: Tooltips for children of a GtkOverlay appear to be broken (or
+        // I was unable set them up properly). Only one query-tooltip signal is
+        // sent to the overlay. Even if a children of the overlay has a tooltip,
+        // it never receives the query-tooltip signal. It's as if tooltip
+        // "events" don't trickle down to children.
+        //
+        // To work around this, we manually add tooltips for buttons in the
+        // toolbar. Then the correct tooltip is chosen in the handler for the
+        // query-tooltip signal, for the overlay.
+        // @broken_tooltips_in_overlay
         g_signal_connect (G_OBJECT (kv_widget), "query-tooltip", G_CALLBACK (kv_tooltip_handler), NULL);
         gtk_widget_show (kv_widget);
 

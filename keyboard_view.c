@@ -6,8 +6,7 @@ enum keyboard_view_state_t {
     KV_PREVIEW,
     KV_EDIT,
     KV_EDIT_KEYCODE_KEYPRESS,
-    KV_EDIT_KEY_SPLIT1,
-    KV_EDIT_KEY_SPLIT2,
+    KV_EDIT_KEY_SPLIT,
     //KV_EDIT_KEYCODE_LOOKUP,
     //KV_EDIT_KEY_WIDTH,
     //KV_EDIT_KEY_POSITION
@@ -18,6 +17,11 @@ enum keyboard_view_commands_t {
     KV_CMD_SET_MODE_PREVIEW,
     KV_CMD_SET_MODE_EDIT,
     KV_CMD_SPLIT_KEY
+};
+
+enum keyboard_view_tools_t {
+    KV_TOOL_KEYCODE_KEYPRESS,
+    KV_TOOL_SPLIT_KEY
 };
 
 enum keyboard_view_label_mode_t {
@@ -72,6 +76,7 @@ struct keyboard_view_t {
     struct key_t *selected_key;
     enum keyboard_view_state_t state;
     enum keyboard_view_label_mode_t label_mode;
+    enum keyboard_view_tools_t active_tool;
 };
 
 #define kv_new_row(pool,kbd) kv_new_row_h(pool,kbd,1)
@@ -537,7 +542,22 @@ void stop_edit_handler (GtkButton *button, gpointer user_data)
 
 void split_key_handler (GtkButton *button, gpointer user_data)
 {
-    kv_update (keyboard_view, KV_CMD_SPLIT_KEY, NULL);
+    keyboard_view->active_tool = KV_TOOL_SPLIT_KEY;
+}
+
+void keycode_keypress_handler (GtkButton *button, gpointer user_data)
+{
+    keyboard_view->active_tool = KV_TOOL_KEYCODE_KEYPRESS;
+}
+
+GtkWidget* toolbar_button_new (const char *icon_name, const char *tooltip, GCallback callback, gpointer user_data)
+{
+    GtkWidget *new_button = gtk_button_new_from_icon_name (icon_name, GTK_ICON_SIZE_SMALL_TOOLBAR);
+    gtk_widget_set_tooltip_text (new_button, tooltip);
+    add_css_class (new_button, "flat");
+    g_signal_connect (G_OBJECT(new_button), "clicked", callback, user_data);
+    gtk_widget_show (new_button);
+    return new_button;
 }
 
 void kv_set_simple_toolbar (GtkWidget **toolbar)
@@ -554,10 +574,9 @@ void kv_set_simple_toolbar (GtkWidget **toolbar)
                                NULL);
     }
 
-    GtkWidget *edit_button = gtk_button_new_from_icon_name ("edit-symbolic", GTK_ICON_SIZE_SMALL_TOOLBAR);
-    g_signal_connect (G_OBJECT(edit_button), "clicked", G_CALLBACK (start_edit_handler), NULL);
-    add_css_class (edit_button, "flat");
-    gtk_widget_show (edit_button);
+    GtkWidget *edit_button = toolbar_button_new ("edit-symbolic",
+                                                 "Edit this view to match your keyboard",
+                                                 G_CALLBACK (start_edit_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), edit_button, 0, 0, 1, 1);
 
 }
@@ -576,17 +595,20 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
                                NULL);
     }
 
-    GtkWidget *stop_edit_button = gtk_button_new_from_icon_name ("close-symbolic", GTK_ICON_SIZE_SMALL_TOOLBAR);
-    add_css_class (stop_edit_button, "flat");
-    g_signal_connect (G_OBJECT(stop_edit_button), "clicked", G_CALLBACK (stop_edit_handler), NULL);
-    gtk_widget_show (stop_edit_button);
+    GtkWidget *stop_edit_button = toolbar_button_new ("close-symbolic",
+                                                      "Stop edit mode",
+                                                      G_CALLBACK (stop_edit_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), stop_edit_button, 0, 0, 1, 1);
 
-    GtkWidget *split_key_button = gtk_button_new_from_icon_name ("edit-cut-symbolic", GTK_ICON_SIZE_SMALL_TOOLBAR);
-    add_css_class (split_key_button, "flat");
-    g_signal_connect (G_OBJECT(split_key_button), "clicked", G_CALLBACK (split_key_handler), NULL);
-    gtk_widget_show (split_key_button);
-    gtk_grid_attach (GTK_GRID(*toolbar), split_key_button, 1, 0, 1, 1);
+    GtkWidget *keycode_keypress = toolbar_button_new ("bug-symbolic",
+                                                      "Assign a keycode with a by pressing a key",
+                                                      G_CALLBACK (keycode_keypress_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), keycode_keypress, 1, 0, 1, 1);
+
+    GtkWidget *split_key_button = toolbar_button_new ("edit-cut-symbolic",
+                                                      "Split keys",
+                                                      G_CALLBACK (split_key_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), split_key_button, 2, 0, 1, 1);
 }
 
 void kv_set_key_split (struct keyboard_view_t *kv, double ptr_x)
@@ -685,10 +707,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->label_mode = KV_KEYSYM_LABELS;
                 kv->state = KV_PREVIEW;
 
-            } else if (cmd == KV_CMD_SPLIT_KEY) {
-                kv->state = KV_EDIT_KEY_SPLIT1;
-
-            } else if (e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+            } else if (kv->active_tool == KV_TOOL_KEYCODE_KEYPRESS &&
+                       e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 // NOTE: We handle this on release because we are taking a grab of
                 // all input. Doing so on a key press breaks GTK's grab created
                 // before sending the event, which may cause trouble.
@@ -696,6 +716,23 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->selected_key = button_event_key;
                 grab_input (NULL, NULL);
                 kv->state = KV_EDIT_KEYCODE_KEYPRESS;
+
+            } else if (kv->active_tool == KV_TOOL_SPLIT_KEY &&
+                       e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+                // NOTE: This one is handled on release just for consistency.
+                // @select_is_release_based
+                kv->split_key_rect = button_event_key_rect;
+                kv->splitted_key = button_event_key;
+                kv->splitted_key_ptr = button_event_key_ptr;
+                kv->new_key = mem_pool_push_size (kv->pool, sizeof (struct key_t));
+                *(kv->new_key) = ZERO_INIT (struct key_t);
+                kv->new_key->unassigned = true;
+                kv->after_key = button_event_key->next_key;
+
+                GdkEventButton *event = (GdkEventButton*)e;
+                kv_set_key_split (kv, event->x);
+
+                kv->state = KV_EDIT_KEY_SPLIT;
             }
             break;
 
@@ -741,30 +778,13 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             }
             break;
 
-        case KV_EDIT_KEY_SPLIT1:
-              if (e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
-                kv->split_key_rect = button_event_key_rect;
-                kv->splitted_key = button_event_key;
-                kv->splitted_key_ptr = button_event_key_ptr;
-                kv->new_key = mem_pool_push_size (kv->pool, sizeof (struct key_t));
-                *(kv->new_key) = ZERO_INIT (struct key_t);
-                kv->new_key->unassigned = true;
-                kv->after_key = button_event_key->next_key;
-
-                GdkEventButton *event = (GdkEventButton*)e;
-                kv_set_key_split (kv, event->x);
-
-                kv->state = KV_EDIT_KEY_SPLIT2;
-            }
-            break;
-
-        case KV_EDIT_KEY_SPLIT2:
+        case KV_EDIT_KEY_SPLIT:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
                 kv_set_key_split (kv, event->x);
 
             } else if (e->type == GDK_BUTTON_RELEASE) {
-                kv->state = KV_EDIT_KEY_SPLIT1;
+                kv->state = KV_EDIT;
             }
             break;
     }

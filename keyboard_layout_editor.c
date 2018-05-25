@@ -362,9 +362,6 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
     no_custom_layouts_welcome_view = false;
     gdk_event_handler_set (handle_grab_broken, NULL, NULL);
 
-    g_signal_connect (G_OBJECT(window), "key-press-event", G_CALLBACK (key_press_handler), NULL);
-    g_signal_connect (G_OBJECT(window), "key-release-event", G_CALLBACK (key_release_handler), NULL);
-
     GtkWidget *header_bar = gtk_header_bar_new ();
     gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
     gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
@@ -378,7 +375,7 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
     gtk_window_set_titlebar (GTK_WINDOW(window), header_bar);
     gtk_widget_show (header_bar);
 
-    keyboard_view = keyboard_view_new (NULL);
+    keyboard_view = keyboard_view_new (NULL, window);
 
     GtkWidget *scrolled_custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
     set_custom_layouts_list (&custom_layout_list, custom_layouts, num_custom_layouts);

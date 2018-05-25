@@ -6,6 +6,8 @@ enum keyboard_view_state_t {
     KV_PREVIEW,
     KV_EDIT,
     KV_EDIT_KEYCODE_KEYPRESS,
+    KV_EDIT_KEY_SPLIT1,
+    KV_EDIT_KEY_SPLIT2,
     //KV_EDIT_KEYCODE_LOOKUP,
     //KV_EDIT_KEY_WIDTH,
     //KV_EDIT_KEY_POSITION
@@ -14,7 +16,8 @@ enum keyboard_view_state_t {
 enum keyboard_view_commands_t {
     KV_CMD_NONE,
     KV_CMD_SET_MODE_PREVIEW,
-    KV_CMD_SET_MODE_EDIT
+    KV_CMD_SET_MODE_EDIT,
+    KV_CMD_SPLIT_KEY
 };
 
 enum keyboard_view_label_mode_t {
@@ -23,7 +26,7 @@ enum keyboard_view_label_mode_t {
 };
 
 struct key_t {
-    int kc; //keycode, -1 means unassigned
+    int kc; //keycode
     float width; // normalized to default_key_size
     bool is_pressed;
     bool unassigned;
@@ -53,6 +56,13 @@ struct keyboard_view_t {
     // xkbcommon state
     struct xkb_keymap *xkb_keymap;
     struct xkb_state *xkb_state;
+
+    // KEY_SPLIT state
+    struct key_t *new_key;
+    struct key_t *splitted_key;
+    struct key_t **splitted_key_ptr;
+    struct key_t *after_key;
+    GdkRectangle split_key_rect;
 
     // GUI related information and state
     GtkWidget *widget;
@@ -438,7 +448,8 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
             if (keyboard_view->selected_key != NULL && curr_key == keyboard_view->selected_key) {
                 cr_render_key (cr, x_pos, y_pos, key_width, key_height, "", RGB_HEX(0xe34442));
 
-            } else if (curr_key->is_pressed || curr_key->kc == keyboard_view->clicked_kc) {
+            } else if (curr_key->is_pressed ||
+                       (!curr_key->unassigned && curr_key->kc == keyboard_view->clicked_kc)) {
                 cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB_HEX(0x90de4d));
 
             } else {
@@ -457,7 +468,8 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
     return FALSE;
 }
 
-struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, double y, GdkRectangle *rect)
+struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, double y,
+                                     GdkRectangle *rect, struct key_t ***parent_ptr)
 {
     double kbd_x, kbd_y;
     keyboard_view_get_margins (kv, &kbd_x, &kbd_y);
@@ -475,7 +487,7 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
         curr_row = curr_row->next_row;
     }
 
-    struct key_t *curr_key = NULL;
+    struct key_t *curr_key = NULL, *prev_key = NULL;
     if (curr_row != NULL) {
         curr_key = curr_row->first_key;
         while (curr_key != NULL) {
@@ -484,7 +496,19 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
                 break;
             }
 
+            prev_key = curr_key;
             curr_key = curr_key->next_key;
+        }
+    }
+
+    if (parent_ptr != NULL) {
+        *parent_ptr = NULL;
+        if (curr_key != NULL) {
+            if (prev_key == NULL) {
+                *parent_ptr = &curr_row->first_key;
+            } else {
+                *parent_ptr = &prev_key->next_key;
+            }
         }
     }
 
@@ -508,6 +532,11 @@ void start_edit_handler (GtkButton *button, gpointer user_data)
 void stop_edit_handler (GtkButton *button, gpointer user_data)
 {
     kv_update (keyboard_view, KV_CMD_SET_MODE_PREVIEW, NULL);
+}
+
+void split_key_handler (GtkButton *button, gpointer user_data)
+{
+    kv_update (keyboard_view, KV_CMD_SPLIT_KEY, NULL);
 }
 
 void kv_set_simple_toolbar (GtkWidget **toolbar)
@@ -551,6 +580,39 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
     g_signal_connect (G_OBJECT(stop_edit_button), "clicked", G_CALLBACK (stop_edit_handler), NULL);
     gtk_widget_show (stop_edit_button);
     gtk_grid_attach (GTK_GRID(*toolbar), stop_edit_button, 0, 0, 1, 1);
+
+    GtkWidget *split_key_button = gtk_button_new_from_icon_name ("edit-cut-symbolic", GTK_ICON_SIZE_SMALL_TOOLBAR);
+    add_css_class (split_key_button, "flat");
+    g_signal_connect (G_OBJECT(split_key_button), "clicked", G_CALLBACK (split_key_handler), NULL);
+    gtk_widget_show (split_key_button);
+    gtk_grid_attach (GTK_GRID(*toolbar), split_key_button, 1, 0, 1, 1);
+}
+
+void kv_set_key_split (struct keyboard_view_t *kv, double ptr_x)
+{
+    float min_width = 10 + 10;
+    float left_width, right_width;
+    left_width = CLAMP(ptr_x - kv->split_key_rect.x, min_width, kv->split_key_rect.width-min_width);
+    right_width = CLAMP(kv->split_key_rect.width - left_width, min_width, kv->split_key_rect.width-min_width);
+    left_width = floorf(left_width)/kv->default_key_size;
+    right_width = ceilf(right_width)/kv->default_key_size;
+
+    if (kv->split_key_rect.x + kv->split_key_rect.width/2 < ptr_x) {
+        *kv->splitted_key_ptr = kv->splitted_key;
+        kv->splitted_key->next_key = kv->new_key;
+        kv->new_key->next_key = kv->after_key;
+
+        kv->splitted_key->width = left_width;
+        kv->new_key->width = right_width;
+
+    } else {
+        *kv->splitted_key_ptr = kv->new_key;
+        kv->new_key->next_key = kv->splitted_key;
+        kv->splitted_key->next_key = kv->after_key;
+
+        kv->splitted_key->width = right_width;
+        kv->new_key->width = left_width;
+    }
 }
 
 void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, GdkEvent *e)
@@ -563,10 +625,19 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         e = &null_event;
     }
 
-    struct key_t *button_event_key = NULL;
+    struct key_t *button_event_key = NULL, **button_event_key_ptr = NULL;
+    GdkRectangle button_event_key_rect = {0};
     if (e->type == GDK_BUTTON_PRESS || e->type == GDK_BUTTON_RELEASE) {
         GdkEventButton *btn_e = (GdkEventButton*)e;
-        button_event_key = keyboard_view_get_key (kv, btn_e->x, btn_e->y, NULL);
+        button_event_key = keyboard_view_get_key (kv, btn_e->x, btn_e->y,
+                                                  &button_event_key_rect,
+                                                  &button_event_key_ptr);
+
+    } else if (e->type == GDK_MOTION_NOTIFY) {
+        GdkEventMotion *btn_e = (GdkEventMotion*)e;
+        button_event_key = keyboard_view_get_key (kv, btn_e->x, btn_e->y,
+                                                  &button_event_key_rect,
+                                                  &button_event_key_ptr);
     }
 
     uint16_t key_event_kc = 0;
@@ -613,6 +684,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->label_mode = KV_KEYSYM_LABELS;
                 kv->state = KV_PREVIEW;
 
+            } else if (cmd == KV_CMD_SPLIT_KEY) {
+                kv->state = KV_EDIT_KEY_SPLIT1;
+
             } else if (e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 // NOTE: We handle this on release because we are taking a grab of
                 // all input. Doing so on a key press breaks GTK's grab created
@@ -655,7 +729,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->state = KV_EDIT;
 
             } else if (e->type == GDK_BUTTON_RELEASE) { // @select_is_release_bassed
-                if (button_event_key == kv->selected_key) {
+                if (button_event_key == NULL || button_event_key == kv->selected_key) {
                     ungrab_input (NULL, NULL);
                     kv->selected_key = NULL;
                     kv->state = KV_EDIT;
@@ -663,6 +737,33 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     // Edit the newly clicked key.
                     kv->selected_key = button_event_key;
                 }
+            }
+            break;
+
+        case KV_EDIT_KEY_SPLIT1:
+              if (e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+                kv->split_key_rect = button_event_key_rect;
+                kv->splitted_key = button_event_key;
+                kv->splitted_key_ptr = button_event_key_ptr;
+                kv->new_key = mem_pool_push_size (kv->pool, sizeof (struct key_t));
+                *(kv->new_key) = ZERO_INIT (struct key_t);
+                kv->new_key->unassigned = true;
+                kv->after_key = button_event_key->next_key;
+
+                GdkEventButton *event = (GdkEventButton*)e;
+                kv_set_key_split (kv, event->x);
+
+                kv->state = KV_EDIT_KEY_SPLIT2;
+            }
+            break;
+
+        case KV_EDIT_KEY_SPLIT2:
+            if (e->type == GDK_MOTION_NOTIFY) {
+                GdkEventMotion *event = (GdkEventMotion*)e;
+                kv_set_key_split (kv, event->x);
+
+            } else if (e->type == GDK_BUTTON_RELEASE) {
+                kv->state = KV_EDIT_KEY_SPLIT1;
             }
             break;
     }
@@ -677,6 +778,12 @@ gboolean key_press_handler (GtkWidget *widget, GdkEvent *event, gpointer user_da
 }
 
 gboolean key_release_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+{
+    kv_update (keyboard_view, KV_CMD_NONE, event);
+    return TRUE;
+}
+
+gboolean kv_motion_notify (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
     kv_update (keyboard_view, KV_CMD_NONE, event);
     return TRUE;
@@ -709,7 +816,7 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
     }
 
     GdkRectangle rect = {0};
-    struct key_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect);
+    struct key_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect, NULL);
     if (key != NULL && !key->unassigned) {
         gtk_tooltip_set_text (tooltip, keycode_names[key->kc]);
 
@@ -762,7 +869,7 @@ void keyboard_view_set_keymap (struct keyboard_view_t *kv, const char *keymap_na
 // case everything will be freed when that pool is freed. If instead NULL is
 // passed, then we bootstrap a mem_pool_t and store everything there, in this
 // case keyboard_view_destroy() must be called when it is no longer needed.
-struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool)
+struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool, GtkWidget *window)
 {
     if (pool == NULL) {
         mem_pool_t bootstrap_pool = {0};
@@ -773,6 +880,9 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool)
     struct keyboard_view_t *kv = mem_pool_push_size (pool, sizeof(struct keyboard_view_t));
     *kv = ZERO_INIT(struct keyboard_view_t);
 
+    g_signal_connect (G_OBJECT(window), "key-press-event", G_CALLBACK (key_press_handler), NULL);
+    g_signal_connect (G_OBJECT(window), "key-release-event", G_CALLBACK (key_release_handler), NULL);
+
     // Build the GtkWidget as an Overlay of a GtkDrawingArea and a GtkGrid
     // containing the toolbar.
     //
@@ -781,11 +891,14 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool)
     // in the center of the keyboard view vertically.
     {
         GtkWidget *kv_widget = gtk_overlay_new ();
-        gtk_widget_add_events (kv_widget, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
+        gtk_widget_add_events (kv_widget,
+                               GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK |
+                               GDK_POINTER_MOTION_MASK);
         gtk_widget_set_vexpand (kv_widget, TRUE);
         gtk_widget_set_hexpand (kv_widget, TRUE);
         g_signal_connect (G_OBJECT (kv_widget), "button-press-event", G_CALLBACK (kv_button_press), NULL);
         g_signal_connect (G_OBJECT (kv_widget), "button-release-event", G_CALLBACK (kv_button_release), NULL);
+        g_signal_connect (G_OBJECT (kv_widget), "motion-notify-event", G_CALLBACK (kv_motion_notify), NULL);
         g_object_set_property_bool (G_OBJECT (kv_widget), "has-tooltip", true);
         g_signal_connect (G_OBJECT (kv_widget), "query-tooltip", G_CALLBACK (kv_tooltip_handler), NULL);
         gtk_widget_show (kv_widget);
@@ -805,6 +918,7 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool)
     keyboard_view_build_default_geometry (pool, kv);
     kv->pool = pool;
     kv->state = KV_PREVIEW;
+    kv_update (kv, KV_CMD_SET_MODE_EDIT, NULL);
 
     return kv;
 }

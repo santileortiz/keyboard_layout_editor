@@ -893,7 +893,16 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
     struct key_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect, NULL);
     if (key != NULL) {
         if (!key->unassigned) {
-            gtk_tooltip_set_text (tooltip, keycode_names[key->kc]);
+            if (keyboard_view->label_mode == KV_KEYCODE_LABELS) {
+                gtk_tooltip_set_text (tooltip, keycode_names[key->kc]);
+
+            } else { // KV_KEYSYM_LABELS
+                char buff[64];
+                xkb_keysym_t keysym = xkb_state_key_get_one_sym(keyboard_view->xkb_state, key->kc + 8);
+                xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
+                gtk_tooltip_set_text (tooltip, buff);
+            }
+
             gtk_tooltip_set_tip_area (tooltip, &rect);
             show_tooltip = TRUE;
         }

@@ -295,15 +295,16 @@ void cr_render_key_label (cairo_t *cr, const char *label, double x, double y, do
     g_object_unref (text_layout);
 }
 
+#define KEY_LEFT_MARGIN 5
+#define KEY_TOP_MARGIN 2
+#define KEY_CORNER_RADIUS 5
 void cr_render_key (cairo_t *cr, double x, double y, double width, double height,
                     const char *label, dvec4 color)
 {
-    float margin = 5;
-    float top_margin = 2;
     cr_rounded_box (cr, x+0.5, y+0.5,
                     width-1,
                     height-1,
-                    5);
+                    KEY_CORNER_RADIUS);
     cairo_set_source_rgb (cr, ARGS_RGB(color));
     cairo_fill_preserve (cr);
 
@@ -313,13 +314,13 @@ void cr_render_key (cairo_t *cr, double x, double y, double width, double height
     cairo_set_source_rgb (cr, 0, 0, 0);
     cairo_stroke (cr);
 
-    float cap_x = x+margin+0.5;
-    float cap_y = y+top_margin+0.5;
-    float cap_w = width-2*margin-1;
-    float cap_h = height-2*margin-1;
+    float cap_x = x+KEY_LEFT_MARGIN+0.5;
+    float cap_y = y+KEY_TOP_MARGIN+0.5;
+    float cap_w = width-2*KEY_LEFT_MARGIN-1;
+    float cap_h = height-2*KEY_LEFT_MARGIN-1;
     cr_rounded_box (cr, cap_x, cap_y,
                     cap_w, cap_h,
-                    5);
+                    KEY_CORNER_RADIUS);
     cairo_set_source_rgb (cr, ARGS_RGB(color));
     cairo_fill_preserve (cr);
 
@@ -590,7 +591,7 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
 
 void kv_set_key_split (struct keyboard_view_t *kv, double ptr_x)
 {
-    float min_width = 10 + 10;
+    float min_width = 2*KEY_LEFT_MARGIN + 2*KEY_CORNER_RADIUS;
     float left_width, right_width;
     left_width = CLAMP(ptr_x - kv->split_key_rect.x, min_width, kv->split_key_rect.width-min_width);
     right_width = CLAMP(kv->split_key_rect.width - left_width, min_width, kv->split_key_rect.width-min_width);

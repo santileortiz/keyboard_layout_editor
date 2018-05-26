@@ -21,7 +21,8 @@ enum keyboard_view_commands_t {
 
 enum keyboard_view_tools_t {
     KV_TOOL_KEYCODE_KEYPRESS,
-    KV_TOOL_SPLIT_KEY
+    KV_TOOL_SPLIT_KEY,
+    KV_TOOL_DELETE_KEY
 };
 
 enum keyboard_view_label_mode_t {
@@ -106,6 +107,16 @@ void kv_new_row_h (struct keyboard_view_t *kv, float height)
         kv->first_row = new_row;
         kv->last_row = new_row;
     }
+}
+
+void kv_remove_key (struct keyboard_view_t *kv, struct key_t **key_ptr)
+{
+    assert (key_ptr != NULL);
+
+    struct key_t *tmp = (*key_ptr)->next_key;
+    (*key_ptr)->next_key = kv->spare_keys;
+    kv->spare_keys = *key_ptr;
+    *key_ptr = tmp;
 }
 
 struct key_t* kv_allocate_key (struct keyboard_view_t *kv)
@@ -570,6 +581,11 @@ void split_key_handler (GtkButton *button, gpointer user_data)
     keyboard_view->active_tool = KV_TOOL_SPLIT_KEY;
 }
 
+void delete_key_handler (GtkButton *button, gpointer user_data)
+{
+    keyboard_view->active_tool = KV_TOOL_DELETE_KEY;
+}
+
 void keycode_keypress_handler (GtkButton *button, gpointer user_data)
 {
     keyboard_view->active_tool = KV_TOOL_KEYCODE_KEYPRESS;
@@ -667,10 +683,14 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
     gtk_grid_attach (GTK_GRID(*toolbar), keycode_keypress, 1, 0, 1, 1);
 
     GtkWidget *split_key_button = toolbar_button_new ("edit-cut-symbolic",
-                                                      "Split keys",
+                                                      "Split key",
                                                       G_CALLBACK (split_key_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), split_key_button, 2, 0, 1, 1);
 
+    GtkWidget *delete_key_button = toolbar_button_new ("edit-delete-symbolic",
+                                                      "Delete key",
+                                                      G_CALLBACK (delete_key_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), delete_key_button, 3, 0, 1, 1);
 }
 
 void kv_set_key_split (struct keyboard_view_t *kv, double ptr_x)
@@ -778,6 +798,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 // NOTE: We handle this on release because we are taking a grab of
                 // all input. Doing so on a key press breaks GTK's grab created
                 // before sending the event, which may cause trouble.
+                //
+                // For the other tools we default to make them release based
+                // just for consistency.
                 // @select_is_release_bassed
                 kv->selected_key = button_event_key;
                 grab_input (NULL, NULL);
@@ -785,8 +808,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (kv->active_tool == KV_TOOL_SPLIT_KEY &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
-                // NOTE: This one is handled on release just for consistency.
-                // @select_is_release_based
                 kv->split_key_rect = button_event_key_rect;
                 kv->splitted_key = button_event_key;
                 kv->splitted_key_ptr = button_event_key_ptr;
@@ -799,6 +820,10 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv_set_key_split (kv, event->x);
 
                 kv->state = KV_EDIT_KEY_SPLIT;
+
+            } else if (kv->active_tool == KV_TOOL_DELETE_KEY &&
+                       e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+                kv_remove_key (kv, button_event_key_ptr);
             }
             break;
 

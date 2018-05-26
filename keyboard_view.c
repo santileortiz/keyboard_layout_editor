@@ -57,6 +57,7 @@ struct keyboard_view_t {
     // Array of key_t pointers indexed by keycode. Provides fast access to keys
     // from a keycode. It's about 6KB in memory, maybe too much?
     struct key_t *keys_by_kc[KEY_MAX];
+    struct key_t *spare_keys;
 
     // For now we represent the geometry of the keyboard by having a linked list
     // of rows, each of which is a linked list of keys.
@@ -90,10 +91,10 @@ struct keyboard_view_t {
     enum keyboard_view_tools_t active_tool;
 };
 
-#define kv_new_row(pool,kbd) kv_new_row_h(pool,kbd,1)
-void kv_new_row_h (mem_pool_t *pool, struct keyboard_view_t *kv, float height)
+#define kv_new_row(kbd) kv_new_row_h(kbd,1)
+void kv_new_row_h (struct keyboard_view_t *kv, float height)
 {
-    struct row_t *new_row = (struct row_t*)pom_push_struct (pool, struct row_t);
+    struct row_t *new_row = (struct row_t*)pom_push_struct (kv->pool, struct row_t);
     *new_row = (struct row_t){0};
     new_row->height = height;
 
@@ -107,12 +108,25 @@ void kv_new_row_h (mem_pool_t *pool, struct keyboard_view_t *kv, float height)
     }
 }
 
-#define kv_add_key(pool,kbd,keycode) kv_add_key_w(pool,kbd,keycode,1)
-void kv_add_key_w (mem_pool_t *pool, struct keyboard_view_t *kv, int keycode, float width)
+struct key_t* kv_allocate_key (struct keyboard_view_t *kv)
 {
-    struct key_t *new_key = (struct key_t*)pom_push_struct (pool, struct key_t);
-    kv->keys_by_kc[keycode] = new_key;
+    struct key_t *new_key;
+    if (kv->spare_keys == NULL) {
+        new_key = (struct key_t*)pom_push_struct (kv->pool, struct key_t);
+    } else {
+        new_key = kv->spare_keys;
+        kv->spare_keys = new_key->next_key;
+    }
+
     *new_key = (struct key_t){0};
+    return new_key;
+}
+
+#define kv_add_key(kbd,keycode) kv_add_key_w(kbd,keycode,1)
+void kv_add_key_w (struct keyboard_view_t *kv, int keycode, float width)
+{
+    struct key_t *new_key = kv_allocate_key (kv);
+    kv->keys_by_kc[keycode] = new_key;
     new_key->width = width;
     new_key->kc = keycode;
 
@@ -164,103 +178,103 @@ void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
 // Simple default keyboard geometry.
 // NOTE: Keycodes are used as defined in the linux kernel. To translate them
 // into X11 keycodes offset them by 8 (x11_kc = kc+8).
-void keyboard_view_build_default_geometry (mem_pool_t *pool, struct keyboard_view_t *kv)
+void keyboard_view_build_default_geometry (struct keyboard_view_t *kv)
 {
     kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
-    kv_new_row (pool, kv);
-    kv_add_key (pool, kv, KEY_ESC);
-    kv_add_key (pool, kv, KEY_F1);
-    kv_add_key (pool, kv, KEY_F2);
-    kv_add_key (pool, kv, KEY_F3);
-    kv_add_key (pool, kv, KEY_F4);
-    kv_add_key (pool, kv, KEY_F5);
-    kv_add_key (pool, kv, KEY_F6);
-    kv_add_key (pool, kv, KEY_F7);
-    kv_add_key (pool, kv, KEY_F8);
-    kv_add_key (pool, kv, KEY_F9);
-    kv_add_key (pool, kv, KEY_F10);
-    kv_add_key (pool, kv, KEY_F11);
-    kv_add_key (pool, kv, KEY_F12);
-    kv_add_key (pool, kv, KEY_NUMLOCK);
-    kv_add_key (pool, kv, KEY_SCROLLLOCK);
-    kv_add_key (pool, kv, KEY_INSERT);
+    kv_new_row (kv);
+    kv_add_key (kv, KEY_ESC);
+    kv_add_key (kv, KEY_F1);
+    kv_add_key (kv, KEY_F2);
+    kv_add_key (kv, KEY_F3);
+    kv_add_key (kv, KEY_F4);
+    kv_add_key (kv, KEY_F5);
+    kv_add_key (kv, KEY_F6);
+    kv_add_key (kv, KEY_F7);
+    kv_add_key (kv, KEY_F8);
+    kv_add_key (kv, KEY_F9);
+    kv_add_key (kv, KEY_F10);
+    kv_add_key (kv, KEY_F11);
+    kv_add_key (kv, KEY_F12);
+    kv_add_key (kv, KEY_NUMLOCK);
+    kv_add_key (kv, KEY_SCROLLLOCK);
+    kv_add_key (kv, KEY_INSERT);
 
-    kv_new_row (pool, kv);
-    kv_add_key (pool, kv, KEY_GRAVE);
-    kv_add_key (pool, kv, KEY_1);
-    kv_add_key (pool, kv, KEY_2);
-    kv_add_key (pool, kv, KEY_3);
-    kv_add_key (pool, kv, KEY_4);
-    kv_add_key (pool, kv, KEY_5);
-    kv_add_key (pool, kv, KEY_6);
-    kv_add_key (pool, kv, KEY_7);
-    kv_add_key (pool, kv, KEY_8);
-    kv_add_key (pool, kv, KEY_9);
-    kv_add_key (pool, kv, KEY_0);
-    kv_add_key (pool, kv, KEY_MINUS);
-    kv_add_key (pool, kv, KEY_EQUAL);
-    kv_add_key_w (pool, kv, KEY_BACKSPACE, 2);
-    kv_add_key (pool, kv, KEY_HOME);
+    kv_new_row (kv);
+    kv_add_key (kv, KEY_GRAVE);
+    kv_add_key (kv, KEY_1);
+    kv_add_key (kv, KEY_2);
+    kv_add_key (kv, KEY_3);
+    kv_add_key (kv, KEY_4);
+    kv_add_key (kv, KEY_5);
+    kv_add_key (kv, KEY_6);
+    kv_add_key (kv, KEY_7);
+    kv_add_key (kv, KEY_8);
+    kv_add_key (kv, KEY_9);
+    kv_add_key (kv, KEY_0);
+    kv_add_key (kv, KEY_MINUS);
+    kv_add_key (kv, KEY_EQUAL);
+    kv_add_key_w (kv, KEY_BACKSPACE, 2);
+    kv_add_key (kv, KEY_HOME);
 
-    kv_new_row (pool, kv);
-    kv_add_key_w (pool, kv, KEY_TAB, 1.5);
-    kv_add_key (pool, kv, KEY_Q);
-    kv_add_key (pool, kv, KEY_W);
-    kv_add_key (pool, kv, KEY_E);
-    kv_add_key (pool, kv, KEY_R);
-    kv_add_key (pool, kv, KEY_T);
-    kv_add_key (pool, kv, KEY_Y);
-    kv_add_key (pool, kv, KEY_U);
-    kv_add_key (pool, kv, KEY_I);
-    kv_add_key (pool, kv, KEY_O);
-    kv_add_key (pool, kv, KEY_P);
-    kv_add_key (pool, kv, KEY_LEFTBRACE);
-    kv_add_key (pool, kv, KEY_RIGHTBRACE);
-    kv_add_key_w (pool, kv, KEY_BACKSLASH, 1.5);
-    kv_add_key (pool, kv, KEY_PAGEUP);
+    kv_new_row (kv);
+    kv_add_key_w (kv, KEY_TAB, 1.5);
+    kv_add_key (kv, KEY_Q);
+    kv_add_key (kv, KEY_W);
+    kv_add_key (kv, KEY_E);
+    kv_add_key (kv, KEY_R);
+    kv_add_key (kv, KEY_T);
+    kv_add_key (kv, KEY_Y);
+    kv_add_key (kv, KEY_U);
+    kv_add_key (kv, KEY_I);
+    kv_add_key (kv, KEY_O);
+    kv_add_key (kv, KEY_P);
+    kv_add_key (kv, KEY_LEFTBRACE);
+    kv_add_key (kv, KEY_RIGHTBRACE);
+    kv_add_key_w (kv, KEY_BACKSLASH, 1.5);
+    kv_add_key (kv, KEY_PAGEUP);
 
-    kv_new_row (pool, kv);
-    kv_add_key_w (pool, kv, KEY_CAPSLOCK, 1.75);
-    kv_add_key (pool, kv, KEY_A);
-    kv_add_key (pool, kv, KEY_S);
-    kv_add_key (pool, kv, KEY_D);
-    kv_add_key (pool, kv, KEY_F);
-    kv_add_key (pool, kv, KEY_G);
-    kv_add_key (pool, kv, KEY_H);
-    kv_add_key (pool, kv, KEY_J);
-    kv_add_key (pool, kv, KEY_K);
-    kv_add_key (pool, kv, KEY_L);
-    kv_add_key (pool, kv, KEY_SEMICOLON);
-    kv_add_key (pool, kv, KEY_APOSTROPHE);
-    kv_add_key_w (pool, kv, KEY_ENTER, 2.25);
-    kv_add_key (pool, kv, KEY_PAGEDOWN);
+    kv_new_row (kv);
+    kv_add_key_w (kv, KEY_CAPSLOCK, 1.75);
+    kv_add_key (kv, KEY_A);
+    kv_add_key (kv, KEY_S);
+    kv_add_key (kv, KEY_D);
+    kv_add_key (kv, KEY_F);
+    kv_add_key (kv, KEY_G);
+    kv_add_key (kv, KEY_H);
+    kv_add_key (kv, KEY_J);
+    kv_add_key (kv, KEY_K);
+    kv_add_key (kv, KEY_L);
+    kv_add_key (kv, KEY_SEMICOLON);
+    kv_add_key (kv, KEY_APOSTROPHE);
+    kv_add_key_w (kv, KEY_ENTER, 2.25);
+    kv_add_key (kv, KEY_PAGEDOWN);
 
-    kv_new_row (pool, kv);
-    kv_add_key_w (pool, kv, KEY_LEFTSHIFT, 2.25);
-    kv_add_key (pool, kv, KEY_Z);
-    kv_add_key (pool, kv, KEY_X);
-    kv_add_key (pool, kv, KEY_C);
-    kv_add_key (pool, kv, KEY_V);
-    kv_add_key (pool, kv, KEY_B);
-    kv_add_key (pool, kv, KEY_N);
-    kv_add_key (pool, kv, KEY_M);
-    kv_add_key (pool, kv, KEY_COMMA);
-    kv_add_key (pool, kv, KEY_DOT);
-    kv_add_key (pool, kv, KEY_SLASH);
-    kv_add_key_w (pool, kv, KEY_RIGHTSHIFT, 1.75);
-    kv_add_key (pool, kv, KEY_UP);
-    kv_add_key (pool, kv, KEY_END);
+    kv_new_row (kv);
+    kv_add_key_w (kv, KEY_LEFTSHIFT, 2.25);
+    kv_add_key (kv, KEY_Z);
+    kv_add_key (kv, KEY_X);
+    kv_add_key (kv, KEY_C);
+    kv_add_key (kv, KEY_V);
+    kv_add_key (kv, KEY_B);
+    kv_add_key (kv, KEY_N);
+    kv_add_key (kv, KEY_M);
+    kv_add_key (kv, KEY_COMMA);
+    kv_add_key (kv, KEY_DOT);
+    kv_add_key (kv, KEY_SLASH);
+    kv_add_key_w (kv, KEY_RIGHTSHIFT, 1.75);
+    kv_add_key (kv, KEY_UP);
+    kv_add_key (kv, KEY_END);
 
-    kv_new_row (pool, kv);
-    kv_add_key_w (pool, kv, KEY_LEFTCTRL, 1.5);
-    kv_add_key_w (pool, kv, KEY_LEFTMETA, 1.5);
-    kv_add_key_w (pool, kv, KEY_LEFTALT, 1.5);
-    kv_add_key_w (pool, kv, KEY_SPACE, 5.5);
-    kv_add_key_w (pool, kv, KEY_RIGHTALT, 1.5);
-    kv_add_key_w (pool, kv, KEY_RIGHTCTRL, 1.5);
-    kv_add_key (pool, kv, KEY_LEFT);
-    kv_add_key (pool, kv, KEY_DOWN);
-    kv_add_key (pool, kv, KEY_RIGHT);
+    kv_new_row (kv);
+    kv_add_key_w (kv, KEY_LEFTCTRL, 1.5);
+    kv_add_key_w (kv, KEY_LEFTMETA, 1.5);
+    kv_add_key_w (kv, KEY_LEFTALT, 1.5);
+    kv_add_key_w (kv, KEY_SPACE, 5.5);
+    kv_add_key_w (kv, KEY_RIGHTALT, 1.5);
+    kv_add_key_w (kv, KEY_RIGHTCTRL, 1.5);
+    kv_add_key (kv, KEY_LEFT);
+    kv_add_key (kv, KEY_DOWN);
+    kv_add_key (kv, KEY_RIGHT);
 }
 
 void cr_render_key_label (cairo_t *cr, const char *label, double x, double y, double width, double height)
@@ -776,8 +790,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->split_key_rect = button_event_key_rect;
                 kv->splitted_key = button_event_key;
                 kv->splitted_key_ptr = button_event_key_ptr;
-                kv->new_key = mem_pool_push_size (kv->pool, sizeof (struct key_t));
-                *(kv->new_key) = ZERO_INIT (struct key_t);
+
+                kv->new_key = kv_allocate_key (kv);
                 kv->new_key->unassigned = true;
                 kv->after_key = button_event_key->next_key;
 
@@ -837,6 +851,21 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (e->type == GDK_BUTTON_RELEASE) {
                 kv->state = KV_EDIT;
+
+            } else if (e->type == GDK_KEY_PRESS) {
+                if (key_event_kc - 8 == KEY_ESC) {
+                    // Add allocated key into the spare key list
+                    kv->new_key->next_key = kv->spare_keys;
+                    kv->spare_keys = kv->new_key;
+
+                    // Get the row list back to normal
+                    *kv->splitted_key_ptr = kv->splitted_key;
+                    kv->splitted_key->next_key = kv->after_key;
+                    kv->splitted_key->width = kv->split_key_rect.width/kv->default_key_size;;
+
+                    kv->state = KV_EDIT;
+                }
+
             }
             break;
     }
@@ -1022,7 +1051,7 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool, GtkWidget *window)
     kv_set_simple_toolbar (&kv->toolbar);
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
 
-    keyboard_view_build_default_geometry (pool, kv);
+    keyboard_view_build_default_geometry (kv);
     kv->pool = pool;
     kv->state = KV_PREVIEW;
     kv_update (kv, KV_CMD_SET_MODE_EDIT, NULL);

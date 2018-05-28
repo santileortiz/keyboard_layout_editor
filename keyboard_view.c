@@ -30,12 +30,21 @@ enum keyboard_view_label_mode_t {
     KV_KEYCODE_LABELS,
 };
 
+enum key_render_type_t {
+    KEY_DEFAULT,
+    KEY_PRESSED,
+    KEY_UNASSIGNED,
+    KEY_MULTIROW_SEGMENT, // Inherits glue and width from parent
+    KEY_MULTIROW_SEGMENT_SIZED
+};
+
 struct key_t {
     int kc; //keycode
     float width; // normalized to default_key_size
-    bool is_pressed;
-    bool unassigned;
+    float start_glue, end_glue;
+    enum key_render_type_t type;
     struct key_t *next_key;
+    struct key_t *next_multirow;
 };
 
 struct row_t {
@@ -133,12 +142,22 @@ struct key_t* kv_allocate_key (struct keyboard_view_t *kv)
     return new_key;
 }
 
-#define kv_add_key(kbd,keycode) kv_add_key_w(kbd,keycode,1)
-void kv_add_key_w (struct keyboard_view_t *kv, int keycode, float width)
+#define kv_add_key(kbd,keycode)     kv_add_key_full(kbd,keycode,1,0,0)
+#define kv_add_key_w(kbd,keycode,w) kv_add_key_full(kbd,keycode,w,0,0)
+struct key_t* kv_add_key_full (struct keyboard_view_t *kv, int keycode,
+                      float width, float start_glue, float end_glue)
 {
     struct key_t *new_key = kv_allocate_key (kv);
-    kv->keys_by_kc[keycode] = new_key;
     new_key->width = width;
+    new_key->start_glue = start_glue;
+    new_key->end_glue = end_glue;
+
+    if (0 < keycode && keycode < KEY_CNT) {
+        kv->keys_by_kc[keycode] = new_key;
+    } else {
+        new_key->type = KEY_UNASSIGNED;
+        keycode = 0;
+    }
     new_key->kc = keycode;
 
     struct row_t *curr_row = kv->last_row;
@@ -152,6 +171,8 @@ void kv_add_key_w (struct keyboard_view_t *kv, int keycode, float width)
         curr_row->first_key = new_key;
         curr_row->last_key = new_key;
     }
+
+    return new_key;
 }
 
 void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
@@ -184,6 +205,59 @@ void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
     if (height != NULL) {
         *height = h;
     }
+}
+
+// Compute the width and height of a key and return wether or not the key is
+// rectangular.
+//
+// If _key_ is part of a multirow key, but it's still rectanglar (the multirow
+// list has no segment of type KEY_MULTIROW_SEGMENT_SIZED) _width_ and _height_
+// are set to the size of the full multirow key and true is returned. Otherwise,
+// _width_ and _height_ are set to the segment of the multirow key represented
+// by _key_ and false is returned.
+bool compute_key_size (struct keyboard_view_t *kv, struct key_t *key, struct row_t *row,
+                       float *width, float *height)
+{
+    assert (width != NULL && height != NULL);
+
+    bool is_rectangular = true;
+    float multirow_key_height = row->height*kv->default_key_size;
+    if (key->next_multirow != NULL) {
+        struct key_t *curr_key = key->next_multirow;
+        struct row_t *curr_row;
+        // FIXME: THIS IS HORRIBLE!!!
+        if (row->next_row == NULL) {
+            curr_row = kv->first_row;
+        } else {
+            curr_row = row->next_row;
+        }
+
+        while (curr_key != key) {
+            if (curr_key->type == KEY_MULTIROW_SEGMENT_SIZED) {
+                is_rectangular = false;
+            }
+
+            multirow_key_height += curr_row->height*kv->default_key_size;
+
+            // FIXME: THIS IS HORRIBLE!!!
+            if (curr_row->next_row == NULL) {
+                curr_row = kv->first_row;
+            } else {
+                curr_row = curr_row->next_row;
+            }
+            curr_key = curr_key->next_multirow;
+        }
+    }
+
+    if (is_rectangular && key->next_multirow != NULL) {
+        *height = multirow_key_height;
+    } else {
+        *height = row->height*kv->default_key_size;
+    }
+
+    *width = key->width*kv->default_key_size;
+
+    return true;
 }
 
 // Simple default keyboard geometry.
@@ -286,6 +360,32 @@ void keyboard_view_build_default_geometry (struct keyboard_view_t *kv)
     kv_add_key (kv, KEY_LEFT);
     kv_add_key (kv, KEY_DOWN);
     kv_add_key (kv, KEY_RIGHT);
+}
+
+void kv_add_key_multirow (struct keyboard_view_t *kv, struct key_t *parent, float width)
+{
+    struct key_t *new_key = kv_add_key_w (kv, -1, parent->width);
+    new_key->type = KEY_MULTIROW_SEGMENT;
+    parent->next_multirow = new_key;
+    new_key->next_multirow = parent;
+}
+
+void multirow_test_geometry (struct keyboard_view_t *kv)
+{
+    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
+    kv_new_row (kv);
+    kv_add_key (kv, KEY_Q);
+    struct key_t *parent1 = kv_add_key (kv, KEY_W);
+    kv_add_key (kv, KEY_E);
+    struct key_t *parent2 = kv_add_key (kv, KEY_R);
+    kv_add_key (kv, KEY_T);
+
+    kv_new_row (kv);
+    kv_add_key (kv, KEY_A);
+    kv_add_key_multirow (kv, parent1, 1);
+    kv_add_key (kv, KEY_D);
+    kv_add_key_multirow (kv, parent2, 1);
+    kv_add_key (kv, KEY_F);
 }
 
 void cr_render_key_label (cairo_t *cr, const char *label, double x, double y, double width, double height)
@@ -433,14 +533,12 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
     while (curr_row != NULL) {
         struct key_t *curr_key = curr_row->first_key;
         double x_pos = left_margin;
-        double key_height = curr_row->height*kv->default_key_size;
         while (curr_key != NULL) {
-            double key_width = curr_key->width*kv->default_key_size;
 
             // Compute the label for the key
             char buff[64];
             buff[0] = '\0';
-            if (!curr_key->unassigned) {
+            if (curr_key->type == KEY_DEFAULT || curr_key->type == KEY_PRESSED) {
                 switch (keyboard_view->label_mode) {
                     case KV_KEYSYM_LABELS:
                         if (curr_key->kc == KEY_FN) {
@@ -486,23 +584,30 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
                 }
             }
 
+            x_pos += curr_key->start_glue*kv->default_key_size;
+
+            float key_width, key_height;
+            compute_key_size (kv, curr_key, curr_row, &key_width, &key_height);
             // Draw the key with the appropiate label/color
-            if (keyboard_view->selected_key != NULL && curr_key == keyboard_view->selected_key) {
-                cr_render_key (cr, x_pos, y_pos, key_width, key_height, "", RGB_HEX(0xe34442));
+            // TODO: Simplify this conditions
+            if (curr_key->type != KEY_MULTIROW_SEGMENT) {
+                if (keyboard_view->selected_key != NULL && curr_key == keyboard_view->selected_key) {
+                    cr_render_key (cr, x_pos, y_pos, key_width, key_height, "", RGB_HEX(0xe34442));
 
-            } else if (curr_key->is_pressed ||
-                       (!curr_key->unassigned && curr_key->kc == keyboard_view->clicked_kc)) {
-                cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB_HEX(0x90de4d));
+                } else if (curr_key->type == KEY_PRESSED ||
+                           (curr_key->type != KEY_UNASSIGNED && curr_key->kc == keyboard_view->clicked_kc)) {
+                    cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB_HEX(0x90de4d));
 
-            } else {
-                cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB(1,1,1));
+                } else {
+                    cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB(1,1,1));
+                }
             }
 
-            x_pos += key_width;
+            x_pos += key_width + curr_key->end_glue*kv->default_key_size;
             curr_key = curr_key->next_key;
         }
 
-        y_pos += key_height;
+        y_pos += curr_row->height*kv->default_key_size;
         curr_row = curr_row->next_row;
     }
 
@@ -543,23 +648,43 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
         }
     }
 
-    if (parent_ptr != NULL) {
-        *parent_ptr = NULL;
-        if (curr_key != NULL) {
-            if (prev_key == NULL) {
-                *parent_ptr = &curr_row->first_key;
-            } else {
-                *parent_ptr = &prev_key->next_key;
+    if (curr_key != NULL) {
+        if (rect != NULL) {
+            float key_width, key_height;
+            compute_key_size (kv, curr_key, curr_row, &key_width, &key_height);
+            rect->width = (int)key_width;
+            rect->height = (int)key_height;
+
+            // TODO: Properly compute the position of the rectangle
+            rect->y = kbd_y - rect->height;
+            rect->x = kbd_x - rect->width;
+        }
+
+        if (curr_key->type == KEY_MULTIROW_SEGMENT ||
+            curr_key->type == KEY_MULTIROW_SEGMENT_SIZED) {
+
+            struct key_t *multirow_parent = curr_key->next_multirow;
+            while (multirow_parent != curr_key) {
+                if (multirow_parent->type != KEY_MULTIROW_SEGMENT ||
+                    multirow_parent->type != KEY_MULTIROW_SEGMENT_SIZED) {
+                    break;
+                }
+                multirow_parent = multirow_parent->next_multirow;
+            }
+
+            curr_key = multirow_parent;
+        }
+
+        if (parent_ptr != NULL) {
+            *parent_ptr = NULL;
+            if (curr_key != NULL) {
+                if (prev_key == NULL) {
+                    *parent_ptr = &curr_row->first_key;
+                } else {
+                    *parent_ptr = &prev_key->next_key;
+                }
             }
         }
-    }
-
-    if (curr_key != NULL && rect != NULL) {
-        rect->height = curr_row->height*kv->default_key_size;
-        rect->y = kbd_y - rect->height;
-
-        rect->width = curr_key->width*kv->default_key_size;
-        rect->x = kbd_x - rect->width;
     }
 
     return curr_key;
@@ -754,14 +879,14 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
     if (e->type == GDK_KEY_PRESS) {
         if (key_event_key != NULL) {
-            key_event_key->is_pressed = true;
+            key_event_key->type = KEY_PRESSED;
         }
         xkb_state_update_key(kv->xkb_state, key_event_kc, XKB_KEY_DOWN);
     }
 
     if (e->type == GDK_KEY_RELEASE) {
         if (key_event_key != NULL) {
-            key_event_key->is_pressed = false;
+            key_event_key->type = KEY_DEFAULT;
         }
         xkb_state_update_key(kv->xkb_state, key_event_kc, XKB_KEY_UP);
     }
@@ -813,7 +938,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->splitted_key_ptr = button_event_key_ptr;
 
                 kv->new_key = kv_allocate_key (kv);
-                kv->new_key->unassigned = true;
+                kv->new_key->type = KEY_UNASSIGNED;
                 kv->after_key = button_event_key->next_key;
 
                 GdkEventButton *event = (GdkEventButton*)e;
@@ -832,22 +957,21 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 // If the keycode was already assigned, unassign it from that
                 // key.
                 if (key_event_key != NULL) {
-                    key_event_key->unassigned = true;
                     // NOTE: Because key_event_key won't be accessible again
                     // through keys_by_kc (the selected key wil take it's place
                     // there), then it would remain pressed unless we do this.
-                    key_event_key->is_pressed = false;
+                    key_event_key->type = KEY_UNASSIGNED;
                 }
 
-                // If selected_key has something assigned, remove it's pointer
+                // If selected_key has a keycode assigned, remove it's pointer
                 // from keys_by_kc because it will change position.
-                if (!kv->selected_key->unassigned) {
+                if (kv->selected_key->type == KEY_PRESSED || kv->selected_key->type == KEY_DEFAULT) {
                     kv->keys_by_kc[kv->selected_key->kc] = NULL;
                 }
 
                 // Update selected_key info
                 kv->selected_key->kc = key_event_kc-8;
-                kv->selected_key->unassigned = false;
+                kv->selected_key->type = KEY_DEFAULT;
 
                 // Put a pointer to selected_key in the correct position in
                 // keys_by_kc.
@@ -946,7 +1070,7 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
     GdkRectangle rect = {0};
     struct key_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect, NULL);
     if (key != NULL) {
-        if (!key->unassigned) {
+        if (key->type == KEY_DEFAULT || key->type == KEY_PRESSED) {
             if (keyboard_view->label_mode == KV_KEYCODE_LABELS) {
                 gtk_tooltip_set_text (tooltip, keycode_names[key->kc]);
 
@@ -959,6 +1083,8 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
 
             gtk_tooltip_set_tip_area (tooltip, &rect);
             show_tooltip = TRUE;
+        } else if (key->type == KEY_MULTIROW_SEGMENT) {
+            // TODO: Look for the parent key and show that tooltip.
         }
 
     } else {
@@ -1076,7 +1202,8 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool, GtkWidget *window)
     kv_set_simple_toolbar (&kv->toolbar);
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
 
-    keyboard_view_build_default_geometry (kv);
+    multirow_test_geometry (kv);
+    //keyboard_view_build_default_geometry (kv);
     kv->pool = pool;
     kv->state = KV_PREVIEW;
     kv_update (kv, KV_CMD_SET_MODE_EDIT, NULL);

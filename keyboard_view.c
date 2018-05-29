@@ -207,6 +207,19 @@ void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
     }
 }
 
+static inline
+bool is_multirow_key (struct key_t *key)
+{
+    return key->next_multirow != NULL;
+}
+
+// NOTE: This function only makes sense if is_multirow(key) == true.
+static inline
+bool is_multirow_parent (struct key_t *key)
+{
+    return key->type != KEY_MULTIROW_SEGMENT && key->type != KEY_MULTIROW_SEGMENT_SIZED;
+}
+
 // Compute the width and height of a key and return wether or not the key is
 // rectangular.
 //
@@ -222,26 +235,29 @@ bool compute_key_size (struct keyboard_view_t *kv, struct key_t *key, struct row
 
     bool is_rectangular = true;
     float multirow_key_height = 0;
-    if (key->next_multirow != NULL) {
+    if (is_multirow_key (key)) {
         // Computing the height of a multirow key is a bit contrived for several
         // reasons. First, height is stored in the row not in the key. Second,
-        // _key_ can be any segment of the multirrow key. Because of this, we
-        // compute it in three steps:
+        // _key_ can be any segment of the multirrow key. We compute it in three
+        // steps:
 
         // 1) Iterate the multirow key. Decide if it's rectangular and if so,
         // compute the number of rows spanned by it and the index of _key_ in
-        // the multirow list, startig from the multirow parent.
+        // the multirow list, starting from the multirow parent.
         int key_num_rows = 0, key_offset = 0;
-        struct key_t *curr_key = key;
+
+        // NOTE: Start from key->next_multirow because _key_ must be the last
+        // element in the iteration. This handles the case for key_offset where
+        // _key_ is the parent.
+        struct key_t *curr_key = key->next_multirow;
         do {
             if (curr_key->type == KEY_MULTIROW_SEGMENT_SIZED) {
                 is_rectangular = false;
                 break;
             }
 
-            if (curr_key->type != KEY_MULTIROW_SEGMENT &&
-                curr_key->type != KEY_MULTIROW_SEGMENT_SIZED) {
-                key_offset = 1;
+            if (is_multirow_parent(curr_key)) {
+                key_offset = 0;
             } else {
                 key_offset++;
             }
@@ -249,13 +265,7 @@ bool compute_key_size (struct keyboard_view_t *kv, struct key_t *key, struct row
             key_num_rows++;
 
             curr_key = curr_key->next_multirow;
-        } while (curr_key != key);
-
-        // FIXME: Is there a better iteration above that also handles this case?
-        if (key->type != KEY_MULTIROW_SEGMENT &&
-            key->type != KEY_MULTIROW_SEGMENT_SIZED) {
-            key_offset = 0;
-        }
+        } while (curr_key != key->next_multirow);
 
         if (is_rectangular) {
             // 2) Compute the index of _row_ in the row list of _kv_.
@@ -278,8 +288,6 @@ bool compute_key_size (struct keyboard_view_t *kv, struct key_t *key, struct row
                 curr_row = curr_row->next_row;
                 i++;
             }
-
-            //printf ("%f\n", multirow_key_height);
         }
     }
 
@@ -704,13 +712,11 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
             rect->x = kbd_x - rect->width;
         }
 
-        if (curr_key->type == KEY_MULTIROW_SEGMENT ||
-            curr_key->type == KEY_MULTIROW_SEGMENT_SIZED) {
+        if (is_multirow_key(curr_key) && !is_multirow_parent(curr_key)) {
 
             struct key_t *multirow_parent = curr_key->next_multirow;
             while (multirow_parent != curr_key) {
-                if (multirow_parent->type != KEY_MULTIROW_SEGMENT ||
-                    multirow_parent->type != KEY_MULTIROW_SEGMENT_SIZED) {
+                if (is_multirow_parent (multirow_parent)) {
                     break;
                 }
                 multirow_parent = multirow_parent->next_multirow;

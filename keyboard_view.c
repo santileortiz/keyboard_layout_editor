@@ -139,13 +139,14 @@ struct key_t* kv_allocate_key (struct keyboard_view_t *kv)
     }
 
     *new_key = (struct key_t){0};
+    new_key->next_multirow = new_key; // This one is not NULL initialized!
     return new_key;
 }
 
 #define kv_add_key(kbd,keycode)     kv_add_key_full(kbd,keycode,1,0,0)
 #define kv_add_key_w(kbd,keycode,w) kv_add_key_full(kbd,keycode,w,0,0)
 struct key_t* kv_add_key_full (struct keyboard_view_t *kv, int keycode,
-                      float width, float start_glue, float end_glue)
+                               float width, float start_glue, float end_glue)
 {
     struct key_t *new_key = kv_allocate_key (kv);
     new_key->width = width;
@@ -210,10 +211,10 @@ void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
 static inline
 bool is_multirow_key (struct key_t *key)
 {
-    return key->next_multirow != NULL;
+    return key->next_multirow != key;
 }
 
-// NOTE: This function only makes sense if is_multirow(key) == true.
+// NOTE: Assumes is_multirow(key) == true.
 static inline
 bool is_multirow_parent (struct key_t *key)
 {
@@ -291,7 +292,7 @@ bool compute_key_size (struct keyboard_view_t *kv, struct key_t *key, struct row
         }
     }
 
-    if (is_rectangular && key->next_multirow != NULL) {
+    if (is_rectangular && is_multirow_key (key)) {
         *height = multirow_key_height*kv->default_key_size;
     } else {
         *height = row->height*kv->default_key_size;
@@ -404,12 +405,18 @@ void keyboard_view_build_default_geometry (struct keyboard_view_t *kv)
     kv_add_key (kv, KEY_RIGHT);
 }
 
-void kv_add_key_multirow (struct keyboard_view_t *kv, struct key_t *parent, float width)
+void kv_add_key_multirow (struct keyboard_view_t *kv, struct key_t *key, float width)
 {
-    struct key_t *new_key = kv_add_key_w (kv, -1, parent->width);
+    struct key_t *new_key = kv_add_key_w (kv, -1, key->width);
     new_key->type = KEY_MULTIROW_SEGMENT;
-    parent->next_multirow = new_key;
-    new_key->next_multirow = parent;
+
+    // Look for the last multirow segment so new_key is added after it.
+    while (!is_multirow_parent (key->next_multirow)) {
+        key = key->next_multirow;
+    }
+
+    new_key->next_multirow = key->next_multirow;
+    key->next_multirow = new_key;
 }
 
 void multirow_test_geometry (struct keyboard_view_t *kv)
@@ -419,25 +426,25 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
     struct key_t *multi1 = kv_add_key (kv, KEY_A);
     kv_add_key (kv, KEY_1);
     kv_add_key (kv, KEY_2);
-    //struct key_t *multi4 = kv_add_key (kv, KEY_D);
+    struct key_t *multi4 = kv_add_key (kv, KEY_D);
 
     kv_new_row (kv);
     kv_add_key_multirow (kv, multi1, 1);
     struct key_t *multi2 = kv_add_key (kv, KEY_B);
     kv_add_key (kv, KEY_3);
-    //kv_add_key_multirow (kv, multi4, 1);
+    kv_add_key_multirow (kv, multi4, 1);
 
     kv_new_row (kv);
     kv_add_key (kv, KEY_4);
     kv_add_key_multirow (kv, multi2, 1);
     struct key_t *multi3 = kv_add_key (kv, KEY_C);
-    //kv_add_key_multirow (kv, multi4, 1);
+    kv_add_key_multirow (kv, multi4, 1);
 
     kv_new_row (kv);
     kv_add_key (kv, KEY_5);
     kv_add_key (kv, KEY_6);
     kv_add_key_multirow (kv, multi3, 1);
-    //kv_add_key_multirow (kv, multi4, 1);
+    kv_add_key_multirow (kv, multi4, 1);
 }
 
 void cr_render_key_label (cairo_t *cr, const char *label, double x, double y, double width, double height)
@@ -712,17 +719,12 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
             rect->x = kbd_x - rect->width;
         }
 
+        // In a multirow key data is stored in the multirow parent. Make the
+        // return value the multirow parent of the key.
         if (is_multirow_key(curr_key) && !is_multirow_parent(curr_key)) {
-
-            struct key_t *multirow_parent = curr_key->next_multirow;
-            while (multirow_parent != curr_key) {
-                if (is_multirow_parent (multirow_parent)) {
-                    break;
-                }
-                multirow_parent = multirow_parent->next_multirow;
+            while (!is_multirow_parent (curr_key)) {
+                curr_key = curr_key->next_multirow;
             }
-
-            curr_key = multirow_parent;
         }
 
         if (parent_ptr != NULL) {

@@ -221,36 +221,70 @@ bool compute_key_size (struct keyboard_view_t *kv, struct key_t *key, struct row
     assert (width != NULL && height != NULL);
 
     bool is_rectangular = true;
-    float multirow_key_height = row->height*kv->default_key_size;
+    float multirow_key_height = 0;
     if (key->next_multirow != NULL) {
-        struct key_t *curr_key = key->next_multirow;
-        struct row_t *curr_row;
-        // FIXME: THIS IS HORRIBLE!!!
-        if (row->next_row == NULL) {
-            curr_row = kv->first_row;
-        } else {
-            curr_row = row->next_row;
-        }
+        // Computing the height of a multirow key is a bit contrived for several
+        // reasons. First, height is stored in the row not in the key. Second,
+        // _key_ can be any segment of the multirrow key. Because of this, we
+        // compute it in three steps:
 
-        while (curr_key != key) {
+        // 1) Iterate the multirow key. Decide if it's rectangular and if so,
+        // compute the number of rows spanned by it and the index of _key_ in
+        // the multirow list, startig from the multirow parent.
+        int key_num_rows = 0, key_offset = 0;
+        struct key_t *curr_key = key;
+        do {
             if (curr_key->type == KEY_MULTIROW_SEGMENT_SIZED) {
                 is_rectangular = false;
+                break;
             }
 
-            multirow_key_height += curr_row->height*kv->default_key_size;
-
-            // FIXME: THIS IS HORRIBLE!!!
-            if (curr_row->next_row == NULL) {
-                curr_row = kv->first_row;
+            if (curr_key->type != KEY_MULTIROW_SEGMENT &&
+                curr_key->type != KEY_MULTIROW_SEGMENT_SIZED) {
+                key_offset = 1;
             } else {
+                key_offset++;
+            }
+
+            key_num_rows++;
+
+            curr_key = curr_key->next_multirow;
+        } while (curr_key != key);
+
+        // FIXME: Is there a better iteration above that also handles this case?
+        if (key->type != KEY_MULTIROW_SEGMENT &&
+            key->type != KEY_MULTIROW_SEGMENT_SIZED) {
+            key_offset = 0;
+        }
+
+        if (is_rectangular) {
+            // 2) Compute the index of _row_ in the row list of _kv_.
+            struct row_t *curr_row = kv->first_row;
+            int row_idx = 0;
+            while (curr_row != row) {
+                row_idx++;
                 curr_row = curr_row->next_row;
             }
-            curr_key = curr_key->next_multirow;
+
+            // 3) Add heights for the rows in the multirow key.
+            int i = 0;
+            int multirow_parent_idx = row_idx - key_offset;
+            curr_row = kv->first_row;
+            while (curr_row != NULL && i < multirow_parent_idx + key_num_rows) {
+                if (i >= multirow_parent_idx) {
+                    multirow_key_height += curr_row->height;
+                }
+
+                curr_row = curr_row->next_row;
+                i++;
+            }
+
+            //printf ("%f\n", multirow_key_height);
         }
     }
 
     if (is_rectangular && key->next_multirow != NULL) {
-        *height = multirow_key_height;
+        *height = multirow_key_height*kv->default_key_size;
     } else {
         *height = row->height*kv->default_key_size;
     }
@@ -374,18 +408,28 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
 {
     kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
     kv_new_row (kv);
-    kv_add_key (kv, KEY_Q);
-    struct key_t *parent1 = kv_add_key (kv, KEY_W);
-    kv_add_key (kv, KEY_E);
-    struct key_t *parent2 = kv_add_key (kv, KEY_R);
-    kv_add_key (kv, KEY_T);
+    struct key_t *multi1 = kv_add_key (kv, KEY_A);
+    kv_add_key (kv, KEY_1);
+    kv_add_key (kv, KEY_2);
+    //struct key_t *multi4 = kv_add_key (kv, KEY_D);
 
     kv_new_row (kv);
-    kv_add_key (kv, KEY_A);
-    kv_add_key_multirow (kv, parent1, 1);
-    kv_add_key (kv, KEY_D);
-    kv_add_key_multirow (kv, parent2, 1);
-    kv_add_key (kv, KEY_F);
+    kv_add_key_multirow (kv, multi1, 1);
+    struct key_t *multi2 = kv_add_key (kv, KEY_B);
+    kv_add_key (kv, KEY_3);
+    //kv_add_key_multirow (kv, multi4, 1);
+
+    kv_new_row (kv);
+    kv_add_key (kv, KEY_4);
+    kv_add_key_multirow (kv, multi2, 1);
+    struct key_t *multi3 = kv_add_key (kv, KEY_C);
+    //kv_add_key_multirow (kv, multi4, 1);
+
+    kv_new_row (kv);
+    kv_add_key (kv, KEY_5);
+    kv_add_key (kv, KEY_6);
+    kv_add_key_multirow (kv, multi3, 1);
+    //kv_add_key_multirow (kv, multi4, 1);
 }
 
 void cr_render_key_label (cairo_t *cr, const char *label, double x, double y, double width, double height)

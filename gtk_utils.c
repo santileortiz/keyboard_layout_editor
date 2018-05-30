@@ -73,3 +73,184 @@ void cr_rounded_box (cairo_t *cr, double x, double y, double width, double heigh
     cairo_close_path (cr);
 }
 
+enum edge_direction {
+    EDGE_UP,
+    EDGE_RIGHT,
+    EDGE_LEFT,
+    EDGE_DOWN
+};
+
+static inline
+enum edge_direction opposite_direction (enum edge_direction dir)
+{
+    return dir^0x3;
+}
+
+void cr_draw_round_corner (cairo_t *cr, double x, double y, double r,
+                           enum edge_direction in, enum edge_direction out)
+{
+    switch (in) {
+        case EDGE_UP:
+            switch (out) {
+                case EDGE_RIGHT:
+                    cairo_arc (cr, x+r, y+r, r, M_PI, 3*M_PI/2);
+                    break;
+                case EDGE_LEFT:
+                    cairo_arc_negative (cr, x-r, y+r, r, 0, 3*M_PI/2);
+                    break;
+                default:
+                    invalid_code_path;
+            }
+            break;
+
+        case EDGE_RIGHT:
+            switch (out) {
+                case EDGE_UP:
+                    cairo_arc_negative (cr, x-r, y-r, r, M_PI/2, 0);
+                    break;
+                case EDGE_DOWN:
+                    cairo_arc (cr, x-r, y+r, r, 3*M_PI/2, 0);
+                    break;
+                default:
+                    invalid_code_path;
+            }
+            break;
+
+        case EDGE_DOWN:
+            switch (out) {
+                case EDGE_RIGHT:
+                    cairo_arc_negative (cr, x+r, y-r, r, M_PI, M_PI/2);
+                    break;
+                case EDGE_LEFT:
+                    cairo_arc (cr, x-r, y-r, r, 0, M_PI/2);
+                    break;
+                default:
+                    invalid_code_path;
+            }
+            break;
+
+        case EDGE_LEFT:
+            switch (out) {
+                case EDGE_UP:
+                    cairo_arc (cr, x+r, y-r, r, M_PI/2, M_PI);
+                    break;
+                case EDGE_DOWN:
+                    cairo_arc_negative (cr, x+r, y+r, r, 3*M_PI/2, M_PI);
+                    break;
+                default:
+                    invalid_code_path;
+            }
+            break;
+    }
+}
+
+// NOTE: The following implmentation for paths with round corners has only been
+// implemented for the keyboard usecase (i.e. orthogonal closed paths). More
+// testing and code is required for a general implementation.
+struct round_path_ctx {
+    cairo_t *cr;
+    double x_prev, y_prev;
+    double r; // Corner radius
+    enum edge_direction prev_dir;
+    bool start;
+    enum edge_direction start_dir;
+    double x_start, y_start;
+};
+
+struct round_path_ctx round_path_start (cairo_t *cr, double x, double y, double radius)
+{
+    struct round_path_ctx res;
+    res.start = true;
+    res.cr = cr;
+    res.x_prev = x;
+    res.y_prev = y;
+    res.x_start = x;
+    res.y_start = y;
+    res.r = radius;
+    return res;
+}
+
+void round_path_move_to (struct round_path_ctx *ctx, double x, double y)
+{
+    assert ((x == ctx->x_prev || y == ctx->y_prev) && "Only orthogonal shapes are supported");
+
+    enum edge_direction new_dir;
+    if (ctx->x_prev == x) {
+        // Horizontal line
+        if (ctx->y_prev < y) {
+            new_dir = EDGE_DOWN;
+        } else {
+            new_dir = EDGE_UP;
+        }
+
+    } else { // if (ctx->y_prev == y) {
+        // vertical line
+        if (ctx->x_prev < x) {
+            new_dir = EDGE_RIGHT;
+        } else {
+            new_dir = EDGE_LEFT;
+        }
+    }
+
+    if (!ctx->start) {
+        // Draw the previous corner
+        if (ctx->prev_dir == opposite_direction (new_dir) ||
+            ctx->prev_dir == new_dir) {
+            // do nothing
+            printf ("Round path has straight segments or 180 degree turns, most likely a bug.\n");
+
+        } else if (ctx->prev_dir != new_dir) {
+            cr_draw_round_corner (ctx->cr, ctx->x_prev, ctx->y_prev, ctx->r, ctx->prev_dir, new_dir);
+        }
+
+    } else {
+        ctx->start = false;
+        ctx->start_dir = new_dir;
+        switch (new_dir) {
+            case EDGE_UP:
+                cairo_move_to (ctx->cr, ctx->x_start, ctx->y_start - ctx->r);
+                break;
+            case EDGE_RIGHT:
+                cairo_move_to (ctx->cr, ctx->x_start + ctx->r, ctx->y_start);
+                break;
+            case EDGE_DOWN:
+                cairo_move_to (ctx->cr, ctx->x_start, ctx->y_start + ctx->r);
+                break;
+            case EDGE_LEFT:
+                cairo_move_to (ctx->cr, ctx->x_start - ctx->r, ctx->y_start);
+                break;
+        }
+    }
+
+    ctx->x_prev = x;
+    ctx->y_prev = y;
+    ctx->prev_dir = new_dir;
+}
+
+void round_path_close (struct round_path_ctx *ctx)
+{
+    assert ((ctx->x_start == ctx->x_prev || ctx->y_start == ctx->y_prev)
+            && "Start and end must be aligned to close the rounded path");
+
+    enum edge_direction last_edge_dir;
+    if (ctx->x_prev == ctx->x_start) {
+        // Horizontal line
+        if (ctx->y_prev < ctx->y_start) {
+            last_edge_dir = EDGE_DOWN;
+        } else {
+            last_edge_dir = EDGE_UP;
+        }
+
+    } else { // if (ctx->y_prev == y) {
+        // vertical line
+        if (ctx->x_prev < ctx->x_start) {
+            last_edge_dir = EDGE_RIGHT;
+        } else {
+            last_edge_dir = EDGE_LEFT;
+        }
+    }
+
+    cr_draw_round_corner (ctx->cr, ctx->x_prev, ctx->y_prev, ctx->r, ctx->prev_dir, last_edge_dir);
+    cr_draw_round_corner (ctx->cr, ctx->x_start, ctx->y_start, ctx->r, last_edge_dir, ctx->start_dir);
+}
+

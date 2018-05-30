@@ -38,6 +38,11 @@ enum key_render_type_t {
     KEY_MULTIROW_SEGMENT_SIZED
 };
 
+enum multirow_key_align_t {
+    MULTIROW_ALIGN_LEFT,
+    MULTIROW_ALIGN_RIGHT
+};
+
 struct key_t {
     int kc; //keycode
     float width; // normalized to default_key_size
@@ -45,6 +50,9 @@ struct key_t {
     enum key_render_type_t type;
     struct key_t *next_key;
     struct key_t *next_multirow;
+
+    // Fields specific to KEY_MULTIROW_SEGMENT_SIZED
+    enum multirow_key_align_t align;
 };
 
 struct row_t {
@@ -320,7 +328,7 @@ bool compute_key_size_full (struct keyboard_view_t *kv, struct key_t *key, struc
 
     *width = key->width*kv->default_key_size;
 
-    return true;
+    return is_rectangular;
 }
 
 // Simple default keyboard geometry.
@@ -425,12 +433,28 @@ void keyboard_view_build_default_geometry (struct keyboard_view_t *kv)
     kv_add_key (kv, KEY_RIGHT);
 }
 
-void kv_add_key_multirow (struct keyboard_view_t *kv, struct key_t *key, float width)
+void kv_add_key_multirow (struct keyboard_view_t *kv, struct key_t *key)
 {
     struct key_t *new_key = kv_add_key_w (kv, -1, key->width);
     new_key->type = KEY_MULTIROW_SEGMENT;
 
-    // Look for the last multirow segment so new_key is added after it.
+    // look for the last multirow segment so new_key is added after it.
+    while (!is_multirow_parent (key->next_multirow)) {
+        key = key->next_multirow;
+    }
+
+    new_key->next_multirow = key->next_multirow;
+    key->next_multirow = new_key;
+}
+
+void kv_add_key_multirow_sized (struct keyboard_view_t *kv, struct key_t *key,
+                                float width, enum multirow_key_align_t align)
+{
+    struct key_t *new_key = kv_add_key_w (kv, -1, width);
+    new_key->type = KEY_MULTIROW_SEGMENT_SIZED;
+    new_key->align = align;
+
+    // look for the last multirow segment so new_key is added after it.
     while (!is_multirow_parent (key->next_multirow)) {
         key = key->next_multirow;
     }
@@ -445,26 +469,26 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
     kv_new_row_h (kv, 1.5);
     struct key_t *multi1 = kv_add_key (kv, KEY_A);
     kv_add_key (kv, KEY_1);
-    kv_add_key (kv, KEY_2);
-    struct key_t *multi4 = kv_add_key (kv, KEY_D);
+    //kv_add_key (kv, KEY_2);
+    struct key_t *multi4 = kv_add_key_w (kv, KEY_D, 2);
 
     kv_new_row_h (kv, 1.25);
-    kv_add_key_multirow (kv, multi1, 1);
+    kv_add_key_multirow (kv, multi1);
     struct key_t *multi2 = kv_add_key (kv, KEY_B);
     kv_add_key (kv, KEY_3);
-    kv_add_key_multirow (kv, multi4, 1);
+    kv_add_key_multirow_sized (kv, multi4, 1, MULTIROW_ALIGN_RIGHT);
 
     kv_new_row_h (kv, 1);
     kv_add_key (kv, KEY_4);
-    kv_add_key_multirow (kv, multi2, 1);
+    kv_add_key_multirow (kv, multi2);
     struct key_t *multi3 = kv_add_key (kv, KEY_C);
-    kv_add_key_multirow (kv, multi4, 1);
+    kv_add_key_multirow (kv, multi4);
 
     kv_new_row_h (kv, 0.75);
     kv_add_key (kv, KEY_5);
     kv_add_key (kv, KEY_6);
-    kv_add_key_multirow (kv, multi3, 1);
-    kv_add_key_multirow (kv, multi4, 1);
+    kv_add_key_multirow (kv, multi3);
+    kv_add_key_multirow (kv, multi4);
 }
 
 void cr_render_key_label (cairo_t *cr, const char *label, double x, double y, double width, double height)
@@ -666,19 +690,76 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
             x_pos += curr_key->start_glue*kv->default_key_size;
 
             float key_width, key_height;
-            compute_key_size (kv, curr_key, curr_row, &key_width, &key_height);
-            // Draw the key with the appropiate label/color
-            // TODO: Simplify this conditions
-            if (curr_key->type != KEY_MULTIROW_SEGMENT) {
-                if (keyboard_view->selected_key != NULL && curr_key == keyboard_view->selected_key) {
-                    cr_render_key (cr, x_pos, y_pos, key_width, key_height, "", RGB_HEX(0xe34442));
+            if (compute_key_size (kv, curr_key, curr_row, &key_width, &key_height)) {
+                // Draw the key with the appropiate label/color
+                // TODO: Simplify this conditions
+                if (curr_key->type != KEY_MULTIROW_SEGMENT) {
+                    if (keyboard_view->selected_key != NULL && curr_key == keyboard_view->selected_key) {
+                        cr_render_key (cr, x_pos, y_pos, key_width, key_height, "", RGB_HEX(0xe34442));
 
-                } else if (curr_key->type == KEY_PRESSED ||
-                           (curr_key->type != KEY_UNASSIGNED && curr_key->kc == keyboard_view->clicked_kc)) {
-                    cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB_HEX(0x90de4d));
+                    } else if (curr_key->type == KEY_PRESSED ||
+                               (curr_key->type != KEY_UNASSIGNED && curr_key->kc == keyboard_view->clicked_kc)) {
+                        cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB_HEX(0x90de4d));
 
-                } else {
-                    cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB(1,1,1));
+                    } else {
+                        cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB(1,1,1));
+                    }
+                }
+
+            } else {
+                if (is_multirow_parent(curr_key)) {
+                    double r = KEY_CORNER_RADIUS;
+                    double y = y_pos;
+                    double left = x_pos;
+                    double right = x_pos + curr_key->width*kv->default_key_size - 1;
+
+                    int num_return_points = 0;
+                    dvec2 return_path[10];
+                    struct round_path_ctx ctx = round_path_start (cr, 0.5+left, 0.5+y, r);
+                    round_path_move_to (&ctx, 0.5+right, 0.5+y);
+
+                    struct row_t *row = curr_row;
+                    struct key_t *next_segment = curr_key->next_multirow;
+                    double next_left, next_right;
+                    while (!is_multirow_parent (next_segment)) {
+                        y += row->height*kv->default_key_size - 1;
+                        if (next_segment->type != KEY_MULTIROW_SEGMENT) {
+                            if (next_segment->align == MULTIROW_ALIGN_RIGHT) {
+                                next_right = right;
+                                next_left = right - next_segment->width*kv->default_key_size + 1;
+
+                                return_path[num_return_points] = DVEC2(left, y);
+                                return_path[num_return_points+1] = DVEC2(next_left, y);
+                                num_return_points += 2;
+
+                            } else if (next_segment->align == MULTIROW_ALIGN_LEFT) {
+                                next_right = left + next_segment->width*kv->default_key_size - 1;
+                                next_left = left;
+                                round_path_move_to (&ctx, 0.5 + right, 0.5 + y);
+                                round_path_move_to (&ctx, 0.5 + next_right, 0.5 + y);
+
+                            }
+                        }
+                        next_segment = next_segment->next_multirow;
+                        row = row->next_row;
+                        y += 1;
+                    }
+
+                    y += row->height*kv->default_key_size - 1;
+                    round_path_move_to (&ctx, 0.5 + next_right, 0.5 + y);
+                    round_path_move_to (&ctx, 0.5 + next_left, 0.5 + y);
+
+                    while (num_return_points > 0) {
+                        num_return_points--;
+                        double x = return_path[num_return_points].x;
+                        double y = return_path[num_return_points].y;
+                        round_path_move_to (&ctx, 0.5 + x, 0.5 + y);
+                    }
+
+                    round_path_close (&ctx);
+
+                    cairo_set_source_rgb (cr,0,0,0);
+                    cairo_stroke (cr);
                 }
             }
 

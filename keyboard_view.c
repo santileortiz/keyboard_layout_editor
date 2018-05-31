@@ -574,6 +574,109 @@ void cr_render_key (cairo_t *cr, double x, double y, double width, double height
     cr_render_key_label (cr, label, cap_x, cap_y, cap_w, cap_h);
 }
 
+void cr_non_rectangular_key_path (cairo_t *cr, double x, double y, double margin,
+                                  struct keyboard_view_t *kv, struct row_t *row, struct key_t *key)
+{
+    double r = KEY_CORNER_RADIUS;
+    double left = x + margin + 0.5;
+    double right = left + key->width*kv->default_key_size - 2*margin - 1;
+    y += margin + 0.5;
+
+    // Count the number of rows.
+    int num_rows = 0;
+    {
+        struct row_t *r = row;
+        while (r != NULL) {
+            num_rows++;
+            r = r->next_row;
+        }
+    }
+
+    int num_return_points = 0;
+    dvec2 return_path[num_rows*2];
+
+    // Draw top horizontal segment
+    struct round_path_ctx ctx = round_path_start (cr, left, y, r);
+    round_path_move_to (&ctx, right, y);
+
+    // Line sweep from top to bottom that both draws the right vertical path and
+    // adds points for the left vertical path into a buffer to be drawn later.
+    struct key_t *next_segment = key->next_multirow;
+    double next_left, next_right;
+    while (!is_multirow_parent (next_segment)) {
+        y += row->height*kv->default_key_size - 2*margin - 1;
+        if (next_segment->type != KEY_MULTIROW_SEGMENT) {
+            if (next_segment->align == MULTIROW_ALIGN_RIGHT) {
+                next_right = right;
+                next_left = right - next_segment->width*kv->default_key_size + 2*margin + 1;
+
+                return_path[num_return_points] = DVEC2(left, y);
+                return_path[num_return_points+1] = DVEC2(next_left, y);
+                num_return_points += 2;
+
+            } else if (next_segment->align == MULTIROW_ALIGN_LEFT) {
+                next_right = left + next_segment->width*kv->default_key_size - 2*margin - 1;
+                next_left = left;
+                round_path_move_to (&ctx, right, y);
+                round_path_move_to (&ctx, next_right, y);
+
+            }
+        }
+        next_segment = next_segment->next_multirow;
+        row = row->next_row;
+        y += 2*margin + 1;
+    }
+
+    y += row->height*kv->default_key_size - 2*margin - 1;
+
+    // Draw bottom horizontal segment
+    round_path_move_to (&ctx, next_right, y);
+    round_path_move_to (&ctx, next_left, y);
+
+    // Draw left vertical path from the buffer
+    while (num_return_points > 0) {
+        num_return_points--;
+        double px = return_path[num_return_points].x;
+        double py = return_path[num_return_points].y;
+        round_path_move_to (&ctx, px, py);
+    }
+
+    round_path_close (&ctx);
+}
+
+void cr_render_multirow_key (cairo_t *cr, double x, double y, struct keyboard_view_t *kv,
+                             struct row_t *row, struct key_t *key, char *label, dvec4 color)
+{
+    assert (is_multirow_key(key) && is_multirow_parent (key));
+    cr_non_rectangular_key_path (cr, x, y, 0, kv, row, key);
+    cairo_set_source_rgb (cr,ARGS_RGB(color));
+    cairo_fill_preserve (cr);
+
+    cairo_set_source_rgba (cr, 0, 0, 0, 0.05);
+    cairo_fill_preserve (cr);
+
+    cairo_set_source_rgb (cr, 0, 0, 0);
+    cairo_stroke (cr);
+
+    cr_non_rectangular_key_path (cr, x, y - KEY_LEFT_MARGIN + KEY_TOP_MARGIN,
+                                 KEY_LEFT_MARGIN, kv, row, key);
+    cairo_set_source_rgb (cr,ARGS_RGB(color));
+    cairo_fill_preserve (cr);
+
+    cairo_set_source_rgba (cr, 0, 0, 0, 0.1);
+    cairo_stroke (cr);
+
+    // Render the label centered in the multirow parent segment. We may want to
+    // allow the user to configure the position?. Maybe allow them to choose the
+    // segment, or a more general approach would be to have it positioned
+    // relative to the top left corner by some vector, but then how to guarantee
+    // it will always be inside the key?.
+    cr_render_key_label (cr, label,
+                         x + KEY_LEFT_MARGIN, y + KEY_TOP_MARGIN,
+                         key->width*kv->default_key_size - 2*KEY_LEFT_MARGIN - 1,
+                         row->height*kv->default_key_size - 2*KEY_LEFT_MARGIN - 1);
+}
+
 void keyboard_view_get_margins (struct keyboard_view_t *kv, double *left_margin, double *top_margin)
 {
     double kbd_width, kbd_height;
@@ -689,77 +792,30 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
 
             x_pos += curr_key->start_glue*kv->default_key_size;
 
+            dvec4 key_color;
+            if (curr_key->type != KEY_MULTIROW_SEGMENT) {
+                if (keyboard_view->selected_key != NULL && curr_key == keyboard_view->selected_key) {
+                    buff[0] = '\0';
+                    key_color = RGB_HEX(0xe34442);
+
+                } else if (curr_key->type == KEY_PRESSED ||
+                           (curr_key->type != KEY_UNASSIGNED && curr_key->kc == keyboard_view->clicked_kc)) {
+                    key_color = RGB_HEX(0x90de4d);
+
+                } else {
+                    key_color = RGB(1,1,1);
+                }
+            }
+
             float key_width, key_height;
             if (compute_key_size (kv, curr_key, curr_row, &key_width, &key_height)) {
-                // Draw the key with the appropiate label/color
-                // TODO: Simplify this conditions
-                if (curr_key->type != KEY_MULTIROW_SEGMENT) {
-                    if (keyboard_view->selected_key != NULL && curr_key == keyboard_view->selected_key) {
-                        cr_render_key (cr, x_pos, y_pos, key_width, key_height, "", RGB_HEX(0xe34442));
-
-                    } else if (curr_key->type == KEY_PRESSED ||
-                               (curr_key->type != KEY_UNASSIGNED && curr_key->kc == keyboard_view->clicked_kc)) {
-                        cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB_HEX(0x90de4d));
-
-                    } else {
-                        cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, RGB(1,1,1));
-                    }
+                if (curr_key->type != KEY_MULTIROW_SEGMENT && curr_key->type != KEY_MULTIROW_SEGMENT_SIZED) {
+                    cr_render_key (cr, x_pos, y_pos, key_width, key_height, buff, key_color);
                 }
 
             } else {
                 if (is_multirow_parent(curr_key)) {
-                    double r = KEY_CORNER_RADIUS;
-                    double y = y_pos;
-                    double left = x_pos;
-                    double right = x_pos + curr_key->width*kv->default_key_size - 1;
-
-                    int num_return_points = 0;
-                    dvec2 return_path[10];
-                    struct round_path_ctx ctx = round_path_start (cr, 0.5+left, 0.5+y, r);
-                    round_path_move_to (&ctx, 0.5+right, 0.5+y);
-
-                    struct row_t *row = curr_row;
-                    struct key_t *next_segment = curr_key->next_multirow;
-                    double next_left, next_right;
-                    while (!is_multirow_parent (next_segment)) {
-                        y += row->height*kv->default_key_size - 1;
-                        if (next_segment->type != KEY_MULTIROW_SEGMENT) {
-                            if (next_segment->align == MULTIROW_ALIGN_RIGHT) {
-                                next_right = right;
-                                next_left = right - next_segment->width*kv->default_key_size + 1;
-
-                                return_path[num_return_points] = DVEC2(left, y);
-                                return_path[num_return_points+1] = DVEC2(next_left, y);
-                                num_return_points += 2;
-
-                            } else if (next_segment->align == MULTIROW_ALIGN_LEFT) {
-                                next_right = left + next_segment->width*kv->default_key_size - 1;
-                                next_left = left;
-                                round_path_move_to (&ctx, 0.5 + right, 0.5 + y);
-                                round_path_move_to (&ctx, 0.5 + next_right, 0.5 + y);
-
-                            }
-                        }
-                        next_segment = next_segment->next_multirow;
-                        row = row->next_row;
-                        y += 1;
-                    }
-
-                    y += row->height*kv->default_key_size - 1;
-                    round_path_move_to (&ctx, 0.5 + next_right, 0.5 + y);
-                    round_path_move_to (&ctx, 0.5 + next_left, 0.5 + y);
-
-                    while (num_return_points > 0) {
-                        num_return_points--;
-                        double x = return_path[num_return_points].x;
-                        double y = return_path[num_return_points].y;
-                        round_path_move_to (&ctx, 0.5 + x, 0.5 + y);
-                    }
-
-                    round_path_close (&ctx);
-
-                    cairo_set_source_rgb (cr,0,0,0);
-                    cairo_stroke (cr);
+                    cr_render_multirow_key (cr, x_pos, y_pos, kv, curr_row, curr_key, buff, key_color);
                 }
             }
 

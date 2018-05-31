@@ -874,16 +874,14 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
         if (rect != NULL) {
             float key_width, key_height;
             float multirow_y_offset;
-            if (compute_key_size_full (kv, curr_key, curr_row, &key_width, &key_height, &multirow_y_offset)) {
-                rect->width = (int)key_width;
-                rect->height = (int)key_height;
-                rect->y = kbd_y - multirow_y_offset;
-                rect->x = kbd_x;
+            // For non rectangular multirow keys this returns the rectangle
+            // of the segment where x and y are.
+            compute_key_size_full (kv, curr_key, curr_row, &key_width, &key_height, &multirow_y_offset);
+            rect->width = (int)key_width;
+            rect->height = (int)key_height;
+            rect->y = kbd_y - multirow_y_offset;
+            rect->x = kbd_x;
 
-            } else {
-                // TODO: Which rectangle are we going to return for non-rectangular
-                // multirow keys? Maybe just _key_ segment?
-            }
         }
 
         // In a multirow key data is stored in the multirow parent. Make the
@@ -1289,22 +1287,26 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
     GdkRectangle rect = {0};
     struct key_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect, NULL);
     if (key != NULL) {
-        if (key->type == KEY_DEFAULT || key->type == KEY_PRESSED) {
-            if (keyboard_view->label_mode == KV_KEYCODE_LABELS) {
-                gtk_tooltip_set_text (tooltip, keycode_names[key->kc]);
+        // For non rectangular multirow keys keyboard_view_get_key() returns the
+        // rectangle of the segment that was hovered. This has the (undesired?)
+        // effect of making the tooltip jump while moving the mouse over the
+        // same key but across different segments. Because the tooltip area can
+        // only be a rectangle, the only other option would be to set it to the
+        // bounding box, which would cause the tooltip to not jump even when
+        // changing across different keys (although the text inside would change
+        // appropiately).
+        if (keyboard_view->label_mode == KV_KEYCODE_LABELS) {
+            gtk_tooltip_set_text (tooltip, keycode_names[key->kc]);
 
-            } else { // KV_KEYSYM_LABELS
-                char buff[64];
-                xkb_keysym_t keysym = xkb_state_key_get_one_sym(keyboard_view->xkb_state, key->kc + 8);
-                xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
-                gtk_tooltip_set_text (tooltip, buff);
-            }
-
-            gtk_tooltip_set_tip_area (tooltip, &rect);
-            show_tooltip = TRUE;
-        } else if (key->type == KEY_MULTIROW_SEGMENT) {
-            // TODO: Look for the parent key and show that tooltip.
+        } else { // KV_KEYSYM_LABELS
+            char buff[64];
+            xkb_keysym_t keysym = xkb_state_key_get_one_sym(keyboard_view->xkb_state, key->kc + 8);
+            xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
+            gtk_tooltip_set_text (tooltip, buff);
         }
+
+        gtk_tooltip_set_tip_area (tooltip, &rect);
+        show_tooltip = TRUE;
 
     } else {
         struct manual_tooltip_t *curr_tooltip = keyboard_view->first_tooltip;

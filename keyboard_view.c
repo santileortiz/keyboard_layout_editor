@@ -762,6 +762,7 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
                         if (buff[0] == '\0' || // Keysym is non printable
                             buff[0] == ' ' ||
                             buff[0] == '\x1b' || // Escape
+                            buff[0] == '\x7f' || // Del
                             buff[0] == '\n' ||
                             buff[0] == '\r' ||
                             buff[0] == '\b' ||

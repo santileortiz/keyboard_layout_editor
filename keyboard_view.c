@@ -231,6 +231,22 @@ bool is_multirow_parent (struct key_t *key)
     return key->type != KEY_MULTIROW_SEGMENT && key->type != KEY_MULTIROW_SEGMENT_SIZED;
 }
 
+float get_multirow_segment_width (struct key_t *key) {
+    assert (key->type == KEY_MULTIROW_SEGMENT);
+
+    float multirow_key_width = 0;
+    struct key_t *curr_key = key->next_multirow;
+    do {
+        if (curr_key->type != KEY_MULTIROW_SEGMENT) {
+            multirow_key_width = curr_key->width;
+        }
+
+        curr_key = curr_key->next_multirow;
+    } while (curr_key != key->next_multirow);
+
+    return multirow_key_width;
+}
+
 // Compute the width and height in pixels of a key and return wether or not the
 // key is rectangular.
 //
@@ -255,13 +271,15 @@ bool compute_key_size_full (struct keyboard_view_t *kv, struct key_t *key, struc
     *multirow_y_offset = 0;
 
     bool is_rectangular = true;
-    float multirow_key_height = 0;
+    float multirow_key_height = 0, multirow_key_width = 0;
 
     if (is_multirow_key (key)) {
-        // Computing the height of a multirow key is a bit contrived for several
+        // Computing the size of a multirow key is a bit contrived for several
         // reasons. First, height is stored in the row not in the key. Second,
-        // _key_ can be any segment of the multirrow key. We compute it in three
-        // steps:
+        // _key_ can be any segment of the multirrow key. Third, non rectangular
+        // multirow keys, inherit the width from the previous segment with size
+        // (either a KEY_MULTIROW_SEGMENT_SIZED or the multirow parent). We
+        // compute the size in three steps:
 
         // 1) Iterate the multirow key. Decide if it's rectangular and if so,
         // compute the number of rows spanned by it and the index of _key_ in
@@ -315,7 +333,16 @@ bool compute_key_size_full (struct keyboard_view_t *kv, struct key_t *key, struc
                 curr_row = curr_row->next_row;
                 i++;
             }
+
+        } else {
+            // Here the multirow key is non rectangular, which means we want to
+            // compute the inherited width if the segment is not sized.
+            if (key->type == KEY_MULTIROW_SEGMENT) {
+                // 2) Compute the inherited width of the multirow key segment.
+                multirow_key_width = get_multirow_segment_width (key);
+            }
         }
+
     }
 
     *multirow_y_offset *= kv->default_key_size;
@@ -326,7 +353,11 @@ bool compute_key_size_full (struct keyboard_view_t *kv, struct key_t *key, struc
         *height = row->height*kv->default_key_size;
     }
 
-    *width = key->width*kv->default_key_size;
+    if (!is_rectangular && key->type == KEY_MULTIROW_SEGMENT) {
+        *width = multirow_key_width*kv->default_key_size;
+    } else {
+        *width = key->width*kv->default_key_size;
+    }
 
     return is_rectangular;
 }
@@ -433,7 +464,7 @@ void keyboard_view_build_default_geometry (struct keyboard_view_t *kv)
     kv_add_key (kv, KEY_RIGHT);
 }
 
-void kv_add_key_multirow (struct keyboard_view_t *kv, struct key_t *key)
+struct key_t* kv_add_key_multirow (struct keyboard_view_t *kv, struct key_t *key)
 {
     struct key_t *new_key = kv_add_key_w (kv, -1, key->width);
     new_key->type = KEY_MULTIROW_SEGMENT;
@@ -445,9 +476,10 @@ void kv_add_key_multirow (struct keyboard_view_t *kv, struct key_t *key)
 
     new_key->next_multirow = key->next_multirow;
     key->next_multirow = new_key;
+    return new_key;
 }
 
-void kv_add_key_multirow_sized (struct keyboard_view_t *kv, struct key_t *key,
+struct key_t* kv_add_key_multirow_sized (struct keyboard_view_t *kv, struct key_t *key,
                                 float width, enum multirow_key_align_t align)
 {
     struct key_t *new_key = kv_add_key_w (kv, -1, width);
@@ -461,6 +493,7 @@ void kv_add_key_multirow_sized (struct keyboard_view_t *kv, struct key_t *key,
 
     new_key->next_multirow = key->next_multirow;
     key->next_multirow = new_key;
+    return new_key;
 }
 
 void multirow_test_geometry (struct keyboard_view_t *kv)
@@ -468,27 +501,31 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
     kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
     kv_new_row_h (kv, 1.5);
     struct key_t *multi1 = kv_add_key (kv, KEY_A);
+    multi1->start_glue = 2;
     kv_add_key (kv, KEY_1);
     //kv_add_key (kv, KEY_2);
     struct key_t *multi4 = kv_add_key_w (kv, KEY_D, 2);
 
     kv_new_row_h (kv, 1.25);
-    kv_add_key_multirow (kv, multi1);
     struct key_t *multi2 = kv_add_key (kv, KEY_B);
+    multi2->start_glue = 1;
+    kv_add_key_multirow (kv, multi1);
     kv_add_key (kv, KEY_3);
-    kv_add_key_multirow_sized (kv, multi4, 1, MULTIROW_ALIGN_RIGHT);
+    kv_add_key_multirow_sized (kv, multi4, 1, MULTIROW_ALIGN_LEFT);
 
     kv_new_row_h (kv, 1);
     kv_add_key (kv, KEY_4);
     kv_add_key_multirow (kv, multi2);
     struct key_t *multi3 = kv_add_key (kv, KEY_C);
-    kv_add_key_multirow (kv, multi4);
+    multi4 = kv_add_key_multirow (kv, multi4);
+    multi4->start_glue = 1;
 
     kv_new_row_h (kv, 0.75);
     kv_add_key (kv, KEY_5);
     kv_add_key (kv, KEY_6);
     kv_add_key_multirow (kv, multi3);
-    kv_add_key_multirow (kv, multi4);
+    multi4 = kv_add_key_multirow (kv, multi4);
+    multi4->start_glue = 1;
 }
 
 void cr_render_key_label (cairo_t *cr, const char *label, double x, double y, double width, double height)
@@ -849,8 +886,12 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
     while (curr_row != NULL) {
         float next_y = kbd_y + curr_row->height*kv->default_key_size;
         if (next_y > y) {
+            // In this case x_kbd now contains the x coordinate of the
+            // rectangle (top left corner).
             break;
         }
+        // We only commit to the updated kbd_y after we check we don't want to
+        // break.
         kbd_y = next_y;
 
         curr_row = curr_row->next_row;
@@ -860,11 +901,35 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
     if (curr_row != NULL) {
         curr_key = curr_row->first_key;
         while (curr_key != NULL) {
-            float next_x = kbd_x + curr_key->width*kv->default_key_size;
-            if (next_x > x) {
+            // First update x_kbd with the start glue, if the point is here we
+            // return NULL.
+            kbd_x += curr_key->start_glue*kv->default_key_size;
+            if (kbd_x > x) {
+                curr_key = NULL;
                 break;
             }
+
+            float next_x;
+            if (curr_key->type == KEY_MULTIROW_SEGMENT) {
+                next_x = kbd_x + get_multirow_segment_width (curr_key)*kv->default_key_size;
+            } else {
+                next_x = kbd_x + curr_key->width*kv->default_key_size;
+            }
+
+            if (next_x > x) {
+                // In this case x_kbd now contains the x coordinate of the
+                // rectangle (top left corner).
+                break;
+            }
+            // We only commit to the updated kbd_x after we check we don't want
+            // to break.
             kbd_x = next_x;
+
+            kbd_x += curr_key->end_glue*kv->default_key_size;
+            if (kbd_x > x) {
+                curr_key = NULL;
+                break;
+            }
 
             prev_key = curr_key;
             curr_key = curr_key->next_key;
@@ -883,6 +948,7 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
             rect->y = kbd_y - multirow_y_offset;
             rect->x = kbd_x;
 
+            kv->debug_rect = *rect;
         }
 
         // In a multirow key data is stored in the multirow parent. Make the

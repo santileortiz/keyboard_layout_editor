@@ -736,6 +736,114 @@ void keyboard_view_get_margins (struct keyboard_view_t *kv, double *left_margin,
     }
 }
 
+struct key_state_t {
+    int count;
+    float max_width;
+    struct key_t *multirow_parent;
+    int parent_idx;
+    int multirow_len;
+};
+
+struct row_state_t {
+    struct key_t *curr_key;
+    float width;
+};
+
+void kv_compute_glue (struct keyboard_view_t *kv)
+{
+    int num_rows = 0;
+    {
+        struct row_t *r = kv->first_row;
+        while (r != NULL) {
+            num_rows++;
+            r = r->next_row;
+        }
+    }
+
+    struct key_state_t keys_state[num_rows];
+    {
+        int i;
+        for (i=0; i<num_rows; i++) {
+            keys_state[i] = ZERO_INIT(struct key_state_t);
+        }
+    }
+
+    struct row_state_t rows_state[num_rows];
+    int row_idx = 0;
+    {
+        struct row_t *curr_row = kv->first_row;
+        while (curr_row != NULL) {
+            rows_state[row_idx].curr_key = curr_row->first_key;
+            rows_state[row_idx].width = 0;
+            curr_row = curr_row->next_row;
+            row_idx++;
+        }
+    }
+
+    int done_rows = 0;
+    row_idx = 0;
+    while (done_rows < num_rows) {
+        struct key_t *curr_key = rows_state[row_idx].curr_key;
+        while (curr_key && !is_multirow_key(curr_key)) {
+            rows_state[row_idx].width += curr_key->width;
+            curr_key = curr_key->next_key;
+        }
+
+        // TODO: Show that curr_key != NULL
+        rows_state[row_idx].curr_key = curr_key->next_key;
+        if (curr_key->next_key == NULL) {
+            done_rows++;
+        }
+
+        if (is_multirow_parent (curr_key) ) {
+            struct key_state_t *new_state = &keys_state[row_idx];
+            new_state->max_width = rows_state[row_idx].width;
+            new_state->multirow_parent = curr_key;
+            new_state->parent_idx = row_idx;
+
+            new_state->multirow_len = 0;
+            {
+                struct key_t *tmp_key = curr_key;
+                do {
+                    new_state->multirow_len++;
+                    tmp_key = tmp_key->next_multirow;
+                } while (tmp_key != curr_key);
+            }
+
+            new_state->count = new_state->multirow_len - 1;
+
+            row_idx++;
+
+        } else {
+            struct key_state_t *key_state = NULL;
+            {
+                struct key_t *parent = curr_key;
+                while (!is_multirow_parent (parent)) {
+                    parent = parent->next_multirow;
+                }
+
+                int i;
+                for (i=0; i<num_rows; i++) {
+                    if (keys_state[i].multirow_parent == parent) {
+                        key_state = &keys_state[i];
+                        break;
+                    }
+                }
+            }
+
+            if (key_state != NULL) {
+                // key_state->max_width // TODO: COMPUTE THIS
+                key_state->count--;
+                if (key_state->count == 0) {
+                    row_idx = key_state->parent_idx;
+                } else {
+                    row_idx++;
+                }
+            }
+        }
+    }
+}
+
 char *keysym_representations[][2] = {
       {"Alt_L", "Alt"},
       {"Alt_R", "AltGr"},
@@ -764,8 +872,9 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
     struct keyboard_view_t *kv = keyboard_view;
     cairo_set_source_rgba (cr, 1, 1, 1, 1);
     cairo_paint(cr);
-
     cairo_set_line_width (cr, 1);
+
+    kv_compute_glue (kv);
 
     mem_pool_t pool = {0};
     double left_margin, top_margin;

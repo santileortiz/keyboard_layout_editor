@@ -789,13 +789,25 @@ void kv_compute_glue (struct keyboard_view_t *kv)
             curr_key = curr_key->next_key;
         }
 
-        // TODO: Show that curr_key != NULL
-        rows_state[row_idx].curr_key = curr_key->next_key;
-        if (curr_key->next_key == NULL) {
+        // Handle the end conditions.
+        if (curr_key != NULL) {
+            // Here the end of the row is found after a multirow key.
+            rows_state[row_idx].curr_key = curr_key->next_key;
+            if (curr_key->next_key == NULL) {
+                done_rows++;
+            }
+
+        } else {
+            // This happens when the row does not end in a multirow key.
             done_rows++;
+            row_idx++;
+            continue;
         }
 
+        // Process the found multirow segment
         if (is_multirow_parent (curr_key) ) {
+            // If it's a multirow parent we create a new multirow state and add
+            // it to keys_state indexed by the row id of the parent.
             struct key_state_t *new_state = &keys_state[row_idx];
             new_state->max_width = rows_state[row_idx].width;
             new_state->multirow_parent = curr_key;
@@ -815,8 +827,15 @@ void kv_compute_glue (struct keyboard_view_t *kv)
             row_idx++;
 
         } else {
+            // If it's a multirow segment then we update the corresponding key
+            // state and if we have found all segments we jump to the parent's
+            // row and continue processing from there.
+
             struct key_state_t *key_state = NULL;
             {
+                // Is there a way to find key_state in constant time?, In
+                // practice I don't think this will be a problem as keyboards
+                // don't tend to have a lot of multirow keys.
                 struct key_t *parent = curr_key;
                 while (!is_multirow_parent (parent)) {
                     parent = parent->next_multirow;

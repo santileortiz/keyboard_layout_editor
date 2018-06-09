@@ -909,9 +909,9 @@ void kv_compute_glue (struct keyboard_view_t *kv)
                     float right = left + sgmt->width;
                     do {
                         if (sgmt->type == KEY_MULTIROW_SEGMENT_SIZED) {
-                            if (curr_key->align == MULTIROW_ALIGN_LEFT) {
+                            if (sgmt->align == MULTIROW_ALIGN_LEFT) {
                                 right = left + sgmt->width;
-                            } else { // curr_key->align == MULTIROW_ALIGN_RIGHT
+                            } else { // sgmt->align == MULTIROW_ALIGN_RIGHT
                                 left = right - sgmt->width;
                             }
                         }

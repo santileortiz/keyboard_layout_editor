@@ -496,6 +496,194 @@ struct key_t* kv_add_key_multirow_sized (struct keyboard_view_t *kv, struct key_
     return new_key;
 }
 
+struct key_state_t {
+    int count;
+    float parent_left; // left border of the multirow parent
+    float left, right; // left and right borders of the current multirow segment
+    struct key_t *parent;
+    int parent_idx;
+};
+
+struct row_state_t {
+    struct key_t *curr_key;
+    float width;
+};
+
+void kv_compute_glue (struct keyboard_view_t *kv)
+{
+    int num_rows = 0;
+    {
+        struct row_t *r = kv->first_row;
+        while (r != NULL) {
+            num_rows++;
+            r = r->next_row;
+        }
+    }
+
+    struct key_state_t keys_state[num_rows];
+    {
+        int i;
+        for (i=0; i<num_rows; i++) {
+            keys_state[i] = ZERO_INIT(struct key_state_t);
+        }
+    }
+
+    struct row_state_t rows_state[num_rows];
+    int row_idx = 0;
+    {
+        struct row_t *curr_row = kv->first_row;
+        while (curr_row != NULL) {
+            rows_state[row_idx].curr_key = curr_row->first_key;
+            rows_state[row_idx].width = 0;
+            curr_row = curr_row->next_row;
+            row_idx++;
+        }
+    }
+
+    int done_rows = 0;
+    row_idx = 0;
+    while (done_rows < num_rows) {
+        struct key_t *curr_key = rows_state[row_idx].curr_key;
+        while (curr_key && !is_multirow_key(curr_key)) {
+            rows_state[row_idx].width += curr_key->width;
+            curr_key = curr_key->next_key;
+        }
+
+        // Handle the end conditions.
+        if (curr_key != NULL) {
+            // Here the end of the row is found after a multirow key.
+            rows_state[row_idx].curr_key = curr_key->next_key;
+            if (curr_key->next_key == NULL) {
+                done_rows++;
+            }
+
+        } else {
+            // This happens when the row does not end in a multirow key.
+            done_rows++;
+            row_idx++;
+            continue;
+        }
+
+        // Process the found multirow segment
+        if (is_multirow_parent (curr_key) ) {
+            // If it's a multirow parent we create a new multirow state and add
+            // it to keys_state indexed by the row id of the parent.
+            struct key_state_t *new_state = &keys_state[row_idx];
+            new_state->parent = curr_key;
+            new_state->parent_idx = row_idx;
+            new_state->parent_left = rows_state[row_idx].width;
+            new_state->left = rows_state[row_idx].width;
+            new_state->right = new_state->left + curr_key->width;
+
+            int len = 0;
+            {
+                struct key_t *tmp_key = curr_key;
+                do {
+                    len++;
+                    tmp_key = tmp_key->next_multirow;
+                } while (tmp_key != curr_key);
+            }
+            new_state->count = len - 1;
+
+            row_idx++;
+
+        } else {
+            // If it's a multirow segment then update the corresponding key
+            // state and if all multirow segments have been found, compute the
+            // glue for them and jump to the parent's row and continue from
+            // there.
+
+            struct key_state_t *key_state = NULL;
+            {
+                // Is there a way to find key_state in constant time?, In
+                // practice I don't think this will be a problem as keyboards
+                // don't tend to have a lot of multirow keys.
+                struct key_t *parent = curr_key;
+                while (!is_multirow_parent (parent)) {
+                    parent = parent->next_multirow;
+                }
+
+                int i;
+                for (i=0; i<num_rows; i++) {
+                    if (keys_state[i].parent == parent) {
+                        key_state = &keys_state[i];
+                        break;
+                    }
+                }
+            }
+
+            if (key_state != NULL) {
+                // Detect if the current multirow segment collides with the row
+                // by updating key_state->left and key_state->right. If it does
+                // collide then update key_state->parent_left.
+                if (curr_key->type == KEY_MULTIROW_SEGMENT) {
+                    if (key_state->left < rows_state[row_idx].width) {
+                        key_state->parent_left += rows_state[row_idx].width - key_state->left;
+
+                        // Move left and right by rows_state[row_idx].width - key_state->left
+                        key_state->right += rows_state[row_idx].width - key_state->left;
+                        key_state->left = rows_state[row_idx].width;
+                    }
+
+                } else { // curr_key->type == KEY_MULTIROW_SEGMENT_SIZED
+                    if (curr_key->align == MULTIROW_ALIGN_LEFT) {
+                        if (key_state->left < rows_state[row_idx].width) {
+                            key_state->parent_left += rows_state[row_idx].width - key_state->left;
+
+                            key_state->left = rows_state[row_idx].width;
+                            key_state->right = key_state->left + curr_key->width;
+
+                        } else {
+                            key_state->right = key_state->left + curr_key->width;
+                        }
+
+                    } else { // curr_key->align == MULTIROW_ALIGN_RIGHT
+                        if (key_state->right - curr_key->width < rows_state[row_idx].width) {
+                            key_state->parent_left += rows_state[row_idx].width -
+                                                     (key_state->right - curr_key->width);
+
+                            key_state->left = rows_state[row_idx].width;
+                            key_state->right = key_state->left + curr_key->width;
+
+                        } else {
+                            key_state->left = key_state->right - curr_key->width;
+                        }
+                    }
+                }
+
+                key_state->count--;
+                if (key_state->count == 0) {
+                    // Based on the computed key_state->parent_left compute the
+                    // glue for all segments and update the row width.
+                    int r_i = key_state->parent_idx;
+                    struct key_t *sgmt = key_state->parent;
+                    float left = key_state->parent_left;
+                    float right = left + sgmt->width;
+                    do {
+                        if (sgmt->type == KEY_MULTIROW_SEGMENT_SIZED) {
+                            if (sgmt->align == MULTIROW_ALIGN_LEFT) {
+                                right = left + sgmt->width;
+                            } else { // sgmt->align == MULTIROW_ALIGN_RIGHT
+                                left = right - sgmt->width;
+                            }
+                        }
+
+                        sgmt->start_glue = left - rows_state[r_i].width;
+                        rows_state[r_i].width = right;
+                        r_i++;
+                        sgmt = sgmt->next_multirow;
+                    } while (sgmt != key_state->parent);
+
+                    // Continue processing at the multirow parent's row.
+                    row_idx = key_state->parent_idx;
+                } else {
+                    row_idx++;
+                }
+            }
+        }
+    }
+}
+
 void multirow_test_geometry (struct keyboard_view_t *kv)
 {
     kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
@@ -522,6 +710,8 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
     kv_add_key (kv, KEY_6);
     kv_add_key_multirow (kv, multi3);
     kv_add_key_multirow_sized (kv, multi4, 3, MULTIROW_ALIGN_RIGHT);
+
+    kv_compute_glue (kv);
 }
 
 void cr_render_key_label (cairo_t *cr, const char *label, double x, double y, double width, double height)
@@ -744,194 +934,6 @@ void keyboard_view_get_margins (struct keyboard_view_t *kv, double *left_margin,
     }
 }
 
-struct key_state_t {
-    int count;
-    float parent_left; // left border of the multirow parent
-    float left, right; // left and right borders of the current multirow segment
-    struct key_t *parent;
-    int parent_idx;
-};
-
-struct row_state_t {
-    struct key_t *curr_key;
-    float width;
-};
-
-void kv_compute_glue (struct keyboard_view_t *kv)
-{
-    int num_rows = 0;
-    {
-        struct row_t *r = kv->first_row;
-        while (r != NULL) {
-            num_rows++;
-            r = r->next_row;
-        }
-    }
-
-    struct key_state_t keys_state[num_rows];
-    {
-        int i;
-        for (i=0; i<num_rows; i++) {
-            keys_state[i] = ZERO_INIT(struct key_state_t);
-        }
-    }
-
-    struct row_state_t rows_state[num_rows];
-    int row_idx = 0;
-    {
-        struct row_t *curr_row = kv->first_row;
-        while (curr_row != NULL) {
-            rows_state[row_idx].curr_key = curr_row->first_key;
-            rows_state[row_idx].width = 0;
-            curr_row = curr_row->next_row;
-            row_idx++;
-        }
-    }
-
-    int done_rows = 0;
-    row_idx = 0;
-    while (done_rows < num_rows) {
-        struct key_t *curr_key = rows_state[row_idx].curr_key;
-        while (curr_key && !is_multirow_key(curr_key)) {
-            rows_state[row_idx].width += curr_key->width;
-            curr_key = curr_key->next_key;
-        }
-
-        // Handle the end conditions.
-        if (curr_key != NULL) {
-            // Here the end of the row is found after a multirow key.
-            rows_state[row_idx].curr_key = curr_key->next_key;
-            if (curr_key->next_key == NULL) {
-                done_rows++;
-            }
-
-        } else {
-            // This happens when the row does not end in a multirow key.
-            done_rows++;
-            row_idx++;
-            continue;
-        }
-
-        // Process the found multirow segment
-        if (is_multirow_parent (curr_key) ) {
-            // If it's a multirow parent we create a new multirow state and add
-            // it to keys_state indexed by the row id of the parent.
-            struct key_state_t *new_state = &keys_state[row_idx];
-            new_state->parent = curr_key;
-            new_state->parent_idx = row_idx;
-            new_state->parent_left = rows_state[row_idx].width;
-            new_state->left = rows_state[row_idx].width;
-            new_state->right = new_state->left + curr_key->width;
-
-            int len = 0;
-            {
-                struct key_t *tmp_key = curr_key;
-                do {
-                    len++;
-                    tmp_key = tmp_key->next_multirow;
-                } while (tmp_key != curr_key);
-            }
-            new_state->count = len - 1;
-
-            row_idx++;
-
-        } else {
-            // If it's a multirow segment then update the corresponding key
-            // state and if all multirow segments have been found, compute the
-            // glue for them and jump to the parent's row and continue from
-            // there.
-
-            struct key_state_t *key_state = NULL;
-            {
-                // Is there a way to find key_state in constant time?, In
-                // practice I don't think this will be a problem as keyboards
-                // don't tend to have a lot of multirow keys.
-                struct key_t *parent = curr_key;
-                while (!is_multirow_parent (parent)) {
-                    parent = parent->next_multirow;
-                }
-
-                int i;
-                for (i=0; i<num_rows; i++) {
-                    if (keys_state[i].parent == parent) {
-                        key_state = &keys_state[i];
-                        break;
-                    }
-                }
-            }
-
-            if (key_state != NULL) {
-                // Detect if the current multirow segment collides with the row
-                // by updating key_state->left and key_state->right. If it does
-                // collide then update key_state->parent_left.
-                if (curr_key->type == KEY_MULTIROW_SEGMENT) {
-                    if (key_state->left < rows_state[row_idx].width) {
-                        key_state->parent_left += rows_state[row_idx].width - key_state->left;
-
-                        // Move left and right by rows_state[row_idx].width - key_state->left
-                        key_state->right += rows_state[row_idx].width - key_state->left;
-                        key_state->left = rows_state[row_idx].width;
-                    }
-
-                } else { // curr_key->type == KEY_MULTIROW_SEGMENT_SIZED
-                    if (curr_key->align == MULTIROW_ALIGN_LEFT) {
-                        if (key_state->left < rows_state[row_idx].width) {
-                            key_state->parent_left += rows_state[row_idx].width - key_state->left;
-
-                            key_state->left = rows_state[row_idx].width;
-                            key_state->right = key_state->left + curr_key->width;
-
-                        } else {
-                            key_state->right = key_state->left + curr_key->width;
-                        }
-
-                    } else { // curr_key->align == MULTIROW_ALIGN_RIGHT
-                        if (key_state->right - curr_key->width < rows_state[row_idx].width) {
-                            key_state->parent_left += rows_state[row_idx].width -
-                                                     (key_state->right - curr_key->width);
-
-                            key_state->left = rows_state[row_idx].width;
-                            key_state->right = key_state->left + curr_key->width;
-
-                        } else {
-                            key_state->left = key_state->right - curr_key->width;
-                        }
-                    }
-                }
-
-                key_state->count--;
-                if (key_state->count == 0) {
-                    // Based on the computed key_state->parent_left compute the
-                    // glue for all segments and update the row width.
-                    int r_i = key_state->parent_idx;
-                    struct key_t *sgmt = key_state->parent;
-                    float left = key_state->parent_left;
-                    float right = left + sgmt->width;
-                    do {
-                        if (sgmt->type == KEY_MULTIROW_SEGMENT_SIZED) {
-                            if (sgmt->align == MULTIROW_ALIGN_LEFT) {
-                                right = left + sgmt->width;
-                            } else { // sgmt->align == MULTIROW_ALIGN_RIGHT
-                                left = right - sgmt->width;
-                            }
-                        }
-
-                        sgmt->start_glue = left - rows_state[r_i].width;
-                        rows_state[r_i].width = right;
-                        r_i++;
-                        sgmt = sgmt->next_multirow;
-                    } while (sgmt != key_state->parent);
-
-                    // Continue processing at the multirow parent's row.
-                    row_idx = key_state->parent_idx;
-                } else {
-                    row_idx++;
-                }
-            }
-        }
-    }
-}
-
 char *keysym_representations[][2] = {
       {"Alt_L", "Alt"},
       {"Alt_R", "AltGr"},
@@ -961,8 +963,6 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
     cairo_set_source_rgba (cr, 1, 1, 1, 1);
     cairo_paint(cr);
     cairo_set_line_width (cr, 1);
-
-    kv_compute_glue (kv);
 
     mem_pool_t pool = {0};
     double left_margin, top_margin;

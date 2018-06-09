@@ -521,7 +521,7 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
     kv_add_key (kv, KEY_5);
     kv_add_key (kv, KEY_6);
     kv_add_key_multirow (kv, multi3);
-    multi4 = kv_add_key_multirow (kv, multi4);
+    kv_add_key_multirow_sized (kv, multi4, 3, MULTIROW_ALIGN_RIGHT);
 }
 
 void cr_render_key_label (cairo_t *cr, const char *label, double x, double y, double width, double height)
@@ -613,7 +613,6 @@ void cr_non_rectangular_key_path (cairo_t *cr, double x, double y, double margin
     double r = KEY_CORNER_RADIUS;
     double left = x + margin + 0.5;
     double right = left + key->width*kv->default_key_size - 2*margin - 1;
-    y += margin + 0.5;
 
     // Count the number of rows.
     int num_rows = 0;
@@ -629,38 +628,51 @@ void cr_non_rectangular_key_path (cairo_t *cr, double x, double y, double margin
     dvec2 return_path[num_rows*2];
 
     // Draw top horizontal segment
-    struct round_path_ctx ctx = round_path_start (cr, left, y, r);
-    round_path_move_to (&ctx, right, y);
+    struct round_path_ctx ctx = round_path_start (cr, left, y + margin + 0.5, r);
+    round_path_move_to (&ctx, right, y + margin + 0.5);
 
     // Line sweep from top to bottom that both draws the right vertical path and
     // adds points for the left vertical path into a buffer to be drawn later.
     struct key_t *next_segment = key->next_multirow;
     double next_left, next_right;
     while (!is_multirow_parent (next_segment)) {
-        y += row->height*kv->default_key_size - 2*margin - 1;
-        if (next_segment->type != KEY_MULTIROW_SEGMENT) {
+        y += row->height*kv->default_key_size;
+        if (next_segment->type == KEY_MULTIROW_SEGMENT_SIZED) {
             if (next_segment->align == MULTIROW_ALIGN_RIGHT) {
                 next_right = right;
                 next_left = right - next_segment->width*kv->default_key_size + 2*margin + 1;
 
-                return_path[num_return_points] = DVEC2(left, y);
-                return_path[num_return_points+1] = DVEC2(next_left, y);
+                double margin_offset = margin + 0.5;
+                if (left < next_left) {
+                    margin_offset *= -1;
+                }
+
+                return_path[num_return_points] = DVEC2(left, y + margin_offset);
+                return_path[num_return_points+1] = DVEC2(next_left, y + margin_offset);
                 num_return_points += 2;
 
             } else if (next_segment->align == MULTIROW_ALIGN_LEFT) {
                 next_right = left + next_segment->width*kv->default_key_size - 2*margin - 1;
                 next_left = left;
-                round_path_move_to (&ctx, right, y);
-                round_path_move_to (&ctx, next_right, y);
+
+                double margin_offset = margin + 0.5;
+                if (right > next_right) {
+                    margin_offset *= -1;
+                }
+
+                round_path_move_to (&ctx, right, y + margin_offset);
+                round_path_move_to (&ctx, next_right, y + margin_offset);
 
             }
         }
         next_segment = next_segment->next_multirow;
         row = row->next_row;
-        y += 2*margin + 1;
+
+        right = next_right;
+        left = next_left;
     }
 
-    y += row->height*kv->default_key_size - 2*margin - 1;
+    y += row->height*kv->default_key_size - margin - 0.5;
 
     // Draw bottom horizontal segment
     round_path_move_to (&ctx, next_right, y);

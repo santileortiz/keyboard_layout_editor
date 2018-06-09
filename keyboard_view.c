@@ -501,14 +501,12 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
     kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
     kv_new_row_h (kv, 1.5);
     struct key_t *multi1 = kv_add_key (kv, KEY_A);
-    multi1->start_glue = 2;
     kv_add_key (kv, KEY_1);
     //kv_add_key (kv, KEY_2);
     struct key_t *multi4 = kv_add_key_w (kv, KEY_D, 2);
 
     kv_new_row_h (kv, 1.25);
     struct key_t *multi2 = kv_add_key (kv, KEY_B);
-    multi2->start_glue = 1;
     kv_add_key_multirow (kv, multi1);
     kv_add_key (kv, KEY_3);
     kv_add_key_multirow_sized (kv, multi4, 1, MULTIROW_ALIGN_LEFT);
@@ -518,14 +516,12 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
     kv_add_key_multirow (kv, multi2);
     struct key_t *multi3 = kv_add_key (kv, KEY_C);
     multi4 = kv_add_key_multirow (kv, multi4);
-    multi4->start_glue = 1;
 
     kv_new_row_h (kv, 0.75);
     kv_add_key (kv, KEY_5);
     kv_add_key (kv, KEY_6);
     kv_add_key_multirow (kv, multi3);
     multi4 = kv_add_key_multirow (kv, multi4);
-    multi4->start_glue = 1;
 }
 
 void cr_render_key_label (cairo_t *cr, const char *label, double x, double y, double width, double height)
@@ -738,10 +734,10 @@ void keyboard_view_get_margins (struct keyboard_view_t *kv, double *left_margin,
 
 struct key_state_t {
     int count;
-    float max_width;
-    struct key_t *multirow_parent;
+    float parent_left; // left border of the multirow parent
+    float left, right; // left and right borders of the current multirow segment
+    struct key_t *parent;
     int parent_idx;
-    int multirow_len;
 };
 
 struct row_state_t {
@@ -809,27 +805,29 @@ void kv_compute_glue (struct keyboard_view_t *kv)
             // If it's a multirow parent we create a new multirow state and add
             // it to keys_state indexed by the row id of the parent.
             struct key_state_t *new_state = &keys_state[row_idx];
-            new_state->max_width = rows_state[row_idx].width;
-            new_state->multirow_parent = curr_key;
+            new_state->parent = curr_key;
             new_state->parent_idx = row_idx;
+            new_state->parent_left = rows_state[row_idx].width;
+            new_state->left = rows_state[row_idx].width;
+            new_state->right = new_state->left + curr_key->width;
 
-            new_state->multirow_len = 0;
+            int len = 0;
             {
                 struct key_t *tmp_key = curr_key;
                 do {
-                    new_state->multirow_len++;
+                    len++;
                     tmp_key = tmp_key->next_multirow;
                 } while (tmp_key != curr_key);
             }
-
-            new_state->count = new_state->multirow_len - 1;
+            new_state->count = len - 1;
 
             row_idx++;
 
         } else {
-            // If it's a multirow segment then we update the corresponding key
-            // state and if we have found all segments we jump to the parent's
-            // row and continue processing from there.
+            // If it's a multirow segment then update the corresponding key
+            // state and if all multirow segments have been found, compute the
+            // glue for them and jump to the parent's row and continue from
+            // there.
 
             struct key_state_t *key_state = NULL;
             {
@@ -843,7 +841,7 @@ void kv_compute_glue (struct keyboard_view_t *kv)
 
                 int i;
                 for (i=0; i<num_rows; i++) {
-                    if (keys_state[i].multirow_parent == parent) {
+                    if (keys_state[i].parent == parent) {
                         key_state = &keys_state[i];
                         break;
                     }
@@ -851,9 +849,68 @@ void kv_compute_glue (struct keyboard_view_t *kv)
             }
 
             if (key_state != NULL) {
-                // key_state->max_width // TODO: COMPUTE THIS
+                // Detect if the current multirow segment collides with the row
+                // by updating key_state->left and key_state->right. If it does
+                // collide then update key_state->parent_left.
+                if (curr_key->type == KEY_MULTIROW_SEGMENT) {
+                    if (key_state->left < rows_state[row_idx].width) {
+                        key_state->parent_left += rows_state[row_idx].width - key_state->left;
+
+                        // Move left and right by rows_state[row_idx].width - key_state->left
+                        key_state->right += rows_state[row_idx].width - key_state->left;
+                        key_state->left = rows_state[row_idx].width;
+                    }
+
+                } else { // curr_key->type == KEY_MULTIROW_SEGMENT_SIZED
+                    if (curr_key->align == MULTIROW_ALIGN_LEFT) {
+                        if (key_state->left < rows_state[row_idx].width) {
+                            key_state->parent_left += rows_state[row_idx].width - key_state->left;
+
+                            key_state->left = rows_state[row_idx].width;
+                            key_state->right = key_state->left + curr_key->width;
+
+                        } else {
+                            key_state->right = key_state->left + curr_key->width;
+                        }
+
+                    } else { // curr_key->align == MULTIROW_ALIGN_RIGHT
+                        if (key_state->right - curr_key->width < rows_state[row_idx].width) {
+                            key_state->parent_left += rows_state[row_idx].width -
+                                                     (key_state->right - curr_key->width);
+
+                            key_state->left = rows_state[row_idx].width;
+                            key_state->right = key_state->left + curr_key->width;
+
+                        } else {
+                            key_state->left = key_state->right - curr_key->width;
+                        }
+                    }
+                }
+
                 key_state->count--;
                 if (key_state->count == 0) {
+                    // Based on the computed key_state->parent_left compute the
+                    // glue for all segments and update the row width.
+                    int r_i = key_state->parent_idx;
+                    struct key_t *sgmt = key_state->parent;
+                    float left = key_state->parent_left;
+                    float right = left + sgmt->width;
+                    do {
+                        if (sgmt->type == KEY_MULTIROW_SEGMENT_SIZED) {
+                            if (curr_key->align == MULTIROW_ALIGN_LEFT) {
+                                right = left + sgmt->width;
+                            } else { // curr_key->align == MULTIROW_ALIGN_RIGHT
+                                left = right - sgmt->width;
+                            }
+                        }
+
+                        sgmt->start_glue = left - rows_state[r_i].width;
+                        rows_state[r_i].width = right;
+                        r_i++;
+                        sgmt = sgmt->next_multirow;
+                    } while (sgmt != key_state->parent);
+
+                    // Continue processing at the multirow parent's row.
                     row_idx = key_state->parent_idx;
                 } else {
                     row_idx++;

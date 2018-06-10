@@ -111,6 +111,19 @@ struct keyboard_view_t {
     GdkRectangle debug_rect;
 };
 
+static inline
+bool is_multirow_key (struct key_t *key)
+{
+    return key->next_multirow != key;
+}
+
+// NOTE: Assumes is_multirow(key) == true.
+static inline
+bool is_multirow_parent (struct key_t *key)
+{
+    return key->type != KEY_MULTIROW_SEGMENT && key->type != KEY_MULTIROW_SEGMENT_SIZED;
+}
+
 #define kv_new_row(kbd) kv_new_row_h(kbd,1)
 void kv_new_row_h (struct keyboard_view_t *kv, float height)
 {
@@ -128,14 +141,74 @@ void kv_new_row_h (struct keyboard_view_t *kv, float height)
     }
 }
 
-void kv_remove_key (struct keyboard_view_t *kv, struct key_t **key_ptr)
+void kv_remove_key_sgmt (struct keyboard_view_t *kv, struct key_t **key_ptr)
 {
     assert (key_ptr != NULL);
+
+    // NOTE: This does not reset to 0 the content of the deleted segment because
+    // multirow deletion needs the next_multirow pointers. Clearing is done at
+    // kv_allocate_key().
 
     struct key_t *tmp = (*key_ptr)->next_key;
     (*key_ptr)->next_key = kv->spare_keys;
     kv->spare_keys = *key_ptr;
     *key_ptr = tmp;
+}
+
+void kv_remove_key (struct keyboard_view_t *kv, struct key_t **key_ptr)
+{
+    assert (key_ptr != NULL);
+
+    if (is_multirow_key(*key_ptr)) {
+        // Rows are singly linked lists so we don't have the pointers to the
+        // parent of each multirow segment. We iterate the whole keyboard to
+        // delete a multirow key. I don't think this will be a performance issue
+        // as this should not be the most common usecase.
+
+        // Find the multirow_parent
+        struct key_t *multirow_parent = *key_ptr;
+        {
+            while (!is_multirow_parent (multirow_parent)) {
+                multirow_parent = multirow_parent->next_multirow;
+            }
+        }
+
+        // Find the row in which multirow_parent is located.
+        struct row_t *curr_row = kv->first_row;
+        {
+            while (curr_row != NULL) {
+                struct key_t *curr_key = curr_row->first_key;
+                while (curr_key != NULL) {
+                    if (curr_key == multirow_parent) {
+                        break;
+                    }
+                    curr_key = curr_key->next_key;
+                }
+
+                if (curr_key != NULL) {
+                    break;
+                }
+                curr_row = curr_row->next_row;
+            }
+        }
+
+        // Find the parent pointer to each segment and delete it.
+        struct key_t *sgmt = multirow_parent;
+        do {
+            struct key_t **to_delete = &curr_row->first_key;
+            while (*to_delete != sgmt) {
+                to_delete = &(*to_delete)->next_key;
+            }
+            kv_remove_key_sgmt (kv, to_delete);
+
+            curr_row = curr_row->next_row;
+            sgmt = sgmt->next_multirow;
+
+        } while (sgmt != multirow_parent);
+
+    } else {
+        kv_remove_key_sgmt (kv, key_ptr);
+    }
 }
 
 struct key_t* kv_allocate_key (struct keyboard_view_t *kv)
@@ -216,19 +289,6 @@ void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
     if (height != NULL) {
         *height = h;
     }
-}
-
-static inline
-bool is_multirow_key (struct key_t *key)
-{
-    return key->next_multirow != key;
-}
-
-// NOTE: Assumes is_multirow(key) == true.
-static inline
-bool is_multirow_parent (struct key_t *key)
-{
-    return key->type != KEY_MULTIROW_SEGMENT && key->type != KEY_MULTIROW_SEGMENT_SIZED;
 }
 
 float get_multirow_segment_width (struct key_t *key) {
@@ -1430,6 +1490,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             } else if (kv->active_tool == KV_TOOL_DELETE_KEY &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 kv_remove_key (kv, button_event_key_ptr);
+                kv_compute_glue (kv);
             }
             break;
 

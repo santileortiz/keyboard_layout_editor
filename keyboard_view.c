@@ -1359,14 +1359,48 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
     gtk_grid_attach (GTK_GRID(*toolbar), delete_key_button, 3, 0, 1, 1);
 }
 
+// Round i downwards to the nearest multiple of 1/2^n
+float bin_floor (float i, int n)
+{
+    int k;
+    float dec = 1;
+    float res = (int)i;
+    for (k=0; k < n; k++) {
+        dec /= 2;
+        if (res + dec <= i) {
+            res += dec;
+        }
+    }
+    return res;
+}
+
+// Round i upwards to the nearest multiple of 1/2^n
+float bin_ceil (float i, int n)
+{
+    int k;
+    float dec = 1;
+    float res = (int)i;
+    for (k=0; k < n; k++) {
+        dec /= 2;
+        if (res + dec < i) {
+            res += dec;
+        }
+    }
+
+    if (res < i) {
+        res += dec;
+    }
+    return res;
+}
+
 void kv_set_key_split (struct keyboard_view_t *kv, double ptr_x)
 {
     float min_width = 2*KEY_LEFT_MARGIN + 2*KEY_CORNER_RADIUS;
     float left_width, right_width;
     left_width = CLAMP(ptr_x - kv->split_key_rect.x, min_width, kv->split_key_rect.width-min_width);
     right_width = CLAMP(kv->split_key_rect.width - left_width, min_width, kv->split_key_rect.width-min_width);
-    left_width = floorf(left_width)/kv->default_key_size;
-    right_width = ceilf(right_width)/kv->default_key_size;
+    left_width = bin_floor(floorf(left_width)/kv->default_key_size, 3);
+    right_width = bin_ceil(ceilf(right_width)/kv->default_key_size, 3);
 
     if (kv->split_key_rect.x + kv->split_key_rect.width/2 < ptr_x) {
         *kv->splitted_key_ptr = kv->splitted_key;

@@ -22,6 +22,7 @@ enum keyboard_view_commands_t {
 enum keyboard_view_tools_t {
     KV_TOOL_KEYCODE_KEYPRESS,
     KV_TOOL_SPLIT_KEY,
+    KV_TOOL_RESIZE_KEY,
     KV_TOOL_DELETE_KEY
 };
 
@@ -1252,6 +1253,11 @@ void delete_key_handler (GtkButton *button, gpointer user_data)
     keyboard_view->active_tool = KV_TOOL_DELETE_KEY;
 }
 
+void resize_key_handler (GtkButton *button, gpointer user_data)
+{
+    keyboard_view->active_tool = KV_TOOL_RESIZE_KEY;
+}
+
 void keycode_keypress_handler (GtkButton *button, gpointer user_data)
 {
     keyboard_view->active_tool = KV_TOOL_KEYCODE_KEYPRESS;
@@ -1290,6 +1296,10 @@ void button_allocated (GtkWidget *widget, GdkRectangle *rect, gpointer user_data
 
 GtkWidget* toolbar_button_new (const char *icon_name, char *tooltip, GCallback callback, gpointer user_data)
 {
+    if (icon_name == NULL) {
+        icon_name = "bug-symbolic";
+    }
+
     GtkWidget *new_button = gtk_button_new_from_icon_name (icon_name, GTK_ICON_SIZE_SMALL_TOOLBAR);
     add_css_class (new_button, "flat");
     g_signal_connect (G_OBJECT(new_button), "clicked", callback, user_data);
@@ -1343,7 +1353,7 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
                                                       G_CALLBACK (stop_edit_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), stop_edit_button, 0, 0, 1, 1);
 
-    GtkWidget *keycode_keypress = toolbar_button_new ("bug-symbolic",
+    GtkWidget *keycode_keypress = toolbar_button_new (NULL,
                                                       "Assign a keycode by pressing a key",
                                                       G_CALLBACK (keycode_keypress_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), keycode_keypress, 1, 0, 1, 1);
@@ -1357,6 +1367,11 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
                                                       "Delete key",
                                                       G_CALLBACK (delete_key_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), delete_key_button, 3, 0, 1, 1);
+
+    GtkWidget *resize_key_button = toolbar_button_new (NULL,
+                                                      "Resize key",
+                                                      G_CALLBACK (resize_key_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), resize_key_button, 4, 0, 1, 1);
 }
 
 // Round i downwards to the nearest multiple of 1/2^n

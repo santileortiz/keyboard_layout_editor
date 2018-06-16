@@ -973,6 +973,20 @@ void cr_render_multirow_key (cairo_t *cr, double x, double y, struct keyboard_vi
                          row->height*kv->default_key_size - 2*KEY_LEFT_MARGIN - 1);
 }
 
+// Keyboard Pinning is used to keep the position of the keyboard in place while
+// making a modification that may change the full keyboard size, for example
+// resizing a key. There are two ways of pinning the keyboard,
+// kv_pin_keyboard_margins() fixes the current top and left margins in pixels,
+// and kv_pin_keyboard_key() keeps the right border of the provided key segment
+// in the same place.
+void kv_pin_keyboard_margins (struct keyboard_view_t *kv)
+{
+}
+
+void kv_pin_keyboard_key (struct keyboard_view_t *kv, struct key_t *key)
+{
+}
+
 void keyboard_view_get_margins (struct keyboard_view_t *kv, double *left_margin, double *top_margin)
 {
     double kbd_width, kbd_height;

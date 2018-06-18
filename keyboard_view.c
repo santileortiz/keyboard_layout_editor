@@ -7,8 +7,8 @@ enum keyboard_view_state_t {
     KV_EDIT,
     KV_EDIT_KEYCODE_KEYPRESS,
     KV_EDIT_KEY_SPLIT,
+    KV_EDIT_KEY_RESIZE,
     //KV_EDIT_KEYCODE_LOOKUP,
-    //KV_EDIT_KEY_WIDTH,
     //KV_EDIT_KEY_POSITION
 };
 
@@ -93,6 +93,11 @@ struct keyboard_view_t {
     struct key_t **splitted_key_ptr;
     struct key_t *after_key;
     GdkRectangle split_key_rect;
+
+    // KEY_RESIZE state
+    struct key_t *resized_key;
+    GdkRectangle resize_key_rect;
+    bool resize_right_edge;
 
     // Manual tooltips list
     mem_pool_t tooltips_pool;
@@ -260,6 +265,22 @@ struct key_t* kv_add_key_full (struct keyboard_view_t *kv, int keycode,
     return new_key;
 }
 
+float get_multirow_segment_width (struct key_t *key) {
+    assert (key->type == KEY_MULTIROW_SEGMENT);
+
+    float multirow_key_width = 0;
+    struct key_t *curr_key = key->next_multirow;
+    do {
+        if (curr_key->type != KEY_MULTIROW_SEGMENT) {
+            multirow_key_width = curr_key->width;
+        }
+
+        curr_key = curr_key->next_multirow;
+    } while (curr_key != key->next_multirow);
+
+    return multirow_key_width;
+}
+
 void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
 {
     struct row_t *curr_row = kv->first_row;
@@ -272,7 +293,12 @@ void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
         double row_w = 0;
         struct key_t *curr_key = curr_row->first_key;
         while (curr_key != NULL) {
-            row_w += curr_key->width*kv->default_key_size;
+            row_w += curr_key->start_glue*kv->default_key_size;
+            if (curr_key->type == KEY_MULTIROW_SEGMENT) {
+                row_w += get_multirow_segment_width(curr_key)*kv->default_key_size;
+            } else {
+                row_w += curr_key->width*kv->default_key_size;
+            }
             curr_key = curr_key->next_key;
         }
 
@@ -290,22 +316,6 @@ void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
     if (height != NULL) {
         *height = h;
     }
-}
-
-float get_multirow_segment_width (struct key_t *key) {
-    assert (key->type == KEY_MULTIROW_SEGMENT);
-
-    float multirow_key_width = 0;
-    struct key_t *curr_key = key->next_multirow;
-    do {
-        if (curr_key->type != KEY_MULTIROW_SEGMENT) {
-            multirow_key_width = curr_key->width;
-        }
-
-        curr_key = curr_key->next_multirow;
-    } while (curr_key != key->next_multirow);
-
-    return multirow_key_width;
 }
 
 // Compute the width and height in pixels of a key and return wether or not the
@@ -332,7 +342,7 @@ bool compute_key_size_full (struct keyboard_view_t *kv, struct key_t *key, struc
     *multirow_y_offset = 0;
 
     bool is_rectangular = true;
-    float multirow_key_height = 0, multirow_key_width = 0;
+    float multirow_key_height = 0;
 
     if (is_multirow_key (key)) {
         // Computing the size of a multirow key is a bit contrived for several
@@ -394,16 +404,7 @@ bool compute_key_size_full (struct keyboard_view_t *kv, struct key_t *key, struc
                 curr_row = curr_row->next_row;
                 i++;
             }
-
-        } else {
-            // Here the multirow key is non rectangular, which means we want to
-            // compute the inherited width if the segment is not sized.
-            if (key->type == KEY_MULTIROW_SEGMENT) {
-                // 2) Compute the inherited width of the multirow key segment.
-                multirow_key_width = get_multirow_segment_width (key);
-            }
         }
-
     }
 
     *multirow_y_offset *= kv->default_key_size;
@@ -414,8 +415,9 @@ bool compute_key_size_full (struct keyboard_view_t *kv, struct key_t *key, struc
         *height = row->height*kv->default_key_size;
     }
 
-    if (!is_rectangular && key->type == KEY_MULTIROW_SEGMENT) {
-        *width = multirow_key_width*kv->default_key_size;
+    if (key->type == KEY_MULTIROW_SEGMENT) {
+        // Compute the inherited width of the multirow key segment.
+        *width = get_multirow_segment_width (key)*kv->default_key_size;
     } else {
         *width = key->width*kv->default_key_size;
     }
@@ -973,20 +975,6 @@ void cr_render_multirow_key (cairo_t *cr, double x, double y, struct keyboard_vi
                          row->height*kv->default_key_size - 2*KEY_LEFT_MARGIN - 1);
 }
 
-// Keyboard Pinning is used to keep the position of the keyboard in place while
-// making a modification that may change the full keyboard size, for example
-// resizing a key. There are two ways of pinning the keyboard,
-// kv_pin_keyboard_margins() fixes the current top and left margins in pixels,
-// and kv_pin_keyboard_key() keeps the right border of the provided key segment
-// in the same place.
-void kv_pin_keyboard_margins (struct keyboard_view_t *kv)
-{
-}
-
-void kv_pin_keyboard_key (struct keyboard_view_t *kv, struct key_t *key)
-{
-}
-
 void keyboard_view_get_margins (struct keyboard_view_t *kv, double *left_margin, double *top_margin)
 {
     double kbd_width, kbd_height;
@@ -1146,7 +1134,7 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
 }
 
 struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, double y,
-                                     GdkRectangle *rect, struct key_t ***parent_ptr)
+                                     GdkRectangle *rect, bool *is_rectangular, struct key_t ***parent_ptr)
 {
     double kbd_x, kbd_y;
     keyboard_view_get_margins (kv, &kbd_x, &kbd_y);
@@ -1214,7 +1202,11 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
             float multirow_y_offset;
             // For non rectangular multirow keys this returns the rectangle
             // of the segment where x and y are.
-            compute_key_size_full (kv, curr_key, curr_row, &key_width, &key_height, &multirow_y_offset);
+            bool l_is_rectangular = compute_key_size_full (kv, curr_key, curr_row, &key_width, &key_height, &multirow_y_offset);
+            if (is_rectangular != NULL) {
+                *is_rectangular = l_is_rectangular;
+            }
+
             rect->width = (int)key_width;
             rect->height = (int)key_height;
             rect->y = kbd_y - multirow_y_offset;
@@ -1460,17 +1452,20 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
     }
 
     struct key_t *button_event_key = NULL, **button_event_key_ptr = NULL;
+    bool button_event_key_is_rectangular = false;
     GdkRectangle button_event_key_rect = {0};
     if (e->type == GDK_BUTTON_PRESS || e->type == GDK_BUTTON_RELEASE) {
         GdkEventButton *btn_e = (GdkEventButton*)e;
         button_event_key = keyboard_view_get_key (kv, btn_e->x, btn_e->y,
                                                   &button_event_key_rect,
+                                                  &button_event_key_is_rectangular,
                                                   &button_event_key_ptr);
 
     } else if (e->type == GDK_MOTION_NOTIFY) {
         GdkEventMotion *btn_e = (GdkEventMotion*)e;
         button_event_key = keyboard_view_get_key (kv, btn_e->x, btn_e->y,
                                                   &button_event_key_rect,
+                                                  &button_event_key_is_rectangular,
                                                   &button_event_key_ptr);
     }
 
@@ -1554,6 +1549,20 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 kv_remove_key (kv, button_event_key_ptr);
                 kv_compute_glue (kv);
+
+            } else if (kv->active_tool == KV_TOOL_RESIZE_KEY &&
+                       e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+                if (button_event_key_is_rectangular) {
+                    GdkEventButton *event = (GdkEventButton*)e;
+                    kv->resized_key = button_event_key;
+                    if (button_event_key_rect.x + button_event_key_rect.width/2 < event->x) {
+                        kv->resize_right_edge = true;
+                    } else {
+                        kv->resize_right_edge = false;
+                    }
+                    kv->resize_key_rect = button_event_key_rect;
+                    kv->state = KV_EDIT_KEY_RESIZE;
+                }
             }
             break;
 
@@ -1622,6 +1631,27 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             }
             break;
+
+        case KV_EDIT_KEY_RESIZE:
+            if (e->type == GDK_MOTION_NOTIFY) {
+                GdkEventMotion *event = (GdkEventMotion*)e;
+                if (kv->resize_right_edge) {
+                    float min_width = 2*KEY_LEFT_MARGIN + 2*KEY_CORNER_RADIUS;
+                    double w = MAX(event->x - kv->resize_key_rect.x, min_width);
+                    kv->resized_key->width = bin_floor(floorf(w)/kv->default_key_size, 3);
+                }
+
+            } else if (e->type == GDK_BUTTON_RELEASE) {
+                kv->state = KV_EDIT;
+
+            } else if (e->type == GDK_KEY_PRESS) {
+                if (key_event_kc - 8 == KEY_ESC) {
+                    kv->resized_key->width = kv->resize_key_rect.width/kv->default_key_size;
+                    kv->state = KV_EDIT;
+                }
+            }
+            kv_compute_glue (kv);
+            break;
     }
 
     gtk_widget_queue_draw (kv->widget);
@@ -1673,7 +1703,7 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
 
     gboolean show_tooltip = FALSE;
     GdkRectangle rect = {0};
-    struct key_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect, NULL);
+    struct key_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect, NULL, NULL);
     if (key != NULL) {
         // For non rectangular multirow keys keyboard_view_get_key() returns the
         // rectangle of the segment that was hovered. This has the (undesired?)

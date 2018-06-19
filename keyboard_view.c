@@ -47,7 +47,7 @@ enum multirow_key_align_t {
 struct key_t {
     int kc; //keycode
     float width; // normalized to default_key_size
-    float start_glue, end_glue;
+    float internal_glue, user_glue;
     enum key_render_type_t type;
     struct key_t *next_key;
     struct key_t *next_multirow;
@@ -96,8 +96,10 @@ struct keyboard_view_t {
 
     // KEY_RESIZE state
     struct key_t *resized_key;
-    GdkRectangle resize_key_rect;
-    bool resize_right_edge;
+    float x_clicked_pos;
+    float original_w;
+    mem_pool_t size_snapshot_pool; // TODO: Can the snapshot be created into kv's pool without issues?
+    struct row_t *size_snapshot;
 
     // Manual tooltips list
     mem_pool_t tooltips_pool;
@@ -232,15 +234,14 @@ struct key_t* kv_allocate_key (struct keyboard_view_t *kv)
     return new_key;
 }
 
-#define kv_add_key(kbd,keycode)     kv_add_key_full(kbd,keycode,1,0,0)
-#define kv_add_key_w(kbd,keycode,w) kv_add_key_full(kbd,keycode,w,0,0)
+#define kv_add_key(kbd,keycode)     kv_add_key_full(kbd,keycode,1,0)
+#define kv_add_key_w(kbd,keycode,w) kv_add_key_full(kbd,keycode,w,0)
 struct key_t* kv_add_key_full (struct keyboard_view_t *kv, int keycode,
-                               float width, float start_glue, float end_glue)
+                               float width, float glue)
 {
     struct key_t *new_key = kv_allocate_key (kv);
     new_key->width = width;
-    new_key->start_glue = start_glue;
-    new_key->end_glue = end_glue;
+    new_key->user_glue = glue;
 
     if (0 < keycode && keycode < KEY_CNT) {
         kv->keys_by_kc[keycode] = new_key;
@@ -293,7 +294,7 @@ void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
         double row_w = 0;
         struct key_t *curr_key = curr_row->first_key;
         while (curr_key != NULL) {
-            row_w += curr_key->start_glue*kv->default_key_size;
+            row_w += (curr_key->internal_glue + curr_key->user_glue)*kv->default_key_size;
             if (curr_key->type == KEY_MULTIROW_SEGMENT) {
                 row_w += get_multirow_segment_width(curr_key)*kv->default_key_size;
             } else {
@@ -608,7 +609,7 @@ void kv_compute_glue (struct keyboard_view_t *kv)
     while (done_rows < num_rows) {
         struct key_t *curr_key = rows_state[row_idx].curr_key;
         while (curr_key && !is_multirow_key(curr_key)) {
-            rows_state[row_idx].width += curr_key->width;
+            rows_state[row_idx].width += curr_key->user_glue + curr_key->width;
             curr_key = curr_key->next_key;
         }
 
@@ -731,7 +732,7 @@ void kv_compute_glue (struct keyboard_view_t *kv)
                             }
                         }
 
-                        sgmt->start_glue = left - rows_state[r_i].width;
+                        sgmt->internal_glue = left - rows_state[r_i].width;
                         rows_state[r_i].width = right;
                         r_i++;
                         sgmt = sgmt->next_multirow;
@@ -759,7 +760,7 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
     kv_new_row_h (kv, 1.25);
     struct key_t *multi2 = kv_add_key (kv, KEY_B);
     kv_add_key_multirow (kv, multi1);
-    kv_add_key (kv, KEY_3);
+    kv_add_key_full (kv, KEY_3, 1, 1);
     kv_add_key_multirow_sized (kv, multi4, 1, MULTIROW_ALIGN_LEFT);
 
     kv_new_row_h (kv, 1);
@@ -1088,7 +1089,7 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
                 }
             }
 
-            x_pos += curr_key->start_glue*kv->default_key_size;
+            x_pos += (curr_key->internal_glue + curr_key->user_glue)*kv->default_key_size;
 
             dvec4 key_color;
             if (curr_key->type != KEY_MULTIROW_SEGMENT) {
@@ -1117,7 +1118,7 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
                 }
             }
 
-            x_pos += key_width + curr_key->end_glue*kv->default_key_size;
+            x_pos += key_width;
             curr_key = curr_key->next_key;
         }
 
@@ -1161,9 +1162,8 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
     if (curr_row != NULL) {
         curr_key = curr_row->first_key;
         while (curr_key != NULL) {
-            // First update x_kbd with the start glue, if the point is here we
-            // return NULL.
-            kbd_x += curr_key->start_glue*kv->default_key_size;
+            // First update x_kbd with the glues, if the point is here we return NULL.
+            kbd_x += (curr_key->internal_glue + curr_key->user_glue)*kv->default_key_size;
             if (kbd_x > x) {
                 curr_key = NULL;
                 break;
@@ -1184,12 +1184,6 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
             // We only commit to the updated kbd_x after we check we don't want
             // to break.
             kbd_x = next_x;
-
-            kbd_x += curr_key->end_glue*kv->default_key_size;
-            if (kbd_x > x) {
-                curr_key = NULL;
-                break;
-            }
 
             prev_key = curr_key;
             curr_key = curr_key->next_key;
@@ -1441,6 +1435,68 @@ void kv_set_key_split (struct keyboard_view_t *kv, double ptr_x)
     }
 }
 
+struct row_t* kv_create_size_snapshot (struct keyboard_view_t *kv, mem_pool_t *pool)
+{
+    struct row_t *curr_row = kv->first_row;
+    struct row_t *prev_row = NULL, *first_row;
+    while (curr_row != NULL) {
+        struct row_t *new_row = (struct row_t*)pom_push_struct (kv->pool, struct row_t);
+        new_row->height = curr_row->height;
+        if (prev_row != NULL) {
+            prev_row->next_row = new_row;
+        } else {
+            first_row = new_row;
+        }
+
+        struct key_t **parent_ptr = &new_row->first_key;
+        struct key_t *curr_key = curr_row->first_key;
+        struct key_t *new_key;
+        while (curr_key != NULL) {
+            new_key = (struct key_t*)pom_push_struct (kv->pool, struct key_t);
+            *new_key = *curr_key;
+            *parent_ptr = new_key;
+
+            // NOTE: Multirow segment pointers are NOT mirrored as they have not
+            // been necessary. This being a "size" snapshot, means it's
+            // currently only used to keep the old dimensioning information
+            // (height, width and glue). This is not a full clone of the
+            // keyboard data structure!!!
+            new_key->next_multirow = NULL;
+
+            parent_ptr = &new_key->next_key;
+            curr_key = curr_key->next_key;
+        }
+        new_row->last_key = new_key;
+
+        curr_row = curr_row->next_row;
+        prev_row = new_row;
+    }
+    prev_row->next_row = NULL;
+
+    return first_row;
+}
+
+void kv_right_align_changed_glue (struct keyboard_view_t *kv, struct row_t *old)
+{
+    struct row_t *curr_row = kv->first_row;
+    struct row_t *old_row = old;
+    while (curr_row != NULL) {
+        struct key_t *curr_key = curr_row->first_key;
+        struct key_t *old_key = old_row->first_key;
+        while (curr_key != NULL) {
+            assert (curr_key->user_glue == old_key->user_glue && "User glue should not change.");
+
+            curr_key = curr_key->next_key;
+            old_key = old_key->next_key;
+        }
+        assert (old_key == NULL && "kv and snapshot have differing segments.");
+
+        curr_row = curr_row->next_row;
+        old_row = old_row->next_row;
+    }
+    assert (old_row == NULL && "kv and snapshot have differing segments.");
+}
+
 void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, GdkEvent *e)
 {
     // To avoid segfaults when e==NULL without having to check if e==NULL every
@@ -1555,12 +1611,11 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 if (button_event_key_is_rectangular) {
                     GdkEventButton *event = (GdkEventButton*)e;
                     kv->resized_key = button_event_key;
-                    if (button_event_key_rect.x + button_event_key_rect.width/2 < event->x) {
-                        kv->resize_right_edge = true;
-                    } else {
-                        kv->resize_right_edge = false;
+                    if (event->x < button_event_key_rect.x + button_event_key_rect.width/2) {
+                        kv->size_snapshot = kv_create_size_snapshot (kv, &kv->size_snapshot_pool);
                     }
-                    kv->resize_key_rect = button_event_key_rect;
+                    kv->x_clicked_pos = event->x;
+                    kv->original_w = button_event_key->width;
                     kv->state = KV_EDIT_KEY_RESIZE;
                 }
             }
@@ -1635,22 +1690,40 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         case KV_EDIT_KEY_RESIZE:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
-                if (kv->resize_right_edge) {
-                    float min_width = 2*KEY_LEFT_MARGIN + 2*KEY_CORNER_RADIUS;
-                    double w = MAX(event->x - kv->resize_key_rect.x, min_width);
-                    kv->resized_key->width = bin_floor(floorf(w)/kv->default_key_size, 3);
+                float min_width = 2*KEY_LEFT_MARGIN + 2*KEY_CORNER_RADIUS;
+
+                float delta_w;
+                if (kv->size_snapshot != NULL) {
+                    delta_w = kv->x_clicked_pos - event->x;
+                    //kv_right_align_changed_glue (kv, kv->size_snapshot);
+                } else {
+                    delta_w = event->x - kv->x_clicked_pos;
                 }
 
+                double w = MAX(kv->original_w*kv->default_key_size + delta_w, min_width);
+                kv->resized_key->width = bin_floor(floorf(w)/kv->default_key_size, 3);
+                kv_compute_glue (kv);
+
             } else if (e->type == GDK_BUTTON_RELEASE) {
+                if (kv->size_snapshot != NULL) {
+                    mem_pool_destroy (&kv->size_snapshot_pool);
+                    kv->size_snapshot = NULL;
+                }
                 kv->state = KV_EDIT;
 
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
-                    kv->resized_key->width = kv->resize_key_rect.width/kv->default_key_size;
+                    kv->resized_key->width = kv->original_w;
+                    if (kv->size_snapshot != NULL) {
+                        mem_pool_destroy (&kv->size_snapshot_pool);
+                        kv->size_snapshot = NULL;
+                    }
+                    kv_compute_glue (kv);
+
                     kv->state = KV_EDIT;
                 }
             }
-            kv_compute_glue (kv);
+
             break;
     }
 

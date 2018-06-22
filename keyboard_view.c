@@ -1134,7 +1134,8 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
 }
 
 struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, double y,
-                                     GdkRectangle *rect, bool *is_rectangular, struct key_t ***parent_ptr)
+                                     GdkRectangle *rect, bool *is_rectangular,
+                                     struct key_t **clicked_sgmt, struct key_t ***parent_ptr)
 {
     double kbd_x, kbd_y;
     keyboard_view_get_margins (kv, &kbd_x, &kbd_y);
@@ -1190,6 +1191,10 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
     }
 
     if (curr_key != NULL) {
+        if (clicked_sgmt != NULL) {
+            *clicked_sgmt = curr_key;
+        }
+
         if (rect != NULL) {
             float key_width, key_height;
             float multirow_y_offset;
@@ -1442,7 +1447,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         e = &null_event;
     }
 
-    struct key_t *button_event_key = NULL, **button_event_key_ptr = NULL;
+    struct key_t *button_event_key = NULL, *button_event_key_clicked_sgmt = NULL, **button_event_key_ptr = NULL;
     bool button_event_key_is_rectangular = false;
     GdkRectangle button_event_key_rect = {0};
     if (e->type == GDK_BUTTON_PRESS || e->type == GDK_BUTTON_RELEASE) {
@@ -1450,6 +1455,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         button_event_key = keyboard_view_get_key (kv, btn_e->x, btn_e->y,
                                                   &button_event_key_rect,
                                                   &button_event_key_is_rectangular,
+                                                  &button_event_key_clicked_sgmt,
                                                   &button_event_key_ptr);
 
     } else if (e->type == GDK_MOTION_NOTIFY) {
@@ -1457,6 +1463,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         button_event_key = keyboard_view_get_key (kv, btn_e->x, btn_e->y,
                                                   &button_event_key_rect,
                                                   &button_event_key_is_rectangular,
+                                                  &button_event_key_clicked_sgmt,
                                                   &button_event_key_ptr);
     }
 
@@ -1560,6 +1567,19 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv->original_user_glue = kv->resized_key->user_glue;
                     kv->x_clicked_pos = event->x;
                     kv->original_w = button_event_key->width;
+                    kv->state = KV_EDIT_KEY_RESIZE;
+                } else {
+
+                    GdkEventButton *event = (GdkEventButton*)e;
+                    if (event->x < button_event_key_rect.x + button_event_key_rect.width/2) {
+                        kv->resize_right = false;
+                    } else {
+                        kv->resize_right = true;
+                    }
+
+                    kv->resized_key = button_event_key_clicked_sgmt;
+                    kv->original_w = button_event_key_clicked_sgmt->width;
+                    kv->x_clicked_pos = event->x;
                     kv->state = KV_EDIT_KEY_RESIZE;
                 }
             }
@@ -1718,7 +1738,7 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
 
     gboolean show_tooltip = FALSE;
     GdkRectangle rect = {0};
-    struct key_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect, NULL, NULL);
+    struct key_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect, NULL, NULL, NULL);
     if (key != NULL) {
         // For non rectangular multirow keys keyboard_view_get_key() returns the
         // rectangle of the segment that was hovered. This has the (undesired?)

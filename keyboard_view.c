@@ -102,6 +102,7 @@ struct keyboard_view_t {
     float x_anchor;
     float original_w;
     float original_user_glue;
+    float min_width;
     bool resize_right;
 
     // Manual tooltips list
@@ -763,7 +764,7 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
     struct key_t *multi2 = kv_add_key (kv, KEY_B);
     kv_add_key_multirow (kv, multi1);
     kv_add_key_full (kv, KEY_3, 1, 1);
-    kv_add_key_multirow_sized (kv, multi4, 1, MULTIROW_ALIGN_LEFT);
+    kv_add_key_multirow_sized (kv, multi4, 1, MULTIROW_ALIGN_RIGHT);
 
     kv_new_row_h (kv, 1);
     kv_add_key (kv, KEY_4);
@@ -1436,9 +1437,15 @@ float bin_ceil (float i, int n)
     return res;
 }
 
+static inline
+float kv_get_min_key_width (struct keyboard_view_t *kv)
+{
+    return bin_ceil(2*(KEY_LEFT_MARGIN + KEY_CORNER_RADIUS)/kv->default_key_size, 3);
+}
+
 void kv_set_key_split (struct keyboard_view_t *kv, double ptr_x)
 {
-    float min_width = 2*KEY_LEFT_MARGIN + 2*KEY_CORNER_RADIUS;
+    float min_width = kv_get_min_key_width (kv)*kv->default_key_size;
     float left_width, right_width;
     left_width = CLAMP(ptr_x - kv->split_key_rect.x, min_width, kv->split_key_rect.width-min_width);
     right_width = CLAMP(kv->split_key_rect.width - left_width, min_width, kv->split_key_rect.width-min_width);
@@ -1632,6 +1639,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                             } while (curr_key != button_event_key_clicked_sgmt);
                         }
+
+
                     }
 
                     edge_end_sgmt = NULL;
@@ -1646,6 +1655,21 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                             curr_key = curr_key->next_multirow;
                         }
                     }
+
+                    float min_w = resized_key->width;
+                    {
+                        struct key_t *end = edge_end_sgmt;
+                        if (end == NULL) {
+                            end = button_event_key;
+                        }
+
+                        struct key_t *curr_key = resized_key->next_multirow;
+                        do {
+                            min_w = MIN (min_w, curr_key->width);
+                            curr_key = curr_key->next_multirow;
+                        } while (curr_key != end);
+                    }
+                    kv->min_width = resized_key->width - min_w + kv_get_min_key_width(kv);
 
 #if 0
                     // Debug code
@@ -1742,7 +1766,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         case KV_EDIT_KEY_RESIZE:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
-                float min_width = 2*KEY_LEFT_MARGIN + 2*KEY_CORNER_RADIUS;
+                float min_width = kv_get_min_key_width (kv);
 
                 float delta_w;
                 if (kv->resize_right) {
@@ -1750,13 +1774,13 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 } else {
                     delta_w = kv->x_clicked_pos - event->x;
                     float max_glue =
-                        (kv->original_user_glue + kv->original_w)*kv->default_key_size - min_width;
+                        (kv->original_user_glue + kv->original_w - min_width)*kv->default_key_size;
                     float g = CLAMP(kv->original_user_glue*kv->default_key_size - delta_w, 0, max_glue);
                     kv->resized_key->user_glue = bin_ceil(g/kv->default_key_size, 3);
                 }
 
-                double w = MAX(kv->original_w*kv->default_key_size + delta_w, min_width);
-                kv->resized_key->width = bin_floor(w/kv->default_key_size, 3);
+                float new_width = (kv->original_w*kv->default_key_size + delta_w)/kv->default_key_size;
+                kv->resized_key->width = MAX(bin_floor(new_width, 3), min_width);
                 kv_compute_glue (kv);
 
             } else if (e->type == GDK_BUTTON_RELEASE) {
@@ -1779,11 +1803,11 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         case KV_EDIT_KEY_RESIZE_NON_RECTANGULAR:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
-                float min_width = 2*KEY_LEFT_MARGIN + 2*KEY_CORNER_RADIUS;
 
                 float delta_w = bin_floor((event->x - kv->x_anchor)/kv->default_key_size, 3);
                 float new_width = kv->resized_key->width + delta_w;
-                if (delta_w != 0 && new_width*kv->default_key_size > min_width) {
+
+                if (delta_w != 0 && new_width >= kv->min_width) {
                     kv->resized_key->width = new_width;
                     if (kv->edge_start_sgmt != NULL) {
                         if (new_width == kv->edge_start_sgmt->width) {

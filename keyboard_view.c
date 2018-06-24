@@ -1613,7 +1613,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                         edge_start_sgmt = NULL;
                         resized_key = button_event_key; // multirow parent
                         if (button_event_key_clicked_sgmt != button_event_key) {
-                            int num_same_edge = 0;
+                            int num_same_edge = 1;
                             struct key_t *curr_key = button_event_key;
                             do {
                                 curr_key = curr_key->next_multirow;
@@ -1639,8 +1639,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                             } while (curr_key != button_event_key_clicked_sgmt);
                         }
-
-
                     }
 
                     edge_end_sgmt = NULL;

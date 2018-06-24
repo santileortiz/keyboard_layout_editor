@@ -764,7 +764,7 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
     struct key_t *multi2 = kv_add_key (kv, KEY_B);
     kv_add_key_multirow (kv, multi1);
     kv_add_key_full (kv, KEY_3, 1, 1);
-    kv_add_key_multirow_sized (kv, multi4, 1, MULTIROW_ALIGN_RIGHT);
+    kv_add_key_multirow_sized (kv, multi4, 1, MULTIROW_ALIGN_LEFT);
 
     kv_new_row_h (kv, 1);
     kv_add_key (kv, KEY_4);
@@ -1470,6 +1470,61 @@ void kv_set_key_split (struct keyboard_view_t *kv, double ptr_x)
     }
 }
 
+void kv_locate_edge (struct keyboard_view_t *kv,
+                     struct key_t *multirow_parent, struct key_t *key_sgmt, bool is_right_edge,
+                     struct key_t **resized_key, struct key_t **edge_start_sgmt, struct key_t **edge_end_sgmt)
+{
+    assert (resized_key != NULL && edge_start_sgmt != NULL && edge_end_sgmt != NULL);
+
+    enum multirow_key_align_t alignment = MULTIROW_ALIGN_RIGHT;
+    if (is_right_edge) {
+        alignment = MULTIROW_ALIGN_LEFT;
+    }
+
+    *edge_start_sgmt = NULL;
+    *resized_key = multirow_parent;
+    if (key_sgmt != multirow_parent) {
+        int num_same_edge = 1;
+        struct key_t *curr_key = multirow_parent;
+        do {
+            curr_key = curr_key->next_multirow;
+
+            if (curr_key->type == KEY_MULTIROW_SEGMENT_SIZED) {
+                if (curr_key->align == alignment) {
+                    *edge_start_sgmt = *resized_key;
+                    num_same_edge = 0;
+                    *resized_key = curr_key;
+
+                } else {
+                    if (num_same_edge == 0) {
+                        *resized_key = curr_key;
+                    }
+                    num_same_edge++;
+                }
+            }
+
+            if (curr_key->type == KEY_MULTIROW_SEGMENT) {
+                num_same_edge++;
+            }
+
+        } while (curr_key != key_sgmt);
+    }
+
+    // Maybe this should default to the multirow_parent and not NULL.
+    *edge_end_sgmt = NULL;
+    {
+        struct key_t *curr_key = key_sgmt->next_multirow;
+        while (!is_multirow_parent (curr_key)) {
+            if (curr_key->type == KEY_MULTIROW_SEGMENT_SIZED &&
+                curr_key->align == alignment) {
+                *edge_end_sgmt = curr_key;
+                break;
+            }
+            curr_key = curr_key->next_multirow;
+        }
+    }
+}
+
 void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, GdkEvent *e)
 {
     // To avoid segfaults when e==NULL without having to check if e==NULL every
@@ -1604,55 +1659,15 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 } else {
                     GdkEventButton *event = (GdkEventButton*)e;
-                    struct key_t *resized_key, *edge_start_sgmt, *edge_end_sgmt;
                     if (event->x < button_event_key_rect.x + button_event_key_rect.width/2) {
                         kv->resize_right = false;
                     } else {
                         kv->resize_right = true;
-
-                        edge_start_sgmt = NULL;
-                        resized_key = button_event_key; // multirow parent
-                        if (button_event_key_clicked_sgmt != button_event_key) {
-                            int num_same_edge = 1;
-                            struct key_t *curr_key = button_event_key;
-                            do {
-                                curr_key = curr_key->next_multirow;
-
-                                if (curr_key->type == KEY_MULTIROW_SEGMENT_SIZED) {
-                                    if (curr_key->align == MULTIROW_ALIGN_LEFT) {
-                                        edge_start_sgmt = resized_key;
-                                        num_same_edge = 0;
-                                        resized_key = curr_key;
-                                    }
-
-                                    if (curr_key->align == MULTIROW_ALIGN_RIGHT) {
-                                        if (num_same_edge == 0) {
-                                            resized_key = curr_key;
-                                        }
-                                        num_same_edge++;
-                                    }
-                                }
-
-                                if (curr_key->type == KEY_MULTIROW_SEGMENT) {
-                                    num_same_edge++;
-                                }
-
-                            } while (curr_key != button_event_key_clicked_sgmt);
-                        }
                     }
 
-                    edge_end_sgmt = NULL;
-                    {
-                        struct key_t *curr_key = button_event_key_clicked_sgmt->next_multirow;
-                        while (!is_multirow_parent (curr_key)) {
-                            if (curr_key->type == KEY_MULTIROW_SEGMENT_SIZED &&
-                                curr_key->align == MULTIROW_ALIGN_LEFT) {
-                                edge_end_sgmt = curr_key;
-                                break;
-                            }
-                            curr_key = curr_key->next_multirow;
-                        }
-                    }
+                    struct key_t *resized_key, *edge_start_sgmt, *edge_end_sgmt;
+                    kv_locate_edge (kv, button_event_key, button_event_key_clicked_sgmt, kv->resize_right,
+                                    &resized_key, &edge_start_sgmt, &edge_end_sgmt);
 
                     float min_w = resized_key->width;
                     {
@@ -1802,7 +1817,14 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
 
-                float delta_w = bin_floor((event->x - kv->x_anchor)/kv->default_key_size, 3);
+                float delta_w;
+                if (kv->resize_right) {
+                    delta_w = event->x - kv->x_anchor;
+                } else {
+                    delta_w = kv->x_anchor - event->x;
+                }
+
+                delta_w = bin_floor((delta_w)/kv->default_key_size, 3);
                 float new_width = kv->resized_key->width + delta_w;
 
                 if (delta_w != 0 && new_width >= kv->min_width) {
@@ -1833,7 +1855,11 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                         }
                     }
 
-                    kv->x_anchor += delta_w*kv->default_key_size;
+                    if (kv->resize_right) {
+                        kv->x_anchor += delta_w*kv->default_key_size;
+                    } else {
+                        kv->x_anchor -= delta_w*kv->default_key_size;
+                    }
                 }
 
                 kv_compute_glue (kv);

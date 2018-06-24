@@ -1676,7 +1676,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                             end = button_event_key;
                         }
 
-                        struct key_t *curr_key = resized_key->next_multirow;
+                        struct key_t *curr_key = resized_key;
                         do {
                             min_w = MIN (min_w, curr_key->width);
                             curr_key = curr_key->next_multirow;

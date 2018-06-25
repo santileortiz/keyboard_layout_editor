@@ -1877,6 +1877,14 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     float delta_w = kv->original_w - kv->resized_key->width;
                     kv->resized_key->width = kv->original_w;
 
+                    if (kv->edge_start_sgmt != NULL) {
+                        kv->resized_key->type = KEY_MULTIROW_SEGMENT_SIZED;
+                    }
+
+                    if (kv->edge_end_sgmt != NULL) {
+                        kv->edge_end_sgmt->type = KEY_MULTIROW_SEGMENT_SIZED;
+                    }
+
                     struct key_t *curr_key = kv->resized_key->next_multirow;
                     while (!is_multirow_parent(curr_key) && curr_key != kv->edge_end_sgmt) {
                         if (curr_key->type != KEY_MULTIROW_SEGMENT) {

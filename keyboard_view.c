@@ -776,7 +776,7 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
     kv_add_key (kv, KEY_5);
     kv_add_key (kv, KEY_6);
     kv_add_key_multirow (kv, multi3);
-    kv_add_key_multirow_sized (kv, multi4, 3, MULTIROW_ALIGN_LEFT);
+    kv_add_key_multirow_sized (kv, multi4, 3, MULTIROW_ALIGN_RIGHT);
 
     kv_compute_glue (kv);
 }
@@ -1708,7 +1708,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     {
                         struct key_t *curr_key = edge_start;
                         do {
-                            min_w = MIN (min_w, curr_key->width);
+                            if (curr_key->type != KEY_MULTIROW_SEGMENT) {
+                                min_w = MIN (min_w, curr_key->width);
+                            }
                             curr_key = curr_key->next_multirow;
                         } while (curr_key != edge_end_sgmt);
                     }

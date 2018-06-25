@@ -1486,13 +1486,18 @@ void kv_locate_edge (struct keyboard_view_t *kv,
     if (key_sgmt != multirow_parent) {
         int num_same_edge = 1;
         struct key_t *curr_key = multirow_parent;
+        struct key_t *prev_sized;
         do {
+            if (curr_key->type != KEY_MULTIROW_SEGMENT) {
+                prev_sized = curr_key;
+            }
+
             curr_key = curr_key->next_multirow;
 
             if (curr_key->type == KEY_MULTIROW_SEGMENT_SIZED) {
                 if (curr_key->align == alignment) {
-                    *edge_start_sgmt = *resized_key;
                     num_same_edge = 0;
+                    *edge_start_sgmt = prev_sized;
                     *resized_key = curr_key;
 
                 } else {

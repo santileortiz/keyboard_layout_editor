@@ -1443,33 +1443,6 @@ float kv_get_min_key_width (struct keyboard_view_t *kv)
     return bin_ceil(2*(KEY_LEFT_MARGIN + KEY_CORNER_RADIUS)/kv->default_key_size, 3);
 }
 
-void kv_set_key_split (struct keyboard_view_t *kv, double ptr_x)
-{
-    float min_width = kv_get_min_key_width (kv)*kv->default_key_size;
-    float left_width, right_width;
-    left_width = CLAMP(ptr_x - kv->split_key_rect.x, min_width, kv->split_key_rect.width-min_width);
-    right_width = CLAMP(kv->split_key_rect.width - left_width, min_width, kv->split_key_rect.width-min_width);
-    left_width = bin_floor(floorf(left_width)/kv->default_key_size, 3);
-    right_width = bin_ceil(ceilf(right_width)/kv->default_key_size, 3);
-
-    if (kv->split_key_rect.x + kv->split_key_rect.width/2 < ptr_x) {
-        *kv->splitted_key_ptr = kv->splitted_key;
-        kv->splitted_key->next_key = kv->new_key;
-        kv->new_key->next_key = kv->after_key;
-
-        kv->splitted_key->width = left_width;
-        kv->new_key->width = right_width;
-
-    } else {
-        *kv->splitted_key_ptr = kv->new_key;
-        kv->new_key->next_key = kv->splitted_key;
-        kv->splitted_key->next_key = kv->after_key;
-
-        kv->splitted_key->width = right_width;
-        kv->new_key->width = left_width;
-    }
-}
-
 // Provides information about an edge of a non rectangular multirow key. Its
 // receives the multirow parent of the key and a segment for which we want to
 // find the edge, and finally a boolean that specifies which side of the
@@ -1662,7 +1635,32 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->after_key = button_event_key->next_key;
 
                 GdkEventButton *event = (GdkEventButton*)e;
-                kv_set_key_split (kv, event->x);
+                {
+                    double ptr_x = event->x;
+                    float min_width = kv_get_min_key_width (kv)*kv->default_key_size;
+                    float left_width, right_width;
+                    left_width = CLAMP(ptr_x - kv->split_key_rect.x, min_width, kv->split_key_rect.width-min_width);
+                    right_width = CLAMP(kv->split_key_rect.width - left_width, min_width, kv->split_key_rect.width-min_width);
+                    left_width = bin_floor(floorf(left_width)/kv->default_key_size, 3);
+                    right_width = bin_ceil(ceilf(right_width)/kv->default_key_size, 3);
+
+                    if (kv->split_key_rect.x + kv->split_key_rect.width/2 < ptr_x) {
+                        *kv->splitted_key_ptr = kv->splitted_key;
+                        kv->splitted_key->next_key = kv->new_key;
+                        kv->new_key->next_key = kv->after_key;
+
+                        kv->splitted_key->width = left_width;
+                        kv->new_key->width = right_width;
+
+                    } else {
+                        *kv->splitted_key_ptr = kv->new_key;
+                        kv->new_key->next_key = kv->splitted_key;
+                        kv->splitted_key->next_key = kv->after_key;
+
+                        kv->splitted_key->width = right_width;
+                        kv->new_key->width = left_width;
+                    }
+                }
 
                 kv->state = KV_EDIT_KEY_SPLIT;
 
@@ -1786,7 +1784,32 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         case KV_EDIT_KEY_SPLIT:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
-                kv_set_key_split (kv, event->x);
+                {
+                    double ptr_x = event->x;
+                    float min_width = kv_get_min_key_width (kv)*kv->default_key_size;
+                    float left_width, right_width;
+                    left_width = CLAMP(ptr_x - kv->split_key_rect.x, min_width, kv->split_key_rect.width-min_width);
+                    right_width = CLAMP(kv->split_key_rect.width - left_width, min_width, kv->split_key_rect.width-min_width);
+                    left_width = bin_floor(floorf(left_width)/kv->default_key_size, 3);
+                    right_width = bin_ceil(ceilf(right_width)/kv->default_key_size, 3);
+
+                    if (kv->split_key_rect.x + kv->split_key_rect.width/2 < ptr_x) {
+                        *kv->splitted_key_ptr = kv->splitted_key;
+                        kv->splitted_key->next_key = kv->new_key;
+                        kv->new_key->next_key = kv->after_key;
+
+                        kv->splitted_key->width = left_width;
+                        kv->new_key->width = right_width;
+
+                    } else {
+                        *kv->splitted_key_ptr = kv->new_key;
+                        kv->new_key->next_key = kv->splitted_key;
+                        kv->splitted_key->next_key = kv->after_key;
+
+                        kv->splitted_key->width = right_width;
+                        kv->new_key->width = left_width;
+                    }
+                }
 
             } else if (e->type == GDK_BUTTON_RELEASE) {
                 kv->state = KV_EDIT;

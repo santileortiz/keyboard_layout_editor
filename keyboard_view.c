@@ -1142,6 +1142,23 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
     return FALSE;
 }
 
+// Returns a pointer to the pointer that points to key. It assumes that key is
+// located in row, otherwise an assert is triggered.
+//
+// This pointer to a pointer is useful because it can be located either inside a
+// row_t or a key_t. The equivalent approach of returning the parent structure
+// to key would require sometimes returning a row_t, when key is the first in
+// the row, and a key_t in the rest of the cases.
+struct key_t** kv_get_key_ptr (struct row_t *row, struct key_t *key)
+{
+    struct key_t **key_ptr = &row->first_key;
+    while (*key_ptr != key) {
+        key_ptr = &(*key_ptr)->next_key;
+        assert (*key_ptr != NULL);
+    }
+    return key_ptr;
+}
+
 struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, double y,
                                      GdkRectangle *rect, bool *is_rectangular,
                                      struct key_t **clicked_sgmt, struct key_t ***parent_ptr)
@@ -1226,15 +1243,30 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
         // return value the multirow parent of the key.
         if (is_multirow_key(curr_key) && !is_multirow_parent(curr_key)) {
             curr_key = kv_get_multirow_parent (curr_key);
-        }
 
-        if (parent_ptr != NULL) {
-            *parent_ptr = NULL;
-            if (curr_key != NULL) {
-                if (prev_key == NULL) {
-                    *parent_ptr = &curr_row->first_key;
-                } else {
-                    *parent_ptr = &prev_key->next_key;
+            // Because we changed the curr_key that will be returned and is
+            // expected to be the multirow parent. If th caller also wants it's
+            // parent_ptr, then we need to look it up.
+            if (parent_ptr != NULL) {
+                *parent_ptr = NULL;
+
+                if (curr_key != NULL) {
+                    *parent_ptr = kv_get_key_ptr (kv_get_row (kv, curr_key), curr_key);
+                }
+            }
+
+        } else {
+            if (parent_ptr != NULL) {
+                *parent_ptr = NULL;
+
+                if (curr_key != NULL) {
+                    // If curr_key didn't change, then we can compute parent_ptr
+                    // in O(1), and avoid a call to kv_get_key_ptr().
+                    if (prev_key == NULL) {
+                        *parent_ptr = &curr_row->first_key;
+                    } else {
+                        *parent_ptr = &prev_key->next_key;
+                    }
                 }
             }
         }
@@ -1674,11 +1706,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                                 sgmt = sgmt->next_multirow;
                                 if (!is_multirow_parent (sgmt)) {
                                     curr_row = curr_row->next_row;
-                                    sgmt_ptr = &curr_row->first_key;
-                                    while (*sgmt_ptr != sgmt) {
-                                        sgmt_ptr = &(*sgmt_ptr)->next_key;
-                                        assert (*sgmt_ptr != NULL);
-                                    }
+                                    sgmt_ptr = kv_get_key_ptr (curr_row, sgmt);
 
                                     struct key_t *tmp = kv_allocate_key (kv);
                                     tmp->type = KEY_MULTIROW_SEGMENT;

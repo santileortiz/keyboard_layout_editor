@@ -7,6 +7,7 @@ enum keyboard_view_state_t {
     KV_EDIT,
     KV_EDIT_KEYCODE_KEYPRESS,
     KV_EDIT_KEY_SPLIT,
+    KV_EDIT_KEY_SPLIT_NON_RECTANGULAR,
     KV_EDIT_KEY_RESIZE,
     KV_EDIT_KEY_RESIZE_NON_RECTANGULAR,
     //KV_EDIT_KEYCODE_LOOKUP,
@@ -92,6 +93,7 @@ struct keyboard_view_t {
     struct key_t *new_key;
     struct key_t **new_key_ptr;
     struct key_t *splitted_key;
+    float splitted_key_min_width;
     GdkRectangle split_key_rect;
 
     // KEY_RESIZE state
@@ -1496,6 +1498,9 @@ float kv_get_min_key_width (struct keyboard_view_t *kv)
 //      after the edge. This one is never NULL, in the case there is no end
 //      segment it will be set to the multirow parent.
 //
+//    min_width: Is set to the minimum width that edge_start can have so that at
+//      least one segment of the multirow has the minimum width.
+//
 //    Example call:
 //
 //    kv_locate_edge (kv, X, K, false, edge_start, edge_prev_sgmt, edge_end_sgmt);
@@ -1512,9 +1517,10 @@ float kv_get_min_key_width (struct keyboard_view_t *kv)
 //
 void kv_locate_edge (struct keyboard_view_t *kv,
                      struct key_t *multirow_parent, struct key_t *key_sgmt, bool is_right_edge,
-                     struct key_t **edge_start, struct key_t **edge_prev_sgmt, struct key_t **edge_end_sgmt)
+                     struct key_t **edge_start, struct key_t **edge_prev_sgmt, struct key_t **edge_end_sgmt,
+                     float *min_width)
 {
-    assert (edge_start != NULL && edge_prev_sgmt != NULL && edge_end_sgmt != NULL);
+    assert (edge_start != NULL && edge_prev_sgmt != NULL && edge_end_sgmt != NULL && min_width != NULL);
 
     enum multirow_key_align_t alignment = MULTIROW_ALIGN_RIGHT;
     if (is_right_edge) {
@@ -1567,6 +1573,34 @@ void kv_locate_edge (struct keyboard_view_t *kv,
             curr_key = curr_key->next_multirow;
         }
     }
+
+
+    float min_w = (*edge_start)->width;
+    {
+        struct key_t *curr_key = *edge_start;
+        do {
+            if (curr_key->type != KEY_MULTIROW_SEGMENT) {
+                min_w = MIN (min_w, curr_key->width);
+            }
+            curr_key = curr_key->next_multirow;
+        } while (curr_key != *edge_end_sgmt);
+    }
+    *min_width = (*edge_start)->width - min_w + kv_get_min_key_width(kv);
+
+#if 0
+    // Debug code
+    {
+        struct key_t *curr_key = button_event_key;
+        do {
+            printf ("%p ", curr_key);
+            curr_key = curr_key->next_multirow;
+        } while (curr_key != button_event_key);
+        printf ("\n");
+        printf ("r: %p ", edge_start);
+        printf ("s: %p ", edge_prev_sgmt);
+        printf ("e: %p\n", edge_end_sgmt);
+    }
+#endif
 }
 
 static inline
@@ -1602,6 +1636,76 @@ void change_edge_width (struct key_t *edge_prev_sgmt,
             edge_end_sgmt->type = KEY_MULTIROW_SEGMENT_SIZED;
         }
     }
+}
+
+struct key_t* kv_create_multirow_split (struct keyboard_view_t *kv,
+                                        struct key_t *start_sgmt, struct key_t *end_sgmt,
+                                        struct key_t **start_sgmt_ptr,
+                                        bool add_split_after,
+                                        struct key_t ***new_key_ptr)
+{
+    struct key_t *new_key = kv_allocate_key (kv);
+    new_key->type = KEY_UNASSIGNED;
+
+    if (add_split_after) {
+        struct key_t *sgmt = start_sgmt;
+        struct key_t *new_sgmt = new_key;
+
+        do {
+            new_sgmt->next_key = sgmt->next_key;
+            sgmt->next_key = new_sgmt;
+
+            sgmt = sgmt->next_multirow;
+            if (sgmt != end_sgmt) {
+                struct key_t *tmp = kv_allocate_key (kv);
+                tmp->type = KEY_MULTIROW_SEGMENT;
+                tmp->next_multirow = new_sgmt->next_multirow;
+                new_sgmt->next_multirow = tmp;
+
+                new_sgmt = tmp;
+            }
+
+        } while (sgmt != end_sgmt);
+
+        if (new_key_ptr != NULL) {
+            *new_key_ptr = &start_sgmt->next_key;
+        }
+
+    } else {
+        struct key_t *sgmt = start_sgmt;
+        struct key_t *new_sgmt = new_key;
+        struct row_t *curr_row = kv_get_row (kv, start_sgmt);
+
+        if (start_sgmt_ptr == NULL) {
+            start_sgmt_ptr = kv_get_key_ptr (curr_row, start_sgmt);
+        }
+        struct key_t **sgmt_ptr = start_sgmt_ptr;
+
+        do {
+            *sgmt_ptr = new_sgmt;
+            new_sgmt->next_key = sgmt;
+
+            sgmt = sgmt->next_multirow;
+            if (sgmt != end_sgmt) {
+                curr_row = curr_row->next_row;
+                sgmt_ptr = kv_get_key_ptr (curr_row, sgmt);
+
+                struct key_t *tmp = kv_allocate_key (kv);
+                tmp->type = KEY_MULTIROW_SEGMENT;
+                tmp->next_multirow = new_sgmt->next_multirow;
+                new_sgmt->next_multirow = tmp;
+
+                new_sgmt = tmp;
+            }
+
+        } while (sgmt != end_sgmt);
+
+        if (new_key_ptr != NULL) {
+            *new_key_ptr = start_sgmt_ptr;
+        }
+    }
+
+    return new_key;
 }
 
 void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, GdkEvent *e)
@@ -1697,14 +1801,17 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (kv->active_tool == KV_TOOL_SPLIT_KEY &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+                GdkEventButton *event = (GdkEventButton*)e;
+                if (event->x < button_event_key_rect.x + button_event_key_rect.width/2) {
+                    kv->edit_right_edge = false;
+                } else {
+                    kv->edit_right_edge = true;
+                }
+
                 if (button_event_key_is_rectangular) {
                     kv->split_key_rect = button_event_key_rect;
                     kv->splitted_key = button_event_key;
 
-                    kv->new_key = kv_allocate_key (kv);
-                    kv->new_key->type = KEY_UNASSIGNED;
-
-                    GdkEventButton *event = (GdkEventButton*)e;
                     float min_width = kv_get_min_key_width (kv)*kv->default_key_size;
                     float left_width, right_width;
                     left_width = CLAMP(event->x - kv->split_key_rect.x, min_width, kv->split_key_rect.width-min_width);
@@ -1713,85 +1820,65 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     right_width = bin_ceil(right_width/kv->default_key_size, 3);
 
                     if (!is_multirow_key (button_event_key)) {
-                        if (event->x < button_event_key_rect.x + button_event_key_rect.width/2) {
-                            kv->edit_right_edge = false;
+                        kv->new_key = kv_allocate_key (kv);
+                        kv->new_key->type = KEY_UNASSIGNED;
 
-                            *button_event_key_ptr = kv->new_key;
-                            kv->new_key->next_key = button_event_key;
-
-                        } else {
-                            kv->edit_right_edge = true;
-
+                        if (kv->edit_right_edge) {
                             kv->new_key->next_key = button_event_key->next_key;
                             button_event_key->next_key = kv->new_key;
+                            kv->new_key_ptr = &button_event_key->next_key;
+
+                        } else {
+                            *button_event_key_ptr = kv->new_key;
+                            kv->new_key->next_key = button_event_key;
+                            kv->new_key_ptr = button_event_key_ptr;
+
+                            kv->new_key->user_glue = button_event_key->user_glue;
+                            button_event_key->user_glue = 0;
                         }
 
                     } else {
-                        if (event->x < button_event_key_rect.x + button_event_key_rect.width/2) {
-                            kv->edit_right_edge = false;
-
-                            struct row_t *curr_row = kv_get_row (kv, button_event_key);
-                            struct key_t **sgmt_ptr = button_event_key_ptr;
-                            struct key_t *sgmt = button_event_key;
-                            struct key_t *new_sgmt = kv->new_key;
-                            do {
-                                *sgmt_ptr = new_sgmt;
-                                new_sgmt->next_key = sgmt;
-
-                                sgmt = sgmt->next_multirow;
-                                if (!is_multirow_parent (sgmt)) {
-                                    curr_row = curr_row->next_row;
-                                    sgmt_ptr = kv_get_key_ptr (curr_row, sgmt);
-
-                                    struct key_t *tmp = kv_allocate_key (kv);
-                                    tmp->type = KEY_MULTIROW_SEGMENT;
-                                    tmp->next_multirow = new_sgmt->next_multirow;
-                                    new_sgmt->next_multirow = tmp;
-
-                                    new_sgmt = tmp;
-                                }
-
-                            } while (!is_multirow_parent (sgmt));
-
-                        } else {
-                            kv->edit_right_edge = true;
-
-                            struct key_t *sgmt = button_event_key;
-                            struct key_t *new_sgmt = kv->new_key;
-                            do {
-                                new_sgmt->next_key = sgmt->next_key;
-                                sgmt->next_key = new_sgmt;
-
-                                sgmt = sgmt->next_multirow;
-                                if (!is_multirow_parent (sgmt)) {
-                                    struct key_t *tmp = kv_allocate_key (kv);
-                                    tmp->type = KEY_MULTIROW_SEGMENT;
-                                    tmp->next_multirow = new_sgmt->next_multirow;
-                                    new_sgmt->next_multirow = tmp;
-
-                                    new_sgmt = tmp;
-                                }
-
-                            } while (!is_multirow_parent (sgmt));
-                        }
+                        kv->new_key =
+                            kv_create_multirow_split (kv,
+                                                      button_event_key,
+                                                      button_event_key, // end segment
+                                                      button_event_key_ptr,
+                                                      kv->edit_right_edge,
+                                                      &kv->new_key_ptr);
                     }
 
                     if (kv->edit_right_edge) {
-                        button_event_key->width = left_width;
+                        kv->splitted_key->width = left_width;
                         kv->new_key->width = right_width;
-                        kv->new_key_ptr = &button_event_key->next_key;
+
                     } else {
-                        button_event_key->width = right_width;
+                        kv->splitted_key->width = right_width;
                         kv->new_key->width = left_width;
-                        kv->new_key_ptr = button_event_key_ptr;
                     }
 
+                    kv->state = KV_EDIT_KEY_SPLIT;
+
                 } else {
-                    // TODO: Non rectangular multirow splits.
+                    kv_locate_edge (kv, button_event_key, button_event_key_clicked_sgmt, kv->edit_right_edge,
+                                    &kv->edge_start, &kv->edge_prev_sgmt, &kv->edge_end_sgmt, &kv->min_width);
+
+                    kv->new_key =
+                        kv_create_multirow_split (kv,
+                                                  kv->edge_start,
+                                                  kv->edge_end_sgmt,
+                                                  NULL,
+                                                  kv->edit_right_edge,
+                                                  &kv->new_key_ptr);
+
+                    kv->splitted_key_min_width = kv_get_min_key_width (kv);
+                    kv->x_clicked_pos = event->x;
+                    kv->original_w = kv->edge_start->width;
+                    kv->x_anchor = event->x;
+
+                    kv->state = KV_EDIT_KEY_SPLIT_NON_RECTANGULAR;
                 }
 
                 kv_compute_glue (kv);
-                kv->state = KV_EDIT_KEY_SPLIT;
 
             } else if (kv->active_tool == KV_TOOL_DELETE_KEY &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
@@ -1823,34 +1910,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 } else {
                     kv_locate_edge (kv, button_event_key, button_event_key_clicked_sgmt, kv->edit_right_edge,
-                                    &kv->edge_start, &kv->edge_prev_sgmt, &kv->edge_end_sgmt);
-
-                    float min_w = kv->edge_start->width;
-                    {
-                        struct key_t *curr_key = kv->edge_start;
-                        do {
-                            if (curr_key->type != KEY_MULTIROW_SEGMENT) {
-                                min_w = MIN (min_w, curr_key->width);
-                            }
-                            curr_key = curr_key->next_multirow;
-                        } while (curr_key != kv->edge_end_sgmt);
-                    }
-                    kv->min_width = kv->edge_start->width - min_w + kv_get_min_key_width(kv);
-
-#if 0
-                    // Debug code
-                    {
-                        struct key_t *curr_key = button_event_key;
-                        do {
-                            printf ("%p ", curr_key);
-                            curr_key = curr_key->next_multirow;
-                        } while (curr_key != button_event_key);
-                        printf ("\n");
-                        printf ("r: %p ", edge_start);
-                        printf ("s: %p ", edge_prev_sgmt);
-                        printf ("e: %p\n", edge_end_sgmt);
-                    }
-#endif
+                                    &kv->edge_start, &kv->edge_prev_sgmt, &kv->edge_end_sgmt, &kv->min_width);
 
                     kv->x_clicked_pos = event->x;
                     kv->original_w = kv->edge_start->width;
@@ -1902,6 +1962,48 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             break;
 
         case KV_EDIT_KEY_SPLIT:
+            if (e->type == GDK_MOTION_NOTIFY) {
+                GdkEventMotion *event = (GdkEventMotion*)e;
+
+                float min_width = kv_get_min_key_width (kv)*kv->default_key_size;
+                float left_width, right_width;
+                left_width = CLAMP(event->x - kv->split_key_rect.x,
+                                   min_width, kv->split_key_rect.width-min_width);
+                right_width = CLAMP(kv->split_key_rect.width - left_width,
+                                    min_width, kv->split_key_rect.width-min_width);
+                left_width = bin_floor(left_width/kv->default_key_size, 3);
+                right_width = bin_ceil(right_width/kv->default_key_size, 3);
+
+                if (kv->edit_right_edge) {
+                    kv->splitted_key->width = left_width;
+                    kv->new_key->width = right_width;
+
+                } else {
+                    kv->splitted_key->width = right_width;
+                    kv->new_key->width = left_width;
+                }
+
+            } else if (e->type == GDK_BUTTON_RELEASE) {
+                kv->state = KV_EDIT;
+
+            } else if (e->type == GDK_KEY_PRESS) {
+                if (key_event_kc - 8 == KEY_ESC) {
+                    if (!kv->edit_right_edge) {
+                        kv->splitted_key->user_glue = kv->new_key->user_glue;
+                    }
+
+                    // Get the row list back to normal
+                    kv_remove_key (kv, kv->new_key_ptr);
+                    kv->splitted_key->width = kv->split_key_rect.width/kv->default_key_size;;
+
+                    kv->state = KV_EDIT;
+                    kv_compute_glue (kv);
+                }
+
+            }
+            break;
+
+        case KV_EDIT_KEY_SPLIT_NON_RECTANGULAR:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
 

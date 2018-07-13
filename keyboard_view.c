@@ -1716,6 +1716,37 @@ void compute_split_widths (struct keyboard_view_t *kv, float cursor_x,
     *right_width = kv->original_w - *left_width;
 }
 
+void kv_set_rectangular_split (struct keyboard_view_t *kv, float x)
+{
+    float left_width, right_width;
+    compute_split_widths (kv, x, &left_width, &right_width);
+
+    if (kv->edit_right_edge) {
+        kv->split_key->width = left_width;
+        kv->new_key->width = right_width;
+
+    } else {
+        kv->split_key->width = right_width;
+        kv->new_key->width = left_width;
+    }
+}
+
+void kv_set_non_rectangular_split (struct keyboard_view_t *kv, float x)
+{
+    float split_key_width, new_key_width;
+    if (kv->edit_right_edge) {
+        compute_split_widths (kv, x, &split_key_width, &new_key_width);
+    } else {
+        compute_split_widths (kv, x, &new_key_width, &split_key_width);
+    }
+
+    float delta_w = split_key_width - kv->edge_start->width;
+    if (delta_w != 0) {
+        change_edge_width (kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt, delta_w);
+        kv->new_key->width = new_key_width;
+    }
+}
+
 void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, GdkEvent *e)
 {
     // To avoid segfaults when e==NULL without having to check if e==NULL every
@@ -1851,18 +1882,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                                                       &kv->new_key_ptr);
                     }
 
-                    float left_width, right_width;
-                    compute_split_widths (kv, event->x, &left_width, &right_width);
-
-                    if (kv->edit_right_edge) {
-                        kv->split_key->width = left_width;
-                        kv->new_key->width = right_width;
-
-                    } else {
-                        kv->split_key->width = right_width;
-                        kv->new_key->width = left_width;
-                    }
-
+                    kv_set_rectangular_split (kv, event->x);
                     kv_compute_glue (kv);
 
                     kv->state = KV_EDIT_KEY_SPLIT;
@@ -1872,6 +1892,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv->x_anchor = button_event_key_rect.x;
 
                     float split_key_min_width, new_key_min_width;
+                    new_key_min_width = kv_get_min_key_width (kv);
                     kv_locate_edge (kv, button_event_key, button_event_key_clicked_sgmt, kv->edit_right_edge,
                                     &kv->edge_start, &kv->edge_prev_sgmt, &kv->edge_end_sgmt,
                                     &split_key_min_width);
@@ -1884,7 +1905,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                                                   kv->edit_right_edge,
                                                   &kv->new_key_ptr);
 
-                    new_key_min_width = kv_get_min_key_width (kv);
                     kv->original_w = kv->edge_start->width;
 
                     float internal_glue;
@@ -1899,16 +1919,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                         internal_glue = kv->edge_start->internal_glue;
                     }
 
-                    float split_key_width, new_key_width;
-                    if (kv->edit_right_edge) {
-                        compute_split_widths (kv, event->x, &split_key_width, &new_key_width);
-                    } else {
-                        compute_split_widths (kv, event->x, &new_key_width, &split_key_width);
-                    }
-
-                    float delta_w = split_key_width - kv->edge_start->width;
-                    change_edge_width (kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt, delta_w);
-                    kv->new_key->width = new_key_width;
+                    kv_set_non_rectangular_split (kv, event->x);
 
                     // TODO: Is there a cleaner way to handle the glue when
                     // doing a split on a left edge?
@@ -2007,18 +2018,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         case KV_EDIT_KEY_SPLIT:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
-
-                float left_width, right_width;
-                compute_split_widths (kv, event->x, &left_width, &right_width);
-
-                if (kv->edit_right_edge) {
-                    kv->split_key->width = left_width;
-                    kv->new_key->width = right_width;
-
-                } else {
-                    kv->split_key->width = right_width;
-                    kv->new_key->width = left_width;
-                }
+                kv_set_rectangular_split (kv, event->x);
 
             } else if (e->type == GDK_BUTTON_RELEASE) {
                 kv->state = KV_EDIT;
@@ -2042,18 +2042,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         case KV_EDIT_KEY_SPLIT_NON_RECTANGULAR:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
-                float split_key_width, new_key_width;
-                if (kv->edit_right_edge) {
-                    compute_split_widths (kv, event->x, &split_key_width, &new_key_width);
-                } else {
-                    compute_split_widths (kv, event->x, &new_key_width, &split_key_width);
-                }
-
-                float delta_w = split_key_width - kv->edge_start->width;
-                if (delta_w != 0) {
-                    change_edge_width (kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt, delta_w);
-                    kv->new_key->width = new_key_width;
-                }
+                kv_set_non_rectangular_split (kv, event->x);
 
             } else if (e->type == GDK_BUTTON_RELEASE) {
                 kv->state = KV_EDIT;

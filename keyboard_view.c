@@ -94,13 +94,15 @@ struct keyboard_view_t {
     struct key_t **new_key_ptr;
     struct key_t *split_key;
     float left_min_width, right_min_width;
+    float split_rect_x;
+    float split_full_width;
 
     // KEY_RESIZE state
     struct key_t *edge_start;
     struct key_t *edge_prev_sgmt, *edge_end_sgmt;
     float x_clicked_pos;
     float x_anchor;
-    float original_w;
+    float original_width;
     float original_user_glue;
     float min_width;
     bool edit_right_edge;
@@ -1711,9 +1713,9 @@ static inline
 void compute_split_widths (struct keyboard_view_t *kv, float cursor_x,
                            float *left_width, float *right_width)
 {
-    *left_width = bin_floor ((cursor_x - kv->x_anchor)/kv->default_key_size, 3);
-    *left_width = CLAMP (*left_width, kv->left_min_width, kv->original_w - kv->right_min_width);
-    *right_width = kv->original_w - *left_width;
+    *left_width = bin_floor ((cursor_x - kv->split_rect_x)/kv->default_key_size, 3);
+    *left_width = CLAMP (*left_width, kv->left_min_width, kv->split_full_width - kv->right_min_width);
+    *right_width = kv->split_full_width - *left_width;
 }
 
 void kv_set_rectangular_split (struct keyboard_view_t *kv, float x)
@@ -1849,8 +1851,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 if (button_event_key_is_rectangular) {
                     kv->split_key = button_event_key;
-                    kv->original_w = button_event_key->width;
-                    kv->x_anchor = button_event_key_rect.x;
+                    kv->split_full_width = button_event_key->width;
+                    kv->split_rect_x = button_event_key_rect.x;
                     kv->left_min_width = kv_get_min_key_width (kv);
                     kv->right_min_width = kv->left_min_width;
 
@@ -1888,9 +1890,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv->state = KV_EDIT_KEY_SPLIT;
 
                 } else {
-                    kv->split_key = button_event_key;
-                    kv->x_anchor = button_event_key_rect.x;
-
                     float split_key_min_width, new_key_min_width;
                     new_key_min_width = kv_get_min_key_width (kv);
                     kv_locate_edge (kv, button_event_key, button_event_key_clicked_sgmt, kv->edit_right_edge,
@@ -1905,7 +1904,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                                                   kv->edit_right_edge,
                                                   &kv->new_key_ptr);
 
-                    kv->original_w = kv->edge_start->width;
+                    kv->split_full_width = kv->edge_start->width;
+                    kv->split_key = button_event_key;
+                    kv->split_rect_x = button_event_key_rect.x;
 
                     float internal_glue;
                     if (kv->edit_right_edge) {
@@ -1918,6 +1919,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                         kv->original_user_glue = button_event_key->user_glue;
                         internal_glue = kv->edge_start->internal_glue;
                     }
+                    printf ("l: %f, r: %f\n", kv->left_min_width, kv->right_min_width);
 
                     kv_set_non_rectangular_split (kv, event->x);
 
@@ -1927,6 +1929,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     if (!kv->edit_right_edge) {
                         kv->new_key->user_glue =
                             kv->original_user_glue + internal_glue - kv->new_key->internal_glue;
+                        button_event_key->user_glue = 0;
                     }
                     kv_compute_glue (kv);
 
@@ -1958,7 +1961,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                     kv->min_width = kv_get_min_key_width(kv);
                     kv->x_clicked_pos = event->x;
-                    kv->original_w = kv->edge_start->width;
+                    kv->original_width = kv->edge_start->width;
                     kv->original_user_glue = kv->edge_start->user_glue;
                     kv->state = KV_EDIT_KEY_RESIZE;
 
@@ -1967,7 +1970,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                                     &kv->edge_start, &kv->edge_prev_sgmt, &kv->edge_end_sgmt, &kv->min_width);
 
                     kv->x_clicked_pos = event->x;
-                    kv->original_w = kv->edge_start->width;
+                    kv->original_width = kv->edge_start->width;
                     kv->x_anchor = event->x;
                     kv->state = KV_EDIT_KEY_RESIZE_NON_RECTANGULAR;
                 }
@@ -2030,7 +2033,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     }
 
                     kv_remove_key (kv, kv->new_key_ptr);
-                    kv->split_key->width = kv->original_w;
+                    kv->split_key->width = kv->split_full_width;
 
                     kv->state = KV_EDIT;
                     kv_compute_glue (kv);
@@ -2055,7 +2058,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                     kv_remove_key (kv, kv->new_key_ptr);
                     change_edge_width (kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt,
-                                       kv->original_w - kv->edge_start->width);
+                                       kv->split_full_width - kv->edge_start->width);
 
                     kv->state = KV_EDIT;
                     kv_compute_glue (kv);
@@ -2075,13 +2078,13 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 }
 
                 delta_w = bin_floor(delta_w/kv->default_key_size, 3);
-                float new_width = kv->original_w + delta_w;
+                float new_width = kv->original_width + delta_w;
 
                 if (new_width >= kv->min_width) {
                     kv->edge_start->width = new_width;
 
                     if (!kv->edit_right_edge) {
-                        float max_glue = kv->original_user_glue + kv->original_w - kv->min_width;
+                        float max_glue = kv->original_user_glue + kv->original_width - kv->min_width;
                         kv->edge_start->user_glue = CLAMP(kv->original_user_glue - delta_w, 0, max_glue);
                     }
 
@@ -2093,7 +2096,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
-                    kv->edge_start->width = kv->original_w;
+                    kv->edge_start->width = kv->original_width;
 
                     if (!kv->edit_right_edge) {
                         kv->edge_start->user_glue = kv->original_user_glue;
@@ -2136,7 +2139,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
-                    float delta_w = kv->original_w - kv->edge_start->width;
+                    float delta_w = kv->original_width - kv->edge_start->width;
                     change_edge_width (kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt, delta_w);
 
                     kv_compute_glue (kv);

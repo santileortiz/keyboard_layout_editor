@@ -1278,6 +1278,46 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
     return curr_key;
 }
 
+float kv_get_sgmt_x_pos (struct keyboard_view_t *kv, struct key_t *sgmt)
+{
+    double kbd_x, kbd_y;
+    keyboard_view_get_margins (kv, &kbd_x, &kbd_y);
+
+    float x;
+    struct row_t *curr_row = kv->first_row;
+    while (curr_row != NULL) {
+        struct key_t *curr_key = curr_row->first_key;
+        x = kbd_x;
+        while (curr_key != NULL) {
+            x += (curr_key->internal_glue + curr_key->user_glue)*kv->default_key_size;
+
+            if (curr_key == sgmt) {
+                break;
+            }
+
+            if (curr_key->type == KEY_MULTIROW_SEGMENT) {
+                x += get_multirow_segment_width (curr_key)*kv->default_key_size;
+            } else {
+                x += curr_key->width*kv->default_key_size;
+            }
+
+            curr_key = curr_key->next_key;
+        }
+
+        if (curr_key != NULL) {
+            break;
+        }
+        curr_row = curr_row->next_row;
+    }
+
+    if (is_multirow_key(sgmt) && !is_multirow_parent (sgmt)) {
+        struct key_t *parent = kv_get_multirow_parent (sgmt);
+        return x + parent->user_glue;
+    } else {
+        return x;
+    }
+}
+
 void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, GdkEvent *e);
 
 void start_edit_handler (GtkButton *button, gpointer user_data)
@@ -1890,11 +1930,15 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv->state = KV_EDIT_KEY_SPLIT;
 
                 } else {
+
                     float split_key_min_width, new_key_min_width;
                     new_key_min_width = kv_get_min_key_width (kv);
                     kv_locate_edge (kv, button_event_key, button_event_key_clicked_sgmt, kv->edit_right_edge,
                                     &kv->edge_start, &kv->edge_prev_sgmt, &kv->edge_end_sgmt,
                                     &split_key_min_width);
+
+                    kv->split_rect_x = kv_get_sgmt_x_pos (kv, kv->edge_start);
+                    kv->split_key = button_event_key;
 
                     kv->new_key =
                         kv_create_multirow_split (kv,
@@ -1905,8 +1949,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                                                   &kv->new_key_ptr);
 
                     kv->split_full_width = kv->edge_start->width;
-                    kv->split_key = button_event_key;
-                    kv->split_rect_x = button_event_key_rect.x;
 
                     float internal_glue;
                     if (kv->edit_right_edge) {
@@ -1919,7 +1961,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                         kv->original_user_glue = button_event_key->user_glue;
                         internal_glue = kv->edge_start->internal_glue;
                     }
-                    printf ("l: %f, r: %f\n", kv->left_min_width, kv->right_min_width);
 
                     kv_set_non_rectangular_split (kv, event->x);
 

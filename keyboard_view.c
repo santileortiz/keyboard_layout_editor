@@ -1950,24 +1950,24 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                     kv->split_full_width = kv->edge_start->width;
 
-                    float internal_glue;
                     if (kv->edit_right_edge) {
                         kv->left_min_width = split_key_min_width;
                         kv->right_min_width = new_key_min_width;
                     } else {
                         kv->left_min_width = new_key_min_width;
                         kv->right_min_width = split_key_min_width;
-
-                        kv->original_user_glue = button_event_key->user_glue;
-                        internal_glue = kv->edge_start->internal_glue;
                     }
 
                     kv_set_non_rectangular_split (kv, event->x);
 
                     // TODO: Is there a cleaner way to handle the glue when
                     // doing a split on a left edge?
-                    kv_compute_glue (kv);
                     if (!kv->edit_right_edge) {
+                        kv->original_user_glue = button_event_key->user_glue;
+                        float internal_glue = kv->edge_start->internal_glue;
+
+                        kv_compute_glue (kv);
+
                         kv->new_key->user_glue =
                             kv->original_user_glue + internal_glue - kv->new_key->internal_glue;
                         button_event_key->user_glue = 0;

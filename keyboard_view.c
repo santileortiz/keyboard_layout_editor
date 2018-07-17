@@ -10,8 +10,8 @@ enum keyboard_view_state_t {
     KV_EDIT_KEY_SPLIT_NON_RECTANGULAR,
     KV_EDIT_KEY_RESIZE,
     KV_EDIT_KEY_RESIZE_NON_RECTANGULAR,
+    KV_EDIT_KEY_MOVE,
     //KV_EDIT_KEYCODE_LOOKUP,
-    //KV_EDIT_KEY_POSITION
 };
 
 enum keyboard_view_commands_t {
@@ -24,8 +24,9 @@ enum keyboard_view_commands_t {
 enum keyboard_view_tools_t {
     KV_TOOL_KEYCODE_KEYPRESS,
     KV_TOOL_SPLIT_KEY,
+    KV_TOOL_DELETE_KEY,
     KV_TOOL_RESIZE_KEY,
-    KV_TOOL_DELETE_KEY
+    KV_TOOL_MOVE_KEY
 };
 
 enum keyboard_view_label_mode_t {
@@ -1329,6 +1330,11 @@ void stop_edit_handler (GtkButton *button, gpointer user_data)
     kv_update (keyboard_view, KV_CMD_SET_MODE_PREVIEW, NULL);
 }
 
+void keycode_keypress_handler (GtkButton *button, gpointer user_data)
+{
+    keyboard_view->active_tool = KV_TOOL_KEYCODE_KEYPRESS;
+}
+
 void split_key_handler (GtkButton *button, gpointer user_data)
 {
     keyboard_view->active_tool = KV_TOOL_SPLIT_KEY;
@@ -1344,9 +1350,9 @@ void resize_key_handler (GtkButton *button, gpointer user_data)
     keyboard_view->active_tool = KV_TOOL_RESIZE_KEY;
 }
 
-void keycode_keypress_handler (GtkButton *button, gpointer user_data)
+void move_key_handler (GtkButton *button, gpointer user_data)
 {
-    keyboard_view->active_tool = KV_TOOL_KEYCODE_KEYPRESS;
+    keyboard_view->active_tool = KV_TOOL_MOVE_KEY;
 }
 
 void kv_push_manual_tooltip (struct keyboard_view_t *kv, GdkRectangle *rect, const char *text)
@@ -1458,6 +1464,11 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
                                                       "Resize key",
                                                       G_CALLBACK (resize_key_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), resize_key_button, 4, 0, 1, 1);
+
+    GtkWidget *move_key_button = toolbar_button_new (NULL,
+                                                      "Move key",
+                                                      G_CALLBACK (move_key_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), move_key_button, 5, 0, 1, 1);
 }
 
 // Round i downwards to the nearest multiple of 1/2^n. If i is negative treat it
@@ -1875,7 +1886,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 //
                 // For the other tools we default to make them release based
                 // just for consistency.
-                // @select_is_release_bassed
+                // @select_is_release_based
                 kv->selected_key = button_event_key;
                 grab_input (NULL, NULL);
                 kv->state = KV_EDIT_KEYCODE_KEYPRESS;
@@ -2015,6 +2026,10 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv->x_anchor = event->x;
                     kv->state = KV_EDIT_KEY_RESIZE_NON_RECTANGULAR;
                 }
+
+            } else if (kv->active_tool == KV_TOOL_MOVE_KEY &&
+                       e->type == GDK_BUTTON_PRESS && button_event_key != NULL) {
+                kv->state = KV_EDIT_KEY_MOVE;
             }
             break;
 
@@ -2047,7 +2062,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 ungrab_input (NULL, NULL);
                 kv->state = KV_EDIT;
 
-            } else if (e->type == GDK_BUTTON_RELEASE) { // @select_is_release_bassed
+            } else if (e->type == GDK_BUTTON_RELEASE) { // @select_is_release_based
                 if (button_event_key == NULL || button_event_key == kv->selected_key) {
                     ungrab_input (NULL, NULL);
                     kv->selected_key = NULL;
@@ -2186,6 +2201,18 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv_compute_glue (kv);
                     kv->state = KV_EDIT;
                 }
+            }
+
+            break;
+
+        case KV_EDIT_KEY_MOVE:
+            if (e->type == GDK_MOTION_NOTIFY) {
+                // TODO: Implement key move.
+                GdkEventMotion *event = (GdkEventMotion*)e;
+                printf ("x: %f, y: %f\n", event->x, event->y);
+
+            } else if (e->type == GDK_BUTTON_RELEASE) {
+                kv->state = KV_EDIT;
             }
 
             break;

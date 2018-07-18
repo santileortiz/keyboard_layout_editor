@@ -10,7 +10,7 @@ enum keyboard_view_state_t {
     KV_EDIT_KEY_SPLIT_NON_RECTANGULAR,
     KV_EDIT_KEY_RESIZE,
     KV_EDIT_KEY_RESIZE_NON_RECTANGULAR,
-    KV_EDIT_KEY_MOVE,
+    KV_EDIT_KEY_ADD,
     //KV_EDIT_KEYCODE_LOOKUP,
 };
 
@@ -26,7 +26,7 @@ enum keyboard_view_tools_t {
     KV_TOOL_SPLIT_KEY,
     KV_TOOL_DELETE_KEY,
     KV_TOOL_RESIZE_KEY,
-    KV_TOOL_MOVE_KEY
+    KV_TOOL_ADD_KEY
 };
 
 enum keyboard_view_label_mode_t {
@@ -168,9 +168,9 @@ void kv_remove_key_sgmt (struct keyboard_view_t *kv, struct key_t **key_ptr)
 {
     assert (key_ptr != NULL);
 
-    // NOTE: This does not reset to 0 the content of the deleted segment because
-    // multirow deletion needs the next_multirow pointers. Clearing is done at
-    // kv_allocate_key().
+    // NOTE: This does not reset to 0 the content of the segment because
+    // multirow deletion needs the next_multirow pointers. Clearing is done
+    // at kv_allocate_key().
 
     struct key_t *tmp = (*key_ptr)->next_key;
     (*key_ptr)->next_key = kv->spare_keys;
@@ -221,6 +221,7 @@ void kv_remove_key (struct keyboard_view_t *kv, struct key_t **key_ptr)
             while (*to_delete != sgmt) {
                 to_delete = &(*to_delete)->next_key;
             }
+
             kv_remove_key_sgmt (kv, to_delete);
 
             curr_row = curr_row->next_row;
@@ -1352,7 +1353,7 @@ void resize_key_handler (GtkButton *button, gpointer user_data)
 
 void move_key_handler (GtkButton *button, gpointer user_data)
 {
-    keyboard_view->active_tool = KV_TOOL_MOVE_KEY;
+    keyboard_view->active_tool = KV_TOOL_ADD_KEY;
 }
 
 void kv_push_manual_tooltip (struct keyboard_view_t *kv, GdkRectangle *rect, const char *text)
@@ -1465,10 +1466,10 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
                                                       G_CALLBACK (resize_key_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), resize_key_button, 4, 0, 1, 1);
 
-    GtkWidget *move_key_button = toolbar_button_new (NULL,
-                                                      "Move key",
+    GtkWidget *add_key_button = toolbar_button_new (NULL,
+                                                      "Add key",
                                                       G_CALLBACK (move_key_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), move_key_button, 5, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(*toolbar), add_key_button, 5, 0, 1, 1);
 }
 
 // Round i downwards to the nearest multiple of 1/2^n. If i is negative treat it
@@ -2027,9 +2028,13 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv->state = KV_EDIT_KEY_RESIZE_NON_RECTANGULAR;
                 }
 
-            } else if (kv->active_tool == KV_TOOL_MOVE_KEY &&
+            } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_BUTTON_PRESS && button_event_key != NULL) {
-                kv->state = KV_EDIT_KEY_MOVE;
+                if (button_event_key_is_rectangular) {
+                    kv_remove_key (kv, button_event_key_ptr);
+                    kv_compute_glue (kv);
+                    kv->state = KV_EDIT_KEY_ADD;
+                }
             }
             break;
 
@@ -2205,13 +2210,14 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             break;
 
-        case KV_EDIT_KEY_MOVE:
+        case KV_EDIT_KEY_ADD:
             if (e->type == GDK_MOTION_NOTIFY) {
-                // TODO: Implement key move.
+                // TODO: Implement key add.
                 GdkEventMotion *event = (GdkEventMotion*)e;
                 printf ("x: %f, y: %f\n", event->x, event->y);
 
             } else if (e->type == GDK_BUTTON_RELEASE) {
+                
                 kv->state = KV_EDIT;
             }
 

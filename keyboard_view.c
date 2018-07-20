@@ -285,20 +285,23 @@ struct key_t* kv_add_key_full (struct keyboard_view_t *kv, int keycode,
     return new_key;
 }
 
-float get_multirow_segment_width (struct key_t *key) {
-    assert (key->type == KEY_MULTIROW_SEGMENT);
+float get_sgmt_width (struct key_t *sgmt) {
+    float width;
+    if (sgmt->type == KEY_MULTIROW_SEGMENT) {
+        struct key_t *curr_key = sgmt->next_multirow;
+        do {
+            if (curr_key->type != KEY_MULTIROW_SEGMENT) {
+                width = curr_key->width;
+            }
 
-    float multirow_key_width = 0;
-    struct key_t *curr_key = key->next_multirow;
-    do {
-        if (curr_key->type != KEY_MULTIROW_SEGMENT) {
-            multirow_key_width = curr_key->width;
-        }
+            curr_key = curr_key->next_multirow;
+        } while (curr_key != sgmt->next_multirow);
 
-        curr_key = curr_key->next_multirow;
-    } while (curr_key != key->next_multirow);
+    } else {
+        width = sgmt->width;
+    }
 
-    return multirow_key_width;
+    return width;
 }
 
 void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
@@ -313,14 +316,10 @@ void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
         double row_w = 0;
         struct key_t *curr_key = curr_row->first_key;
         while (curr_key != NULL) {
-            row_w += (curr_key->internal_glue + curr_key->user_glue)*kv->default_key_size;
-            if (curr_key->type == KEY_MULTIROW_SEGMENT) {
-                row_w += get_multirow_segment_width(curr_key)*kv->default_key_size;
-            } else {
-                row_w += curr_key->width*kv->default_key_size;
-            }
+            row_w += curr_key->internal_glue + curr_key->user_glue + get_sgmt_width(curr_key);
             curr_key = curr_key->next_key;
         }
+        row_w *= kv->default_key_size;
 
         if (row_w > w) {
             w = row_w;
@@ -435,12 +434,7 @@ bool compute_key_size_full (struct keyboard_view_t *kv, struct key_t *key, struc
         *height = row->height*kv->default_key_size;
     }
 
-    if (key->type == KEY_MULTIROW_SEGMENT) {
-        // Compute the inherited width of the multirow key segment.
-        *width = get_multirow_segment_width (key)*kv->default_key_size;
-    } else {
-        *width = key->width*kv->default_key_size;
-    }
+    *width = get_sgmt_width (key)*kv->default_key_size;
 
     return is_rectangular;
 }
@@ -1243,11 +1237,7 @@ kv_locate_sgmt (struct keyboard_view_t *kv, double x, double y,
             }
 
             float next_x;
-            if (curr_key->type == KEY_MULTIROW_SEGMENT) {
-                next_x = kbd_x + get_multirow_segment_width (curr_key)*kv->default_key_size;
-            } else {
-                next_x = kbd_x + curr_key->width*kv->default_key_size;
-            }
+            next_x = kbd_x + get_sgmt_width (curr_key)*kv->default_key_size;
 
             if (next_x > x) {
                 // In this case x_kbd now contains the x coordinate of the
@@ -1381,11 +1371,7 @@ float kv_get_sgmt_x_pos (struct keyboard_view_t *kv, struct key_t *sgmt)
                 break;
             }
 
-            if (curr_key->type == KEY_MULTIROW_SEGMENT) {
-                x += get_multirow_segment_width (curr_key)*kv->default_key_size;
-            } else {
-                x += curr_key->width*kv->default_key_size;
-            }
+            x += get_sgmt_width (curr_key)*kv->default_key_size;
 
             curr_key = curr_key->next_key;
         }
@@ -2125,11 +2111,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 if (status == LOCATE_HIT_KEY) {
                     double width, height;
-                    if (sgmt->type == KEY_MULTIROW_SEGMENT) {
-                        width = get_multirow_segment_width(sgmt)*kv->default_key_size;
-                    } else {
-                        width = sgmt->width*kv->default_key_size;
-                    }
+                    width = get_sgmt_width(sgmt)*kv->default_key_size;
                     height = row->height*kv->default_key_size;
 
                     kv->to_add_rect.x = x - kv->default_key_size*0.125;

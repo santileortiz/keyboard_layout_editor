@@ -110,6 +110,7 @@ struct keyboard_view_t {
 
     // KEY_ADD state
     GdkRectangle to_add_rect;
+    float added_key_user_glue;
 
     // Manual tooltips list
     mem_pool_t tooltips_pool;
@@ -1175,15 +1176,37 @@ struct key_t** kv_get_key_ptr (struct row_t *row, struct key_t *key)
     return key_ptr;
 }
 
-struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, double y,
-                                     GdkRectangle *rect, bool *is_rectangular,
-                                     struct key_t **clicked_sgmt, struct key_t ***parent_ptr,
-                                     GdkRectangle *alt_rect, struct key_t ***clicked_sgmt_ptr)
+enum locate_sgmt_status_t {
+    LOCATE_OUTSIDE_TOP,
+    LOCATE_OUTSIDE_BOTTOM,
+    LOCATE_HIT_KEY,
+    LOCATE_HIT_GLUE
+};
+
+enum locate_sgmt_status_t
+kv_locate_sgmt (struct keyboard_view_t *kv, double x, double y,
+                struct key_t **sgmt, struct row_t **row,
+                struct key_t ***sgmt_ptr,
+                double *x_pos, double *y_pos,
+                double *left_margin, double *top_margin)
 {
+    enum locate_sgmt_status_t status;
     double kbd_x, kbd_y;
     keyboard_view_get_margins (kv, &kbd_x, &kbd_y);
-    if (x < kbd_x || y < kbd_y) {
-        return NULL;
+
+    if (left_margin != NULL) {
+        *left_margin = kbd_x;
+    }
+
+    if (top_margin != NULL) {
+        *top_margin = kbd_y;
+    }
+
+    if (y < kbd_y) {
+        if (y_pos != NULL) {
+            *y_pos = kbd_y;
+        }
+        return LOCATE_OUTSIDE_TOP;
     }
 
     struct row_t *curr_row = kv->first_row;
@@ -1201,14 +1224,21 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
         curr_row = curr_row->next_row;
     }
 
-    bool key_hit = false;
+    if (curr_row == NULL) {
+        if (y_pos != NULL) {
+            *y_pos = kbd_y;
+        }
+        return LOCATE_OUTSIDE_BOTTOM;
+    }
+
     struct key_t *curr_key = NULL, *prev_key = NULL;
     if (curr_row != NULL) {
         curr_key = curr_row->first_key;
         while (curr_key != NULL) {
-            // First update x_kbd with the glues, if the point is here we return NULL.
+            // Check if x is inside a glue, if the point is here we return NULL.
             kbd_x += (curr_key->internal_glue + curr_key->user_glue)*kv->default_key_size;
             if (kbd_x > x) {
+                status = LOCATE_HIT_GLUE;
                 break;
             }
 
@@ -1222,7 +1252,7 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
             if (next_x > x) {
                 // In this case x_kbd now contains the x coordinate of the
                 // rectangle (top left corner).
-                key_hit = true;
+                status = LOCATE_HIT_KEY;
                 break;
             }
             // We only commit to the updated kbd_x after we check we don't want
@@ -1232,34 +1262,59 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
             prev_key = curr_key;
             curr_key = curr_key->next_key;
         }
+
+        if (curr_key == NULL) {
+            status = LOCATE_HIT_GLUE;
+        }
     }
 
-    if (key_hit) {
+    if (x_pos != NULL) {
+        *x_pos = kbd_x;
+    }
+
+    if (y_pos != NULL) {
+        *y_pos = kbd_y;
+    }
+
+    if (sgmt != NULL) {
+        *sgmt = curr_key;
+    }
+
+    if (row != NULL) {
+        *row = curr_row;
+    }
+
+    if (sgmt_ptr != NULL) {
+        *sgmt_ptr = NULL;
+        if (status == LOCATE_HIT_KEY || status == LOCATE_HIT_GLUE) {
+            if (prev_key == NULL) {
+                *sgmt_ptr = &curr_row->first_key;
+            } else {
+                *sgmt_ptr = &prev_key->next_key;
+            }
+        }
+    }
+
+    return status;
+}
+
+struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, double y,
+                                     GdkRectangle *rect, bool *is_rectangular,
+                                     struct key_t **clicked_sgmt, struct key_t ***parent_ptr)
+{
+    double kbd_x, kbd_y;
+    struct key_t *curr_key, **curr_key_ptr;
+    struct row_t *curr_row;
+    enum locate_sgmt_status_t status =
+        kv_locate_sgmt (kv, x, y, &curr_key, &curr_row, &curr_key_ptr, &kbd_x, &kbd_y, NULL, NULL);
+
+    if (status == LOCATE_OUTSIDE_TOP || status == LOCATE_OUTSIDE_BOTTOM) {
+        return NULL;
+    }
+
+    if (status == LOCATE_HIT_KEY) {
         if (clicked_sgmt != NULL) {
             *clicked_sgmt = curr_key;
-        }
-
-        if (clicked_sgmt_ptr != NULL) {
-            *clicked_sgmt_ptr = NULL;
-
-            if (curr_key != NULL) {
-                if (prev_key == NULL) {
-                    *clicked_sgmt_ptr = &curr_row->first_key;
-                } else {
-                    *clicked_sgmt_ptr = &prev_key->next_key;
-                }
-            }
-        }
-
-        if (alt_rect != NULL) {
-            alt_rect->y = kbd_y;
-            alt_rect->x = kbd_x;
-            if (curr_key->type == KEY_MULTIROW_SEGMENT) {
-                alt_rect->width = get_multirow_segment_width (curr_key)*kv->default_key_size;
-            } else {
-                alt_rect->width = curr_key->width*kv->default_key_size;
-            }
-            alt_rect->height = curr_row->height*kv->default_key_size;
         }
 
         if (rect != NULL) {
@@ -1298,52 +1353,11 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
 
         } else {
             if (parent_ptr != NULL) {
-                *parent_ptr = NULL;
-
-                if (curr_key != NULL) {
-                    // If curr_key didn't change, then we can compute parent_ptr
-                    // in O(1), and avoid a call to kv_get_key_ptr().
-                    if (prev_key == NULL) {
-                        *parent_ptr = &curr_row->first_key;
-                    } else {
-                        *parent_ptr = &prev_key->next_key;
-                    }
-                }
+                *parent_ptr = curr_key_ptr;
             }
         }
 
-    } else {
-        if (alt_rect != NULL) {
-            float total_glue = 0;
-            if (curr_key != NULL) {
-                total_glue = (curr_key->user_glue + curr_key->internal_glue)*kv->default_key_size;
-                alt_rect->width = total_glue;
-            } else {
-                alt_rect->width = 0;
-            }
-
-            if (curr_row != NULL) {
-                alt_rect->height = curr_row->height*kv->default_key_size;
-            } else {
-                alt_rect->height = 0;
-            }
-
-            alt_rect->y = kbd_y;
-            alt_rect->x = kbd_x - total_glue;
-        }
-
-        if (clicked_sgmt_ptr != NULL) {
-            *clicked_sgmt_ptr = NULL;
-
-            if (curr_key != NULL) {
-                if (prev_key == NULL) {
-                    *clicked_sgmt_ptr = &curr_row->first_key;
-                } else {
-                    *clicked_sgmt_ptr = &prev_key->next_key;
-                }
-            }
-        }
-
+    } else { // status == LOCATE_HIT_GLUE
         curr_key = NULL;
     }
 
@@ -1390,48 +1404,6 @@ float kv_get_sgmt_x_pos (struct keyboard_view_t *kv, struct key_t *sgmt)
     }
 }
 
-//float kv_get_sgmt_rect (struct keyboard_view_t *kv, struct key_t *sgmt,
-//                        float *x, float *y, float *width, float *height)
-//{
-//    double kbd_x, kbd_y;
-//    keyboard_view_get_margins (kv, &kbd_x, &kbd_y);
-//
-//    float x, y;
-//    struct row_t *curr_row = kv->first_row;
-//    y = kbd_y;
-//    while (curr_row != NULL) {
-//        struct key_t *curr_key = curr_row->first_key;
-//        x = kbd_x;
-//        while (curr_key != NULL) {
-//            x += (curr_key->internal_glue + curr_key->user_glue)*kv->default_key_size;
-//
-//            if (curr_key == sgmt) {
-//                break;
-//            }
-//
-//            if (curr_key->type == KEY_MULTIROW_SEGMENT) {
-//                x += get_multirow_segment_width (curr_key)*kv->default_key_size;
-//            } else {
-//                x += curr_key->width*kv->default_key_size;
-//            }
-//
-//            curr_key = curr_key->next_key;
-//        }
-//
-//        if (curr_key != NULL) {
-//            break;
-//        }
-//        curr_row = curr_row->next_row;
-//    }
-//
-//    if (is_multirow_key(sgmt) && !is_multirow_parent (sgmt)) {
-//        struct key_t *parent = kv_get_multirow_parent (sgmt);
-//        return x + parent->user_glue;
-//    } else {
-//        return x;
-//    }
-//}
-//
 void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, GdkEvent *e);
 
 void start_edit_handler (GtkButton *button, gpointer user_data)
@@ -1924,18 +1896,16 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
     }
 
     struct key_t *button_event_key = NULL, *button_event_key_clicked_sgmt = NULL,
-                 **button_event_key_ptr = NULL, **clicked_sgmt_ptr;
+                 **button_event_key_ptr = NULL;
     bool button_event_key_is_rectangular = false;
     GdkRectangle button_event_key_rect = {0};
-    GdkRectangle alt_rect = {0};
     if (e->type == GDK_BUTTON_PRESS || e->type == GDK_BUTTON_RELEASE) {
         GdkEventButton *btn_e = (GdkEventButton*)e;
         button_event_key = keyboard_view_get_key (kv, btn_e->x, btn_e->y,
                                                   &button_event_key_rect,
                                                   &button_event_key_is_rectangular,
                                                   &button_event_key_clicked_sgmt,
-                                                  &button_event_key_ptr,
-                                                  &alt_rect, &clicked_sgmt_ptr);
+                                                  &button_event_key_ptr);
 
     } else if (e->type == GDK_MOTION_NOTIFY) {
         GdkEventMotion *btn_e = (GdkEventMotion*)e;
@@ -1943,8 +1913,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                                                   &button_event_key_rect,
                                                   &button_event_key_is_rectangular,
                                                   &button_event_key_clicked_sgmt,
-                                                  &button_event_key_ptr,
-                                                  &alt_rect, &clicked_sgmt_ptr);
+                                                  &button_event_key_ptr);
     }
 
     uint16_t key_event_kc = 0;
@@ -2146,27 +2115,87 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_MOTION_NOTIFY) {
-                kv->to_add_rect.x = alt_rect.x;
-                kv->to_add_rect.y = alt_rect.y;
 
-                kv->to_add_rect.width = alt_rect.width;
-                kv->to_add_rect.height = alt_rect.height;
+                GdkEventMotion *event = (GdkEventMotion*)e;
+                double x, y, left_margin;
+                struct key_t *sgmt, **sgmt_ptr;
+                struct row_t *row;
+                enum locate_sgmt_status_t status =
+                    kv_locate_sgmt (kv, event->x, event->y, &sgmt, &row, &sgmt_ptr, &x, &y, &left_margin, NULL);
 
-                if (button_event_key == NULL) {
-                    // TODO: Add new row.
+                if (status == LOCATE_HIT_KEY) {
+                    double width, height;
+                    if (sgmt->type == KEY_MULTIROW_SEGMENT) {
+                        width = get_multirow_segment_width(sgmt)*kv->default_key_size;
+                    } else {
+                        width = sgmt->width*kv->default_key_size;
+                    }
+                    height = row->height*kv->default_key_size;
+
+                    kv->to_add_rect.x = x - kv->default_key_size*0.125;
+                    kv->to_add_rect.y = y;
+
+                    kv->to_add_rect.width = kv->default_key_size*0.25;
+                    kv->to_add_rect.height = height;
+
+                    if (event->x > x + width/2) {
+                        kv->to_add_rect.x += width;
+                    }
+
+                } else if (status == LOCATE_HIT_GLUE) {
+                    kv->to_add_rect.height = row->height*kv->default_key_size;
+                    kv->to_add_rect.y = y;
+
+                    float glue;
+                    if (*sgmt_ptr == row->first_key) {
+                        // Pointer is left of the keyboard
+
+                        kv->to_add_rect.width = kv->default_key_size;
+                        // NOTE: This glue is measured with respect to the left
+                        // margin. It can be negative.
+                        glue = bin_floor ((event->x - left_margin)/kv->default_key_size - 0.5, 3);
+                        glue = MIN (glue, (x - left_margin)/kv->default_key_size - 1);
+                        kv->to_add_rect.x = left_margin + glue*kv->default_key_size;
+
+                    } else if (*sgmt_ptr == NULL) {
+                        // Pointer is right of keyboard
+
+                        kv->to_add_rect.width = kv->default_key_size;
+                        glue = bin_floor ((event->x - x)/kv->default_key_size - 0.5, 3);
+                        glue = MAX (glue, 0);
+
+                        kv->to_add_rect.x = x + glue*kv->default_key_size;
+
+                    } else {
+                        // Pointer is inside the keyboard
+
+                        float total_glue = sgmt->user_glue + sgmt->internal_glue;
+                        float glue_x = x - total_glue*kv->default_key_size;
+
+                        kv->to_add_rect.width = MIN (1, total_glue)*kv->default_key_size;
+                        glue = bin_floor ((event->x - glue_x)/kv->default_key_size - 0.5, 3);
+                        glue = CLAMP (glue, 0, total_glue - 1);
+
+                        kv->to_add_rect.x = glue_x + glue*kv->default_key_size;
+                    }
+
+                    kv->added_key_user_glue = glue;
+
                 } else {
-                    //float x, y, width, height;
-                    //kv_get_sgmt_rect (button_event_key_clicked_sgmt, &x, &y, &width, &height);
-                    //GdkEventButton *event = (GdkEventButton*)e;
-                    //if (event->x < x + width/2) {
-                    //    kv->to_add_rect.x = x - kv->default_key_size*0.125;
-                    //    kv->to_add_rect.y = y;
+                    kv->to_add_rect.width = kv->default_key_size;
+                    kv->to_add_rect.height = kv->default_key_size;
 
-                    //    kv->to_add_rect.height = height*kv->default_key_size;
-                    //    kv->to_add_rect.width = kv->default_key_size*0.25;
-                    //} else {
-                    //    kv->edit_right_edge = true;
-                    //}
+                    float x_pos = bin_floor ((event->x - left_margin)/kv->default_key_size - 0.5, 3);
+                    kv->to_add_rect.x = left_margin + x_pos*kv->default_key_size;
+                    // NOTE: This glue is measured with respect to the left
+                    // margin. It can be negative.
+                    kv->added_key_user_glue = x_pos;
+
+                    if (status == LOCATE_OUTSIDE_TOP) {
+                        kv->to_add_rect.y = y - kv->default_key_size;
+                    } else { // status == LOCATE_OUTSIDE_BOTTOM
+                        kv->to_add_rect.y = y;
+                    }
                 }
             }
             break;
@@ -2406,7 +2435,7 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
 
     gboolean show_tooltip = FALSE;
     GdkRectangle rect = {0};
-    struct key_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect, NULL, NULL, NULL, NULL, NULL);
+    struct key_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect, NULL, NULL, NULL);
     if (key != NULL) {
         // For non rectangular multirow keys keyboard_view_get_key() returns the
         // rectangle of the segment that was hovered. This has the (undesired?)

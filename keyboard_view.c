@@ -10,7 +10,6 @@ enum keyboard_view_state_t {
     KV_EDIT_KEY_SPLIT_NON_RECTANGULAR,
     KV_EDIT_KEY_RESIZE,
     KV_EDIT_KEY_RESIZE_NON_RECTANGULAR,
-    KV_EDIT_KEY_ADD,
     //KV_EDIT_KEYCODE_LOOKUP,
 };
 
@@ -73,6 +72,13 @@ struct manual_tooltip_t {
     char *text;
 };
 
+enum locate_sgmt_status_t {
+    LOCATE_OUTSIDE_TOP,
+    LOCATE_OUTSIDE_BOTTOM,
+    LOCATE_HIT_KEY,
+    LOCATE_HIT_GLUE
+};
+
 struct keyboard_view_t {
     mem_pool_t *pool;
 
@@ -80,6 +86,7 @@ struct keyboard_view_t {
     // from a keycode. It's about 6KB in memory, maybe too much?
     struct key_t *keys_by_kc[KEY_MAX];
     struct key_t *spare_keys;
+    struct row_t *spare_rows;
 
     // For now we represent the geometry of the keyboard by having a linked list
     // of rows, each of which is a linked list of keys.
@@ -111,6 +118,8 @@ struct keyboard_view_t {
     // KEY_ADD state
     GdkRectangle to_add_rect;
     float added_key_user_glue;
+    struct key_t **added_key_ptr;
+    enum locate_sgmt_status_t locate_stat;
 
     // Manual tooltips list
     mem_pool_t tooltips_pool;
@@ -151,6 +160,13 @@ struct key_t* kv_get_multirow_parent (struct key_t *key)
     return key;
 }
 
+static inline
+float get_sgmt_user_glue (struct key_t *sgmt)
+{
+    struct key_t *parent = kv_get_multirow_parent (sgmt);
+    return parent->user_glue;
+}
+
 #define kv_new_row(kbd) kv_new_row_h(kbd,1)
 void kv_new_row_h (struct keyboard_view_t *kv, float height)
 {
@@ -166,20 +182,6 @@ void kv_new_row_h (struct keyboard_view_t *kv, float height)
         kv->first_row = new_row;
         kv->last_row = new_row;
     }
-}
-
-void kv_remove_key_sgmt (struct keyboard_view_t *kv, struct key_t **key_ptr)
-{
-    assert (key_ptr != NULL);
-
-    // NOTE: This does not reset to 0 the content of the segment because
-    // multirow deletion needs the next_multirow pointers. Clearing is done
-    // at kv_allocate_key().
-
-    struct key_t *tmp = (*key_ptr)->next_key;
-    (*key_ptr)->next_key = kv->spare_keys;
-    kv->spare_keys = *key_ptr;
-    *key_ptr = tmp;
 }
 
 // Returns the row where sgmt is located
@@ -203,6 +205,47 @@ struct row_t* kv_get_row (struct keyboard_view_t *kv, struct key_t *sgmt)
     return curr_row;
 }
 
+struct key_t* kv_get_prev_sgmt (struct row_t *row, struct key_t *sgmt)
+{
+    struct key_t *prev = NULL, *curr = row->first_key;
+    while (curr != sgmt) {
+        prev = curr;
+        curr = curr->next_key;
+    }
+    return prev;
+}
+
+void kv_remove_key_sgmt (struct keyboard_view_t *kv, struct key_t **sgmt_ptr,
+                         struct row_t *row, struct key_t *prev_sgmt) // Optional
+{
+    assert (sgmt_ptr != NULL);
+
+    // If the segment being deleted is at the end of a row, then we must update
+    // row->last_key.
+    // NOTE: If row is not provided then this operation may traverse
+    // the full keyboard. Then if prev_sgmt is not provided we may traverse the
+    // full row again.
+    if ((*sgmt_ptr)->next_key == NULL) {
+        if (row == NULL) { row = kv_get_row (kv, *sgmt_ptr); }
+        if (prev_sgmt == NULL) { prev_sgmt = kv_get_prev_sgmt (row, *sgmt_ptr); }
+
+        row->last_key = prev_sgmt;
+    }
+
+    // NOTE: This does not reset to 0 the content of the segment because
+    // multirow deletion needs the next_multirow pointers. Clearing is done
+    // at kv_allocate_key().
+    struct key_t *tmp = (*sgmt_ptr)->next_key;
+    (*sgmt_ptr)->next_key = kv->spare_keys;
+    kv->spare_keys = *sgmt_ptr;
+    *sgmt_ptr = tmp;
+}
+
+// NOTE: If the key being removed can contain the last segment of a row, then
+// the call to kv_remove_key() MUST be followed by a call to
+// kv_remove_empty_rows(). This is not done unconditionally at the end of
+// kv_remove_key() because for example when cancelling a split we know the
+// removed key can't be the last one in a row.
 void kv_remove_key (struct keyboard_view_t *kv, struct key_t **key_ptr)
 {
     assert (key_ptr != NULL);
@@ -220,22 +263,57 @@ void kv_remove_key (struct keyboard_view_t *kv, struct key_t **key_ptr)
 
         // Find the parent pointer to each segment and delete it.
         struct key_t *sgmt = multirow_parent;
+        struct key_t *prev_sgmt = NULL;
         do {
             struct key_t **to_delete = &curr_row->first_key;
             while (*to_delete != sgmt) {
                 to_delete = &(*to_delete)->next_key;
             }
 
-            kv_remove_key_sgmt (kv, to_delete);
+            kv_remove_key_sgmt (kv, to_delete, curr_row, prev_sgmt);
 
             curr_row = curr_row->next_row;
+            prev_sgmt = sgmt;
             sgmt = sgmt->next_multirow;
 
         } while (sgmt != multirow_parent);
 
     } else {
-        kv_remove_key_sgmt (kv, key_ptr);
+        // NOTE: This is the most common case, passing NULL for the last
+        // arguments slows things down, but I doubt anyone will notice.
+        kv_remove_key_sgmt (kv, key_ptr, NULL, NULL);
     }
+}
+
+void kv_remove_empty_rows (struct keyboard_view_t *kv)
+{
+    struct row_t **row_ptr = &kv->first_row;
+    while (*row_ptr != NULL) {
+        if ((*row_ptr)->first_key == NULL && (*row_ptr)->last_key == NULL) {
+            struct row_t *tmp = (*row_ptr)->next_row;
+            (*row_ptr)->next_row = kv->spare_rows;
+            kv->spare_rows = *row_ptr;
+            *row_ptr = tmp;
+
+        } else {
+            row_ptr = &(*row_ptr)->next_row;
+        }
+    }
+}
+
+struct row_t* kv_allocate_row (struct keyboard_view_t *kv)
+{
+    struct row_t *new_row;
+    if (kv->spare_rows == NULL) {
+        new_row = (struct row_t*)pom_push_struct (kv->pool, struct row_t);
+    } else {
+        new_row = kv->spare_rows;
+        kv->spare_rows = new_row->next_row;
+    }
+
+    *new_row = (struct row_t){0};
+    new_row->height = 1;
+    return new_row;
 }
 
 struct key_t* kv_allocate_key (struct keyboard_view_t *kv)
@@ -1170,13 +1248,6 @@ struct key_t** kv_get_key_ptr (struct row_t *row, struct key_t *key)
     return key_ptr;
 }
 
-enum locate_sgmt_status_t {
-    LOCATE_OUTSIDE_TOP,
-    LOCATE_OUTSIDE_BOTTOM,
-    LOCATE_HIT_KEY,
-    LOCATE_HIT_GLUE
-};
-
 enum locate_sgmt_status_t
 kv_locate_sgmt (struct keyboard_view_t *kv, double x, double y,
                 struct key_t **sgmt, struct row_t **row,
@@ -1383,8 +1454,7 @@ float kv_get_sgmt_x_pos (struct keyboard_view_t *kv, struct key_t *sgmt)
     }
 
     if (is_multirow_key(sgmt) && !is_multirow_parent (sgmt)) {
-        struct key_t *parent = kv_get_multirow_parent (sgmt);
-        return x + parent->user_glue;
+        return x + get_sgmt_user_glue (sgmt);
     } else {
         return x;
     }
@@ -1421,7 +1491,7 @@ void resize_key_handler (GtkButton *button, gpointer user_data)
     keyboard_view->active_tool = KV_TOOL_RESIZE_KEY;
 }
 
-void move_key_handler (GtkButton *button, gpointer user_data)
+void add_key_handler (GtkButton *button, gpointer user_data)
 {
     keyboard_view->active_tool = KV_TOOL_ADD_KEY;
 }
@@ -1537,8 +1607,8 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
     gtk_grid_attach (GTK_GRID(*toolbar), resize_key_button, 4, 0, 1, 1);
 
     GtkWidget *add_key_button = toolbar_button_new (NULL,
-                                                      "Add key",
-                                                      G_CALLBACK (move_key_handler), NULL);
+                                                    "Add key",
+                                                    G_CALLBACK (add_key_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), add_key_button, 5, 0, 1, 1);
 }
 
@@ -1871,6 +1941,103 @@ void kv_set_non_rectangular_split (struct keyboard_view_t *kv, float x)
     }
 }
 
+void kv_set_add_key_state (struct keyboard_view_t *kv, double event_x, double event_y)
+{
+    double x, y, left_margin;
+    struct key_t *sgmt, **sgmt_ptr;
+    struct row_t *row;
+    kv->locate_stat =
+        kv_locate_sgmt (kv, event_x, event_y, &sgmt, &row, &sgmt_ptr, &x, &y, &left_margin, NULL);
+
+    if (kv->locate_stat == LOCATE_HIT_KEY) {
+        double width, height;
+        width = get_sgmt_width(sgmt)*kv->default_key_size;
+        height = row->height*kv->default_key_size;
+
+        kv->to_add_rect.x = x - kv->default_key_size*0.125;
+        kv->to_add_rect.y = y;
+
+        kv->to_add_rect.width = kv->default_key_size*0.25;
+        kv->to_add_rect.height = height;
+
+        if (event_x > x + width/2) {
+            kv->added_key_ptr = &sgmt->next_key;
+            kv->to_add_rect.x += width;
+            kv->added_key_user_glue = 0;
+        } else {
+            kv->added_key_ptr = sgmt_ptr;
+            kv->added_key_user_glue = sgmt->internal_glue - 1;
+        }
+
+    } else if (kv->locate_stat == LOCATE_HIT_GLUE) {
+        kv->added_key_ptr = sgmt_ptr;
+        kv->to_add_rect.height = row->height*kv->default_key_size;
+        kv->to_add_rect.y = y;
+
+        float glue;
+        if (*sgmt_ptr == row->first_key) {
+            // Pointer is left of the keyboard
+
+            kv->to_add_rect.width = kv->default_key_size;
+            // NOTE: This glue is measured with respect to the left
+            // margin. It can be negative.
+            glue = bin_floor ((event_x - left_margin)/kv->default_key_size - 0.5, 3);
+            glue = MIN (glue, (x - left_margin)/kv->default_key_size - 1);
+            kv->to_add_rect.x = left_margin + glue*kv->default_key_size;
+
+        } else if (*sgmt_ptr == NULL) {
+            // Pointer is right of keyboard
+
+            kv->to_add_rect.width = kv->default_key_size;
+            glue = bin_floor ((event_x - x)/kv->default_key_size - 0.5, 3);
+            glue = MAX (glue, 0);
+
+            kv->to_add_rect.x = x + glue*kv->default_key_size;
+
+        } else {
+            // Pointer is inside the keyboard
+
+            float total_glue = get_sgmt_user_glue (sgmt) + sgmt->internal_glue;
+            float glue_x = x - total_glue*kv->default_key_size;
+
+            if (total_glue < 1) {
+                kv->to_add_rect.width = total_glue*kv->default_key_size;
+                glue = 0;
+            } else {
+                kv->to_add_rect.width = MIN (1, total_glue)*kv->default_key_size;
+                glue = bin_floor ((event_x - glue_x)/kv->default_key_size - 0.5, 3);
+                glue = CLAMP (glue, 0, total_glue - 1);
+            }
+
+            kv->to_add_rect.x = glue_x + glue*kv->default_key_size;
+        }
+
+        kv->added_key_user_glue = glue;
+
+    } else {
+        kv->to_add_rect.width = kv->default_key_size;
+        kv->to_add_rect.height = kv->default_key_size;
+
+        float x_pos = bin_floor ((event_x - left_margin)/kv->default_key_size - 0.5, 3);
+        kv->to_add_rect.x = left_margin + x_pos*kv->default_key_size;
+        // NOTE: This glue is measured with respect to the left
+        // margin. It can be negative.
+        kv->added_key_user_glue = x_pos;
+
+        if (kv->locate_stat == LOCATE_OUTSIDE_TOP) {
+            kv->to_add_rect.y = y - kv->default_key_size;
+        } else { // kv->locate_stat == LOCATE_OUTSIDE_BOTTOM
+            kv->to_add_rect.y = y;
+        }
+    }
+}
+
+// FIXME: I was unable to easily find the height of the toolbar to ignore clicks
+// when setting the tool. The grid widget kv->toolbar is the size of the full
+// keyboard view, the size of the tool buttons in kv_set_full_toolbar() is 1px
+// who knows why. I just hardcoded an approximate value.
+#define KV_TOOLBAR_HEIGHT 25 //px
+
 void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, GdkEvent *e)
 {
     // To avoid segfaults when e==NULL without having to check if e==NULL every
@@ -1887,6 +2054,10 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
     GdkRectangle button_event_key_rect = {0};
     if (e->type == GDK_BUTTON_PRESS || e->type == GDK_BUTTON_RELEASE) {
         GdkEventButton *btn_e = (GdkEventButton*)e;
+        if (btn_e->y < KV_TOOLBAR_HEIGHT) {
+            return;
+        }
+
         button_event_key = keyboard_view_get_key (kv, btn_e->x, btn_e->y,
                                                   &button_event_key_rect,
                                                   &button_event_key_is_rectangular,
@@ -2064,6 +2235,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             } else if (kv->active_tool == KV_TOOL_DELETE_KEY &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 kv_remove_key (kv, button_event_key_ptr);
+                kv_remove_empty_rows (kv);
                 kv_compute_glue (kv);
 
             } else if (kv->active_tool == KV_TOOL_RESIZE_KEY &&
@@ -2101,84 +2273,70 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_MOTION_NOTIFY) {
-
                 GdkEventMotion *event = (GdkEventMotion*)e;
-                double x, y, left_margin;
-                struct key_t *sgmt, **sgmt_ptr;
-                struct row_t *row;
-                enum locate_sgmt_status_t status =
-                    kv_locate_sgmt (kv, event->x, event->y, &sgmt, &row, &sgmt_ptr, &x, &y, &left_margin, NULL);
+                kv_set_add_key_state (kv, event->x, event->y);
 
-                if (status == LOCATE_HIT_KEY) {
-                    double width, height;
-                    width = get_sgmt_width(sgmt)*kv->default_key_size;
-                    height = row->height*kv->default_key_size;
+            } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
+                       e->type == GDK_BUTTON_RELEASE) {
 
-                    kv->to_add_rect.x = x - kv->default_key_size*0.125;
-                    kv->to_add_rect.y = y;
+                struct row_t *new_row = NULL;
+                if (kv->locate_stat == LOCATE_OUTSIDE_TOP || kv->locate_stat == LOCATE_OUTSIDE_BOTTOM) {
+                    new_row = kv_allocate_row (kv);
+                    if (kv->locate_stat == LOCATE_OUTSIDE_TOP) {
+                        new_row->next_row = kv->first_row;
+                        kv->first_row = new_row;
 
-                    kv->to_add_rect.width = kv->default_key_size*0.25;
-                    kv->to_add_rect.height = height;
-
-                    if (event->x > x + width/2) {
-                        kv->to_add_rect.x += width;
+                    } else if (kv->locate_stat == LOCATE_OUTSIDE_BOTTOM) {
+                        kv->last_row->next_row = new_row;
+                        kv->last_row = new_row;
                     }
+                    kv->added_key_ptr = &new_row->first_key;
+                }
 
-                } else if (status == LOCATE_HIT_GLUE) {
-                    kv->to_add_rect.height = row->height*kv->default_key_size;
-                    kv->to_add_rect.y = y;
+                struct key_t *new_key = kv_allocate_key (kv);
+                new_key->type = KEY_UNASSIGNED;
+                new_key->width = 1;
 
-                    float glue;
-                    if (*sgmt_ptr == row->first_key) {
-                        // Pointer is left of the keyboard
+                // TODO: Design a dependency algorithm to know which of the
+                // first keys of each row requires user glue to keep the
+                // keyboard layout rigid.
+                //
+                // Currently we are letting negative glues exist and there are
+                // still some bugs, for example left margin computation. Maybe
+                // we can just fix that and everything will be fine?.
 
-                        kv->to_add_rect.width = kv->default_key_size;
-                        // NOTE: This glue is measured with respect to the left
-                        // margin. It can be negative.
-                        glue = bin_floor ((event->x - left_margin)/kv->default_key_size - 0.5, 3);
-                        glue = MIN (glue, (x - left_margin)/kv->default_key_size - 1);
-                        kv->to_add_rect.x = left_margin + glue*kv->default_key_size;
-
-                    } else if (*sgmt_ptr == NULL) {
-                        // Pointer is right of keyboard
-
-                        kv->to_add_rect.width = kv->default_key_size;
-                        glue = bin_floor ((event->x - x)/kv->default_key_size - 0.5, 3);
-                        glue = MAX (glue, 0);
-
-                        kv->to_add_rect.x = x + glue*kv->default_key_size;
-
+                // Put the user glue where required.
+                if (*kv->added_key_ptr != NULL) {
+                    float internal_glue = (*kv->added_key_ptr)->internal_glue;
+                    struct key_t *parent = kv_get_multirow_parent (*kv->added_key_ptr);
+                    if (kv->added_key_user_glue > 0 && parent->user_glue + internal_glue < 1) {
+                        parent->user_glue = 0;
                     } else {
-                        // Pointer is inside the keyboard
-
-                        float total_glue = sgmt->user_glue + sgmt->internal_glue;
-                        float glue_x = x - total_glue*kv->default_key_size;
-
-                        kv->to_add_rect.width = MIN (1, total_glue)*kv->default_key_size;
-                        glue = bin_floor ((event->x - glue_x)/kv->default_key_size - 0.5, 3);
-                        glue = CLAMP (glue, 0, total_glue - 1);
-
-                        kv->to_add_rect.x = glue_x + glue*kv->default_key_size;
-                    }
-
-                    kv->added_key_user_glue = glue;
-
-                } else {
-                    kv->to_add_rect.width = kv->default_key_size;
-                    kv->to_add_rect.height = kv->default_key_size;
-
-                    float x_pos = bin_floor ((event->x - left_margin)/kv->default_key_size - 0.5, 3);
-                    kv->to_add_rect.x = left_margin + x_pos*kv->default_key_size;
-                    // NOTE: This glue is measured with respect to the left
-                    // margin. It can be negative.
-                    kv->added_key_user_glue = x_pos;
-
-                    if (status == LOCATE_OUTSIDE_TOP) {
-                        kv->to_add_rect.y = y - kv->default_key_size;
-                    } else { // status == LOCATE_OUTSIDE_BOTTOM
-                        kv->to_add_rect.y = y;
+                        float user_glue_bleed = kv->added_key_user_glue + 1 - internal_glue;
+                        if (kv->added_key_user_glue >= 0) {
+                            if (user_glue_bleed > 0) {
+                                parent->user_glue -= user_glue_bleed;
+                            }
+                        } else {
+                            if (user_glue_bleed < 0) {
+                                parent->user_glue -= user_glue_bleed;
+                            }
+                        }
                     }
                 }
+                new_key->user_glue = kv->added_key_user_glue;
+
+                new_key->next_key = *kv->added_key_ptr;
+                *(kv->added_key_ptr) = new_key;
+
+                if (new_row != NULL) {
+                    new_row->last_key = new_key;
+                }
+
+                kv_compute_glue (kv);
+
+                GdkEventButton *event = (GdkEventButton*)e;
+                kv_set_add_key_state (kv, event->x, event->y);
             }
             break;
 
@@ -2350,19 +2508,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv_compute_glue (kv);
                     kv->state = KV_EDIT;
                 }
-            }
-
-            break;
-
-        case KV_EDIT_KEY_ADD:
-            if (e->type == GDK_MOTION_NOTIFY) {
-                // TODO: Implement key add.
-                GdkEventMotion *event = (GdkEventMotion*)e;
-                printf ("x: %f, y: %f\n", event->x, event->y);
-
-            } else if (e->type == GDK_BUTTON_RELEASE) {
-                
-                kv->state = KV_EDIT;
             }
 
             break;

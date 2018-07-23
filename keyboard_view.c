@@ -119,6 +119,7 @@ struct keyboard_view_t {
     GdkRectangle to_add_rect;
     float added_key_user_glue;
     struct key_t **added_key_ptr;
+    struct row_t *added_key_row;
     enum locate_sgmt_status_t locate_stat;
 
     // Manual tooltips list
@@ -158,6 +159,23 @@ struct key_t* kv_get_multirow_parent (struct key_t *key)
         key = key->next_multirow;
     }
     return key;
+}
+
+bool is_key_first (struct key_t *key, struct row_t *row)
+{
+    if (!is_multirow_key (key)) {
+        return true;
+    } else {
+        assert (is_multirow_parent (key));
+        do {
+            if (row->first_key != key) {
+                return false;
+            }
+            row = row->next_row;
+            key = key->next_multirow;
+        } while (!is_multirow_parent (key));
+        return true;
+    }
 }
 
 static inline
@@ -1948,6 +1966,7 @@ void kv_set_add_key_state (struct keyboard_view_t *kv, double event_x, double ev
     struct row_t *row;
     kv->locate_stat =
         kv_locate_sgmt (kv, event_x, event_y, &sgmt, &row, &sgmt_ptr, &x, &y, &left_margin, NULL);
+    kv->added_key_row = row;
 
     if (kv->locate_stat == LOCATE_HIT_KEY) {
         double width, height;
@@ -2309,19 +2328,12 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 if (*kv->added_key_ptr != NULL) {
                     float internal_glue = (*kv->added_key_ptr)->internal_glue;
                     struct key_t *parent = kv_get_multirow_parent (*kv->added_key_ptr);
-                    if (kv->added_key_user_glue > 0 && parent->user_glue + internal_glue < 1) {
-                        parent->user_glue = 0;
+                    float new_user_glue = parent->user_glue - (kv->added_key_user_glue + 1 - internal_glue);
+                    new_user_glue = MAX (new_user_glue, 0);
+                    if (is_key_first (parent, kv->added_key_row)) {
+                        parent->user_glue = new_user_glue;
                     } else {
-                        float user_glue_bleed = kv->added_key_user_glue + 1 - internal_glue;
-                        if (kv->added_key_user_glue >= 0) {
-                            if (user_glue_bleed > 0) {
-                                parent->user_glue -= user_glue_bleed;
-                            }
-                        } else {
-                            if (user_glue_bleed < 0) {
-                                parent->user_glue -= user_glue_bleed;
-                            }
-                        }
+                        parent->user_glue = MIN (new_user_glue, parent->user_glue);
                     }
                 }
                 new_key->user_glue = kv->added_key_user_glue;

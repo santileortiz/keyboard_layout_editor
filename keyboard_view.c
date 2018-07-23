@@ -164,7 +164,9 @@ struct key_t* kv_get_multirow_parent (struct key_t *key)
 bool is_key_first (struct key_t *key, struct row_t *row)
 {
     if (!is_multirow_key (key)) {
-        return true;
+        if (key != row->first_key) {
+            return false;
+        }
     } else {
         assert (is_multirow_parent (key));
         do {
@@ -174,8 +176,8 @@ bool is_key_first (struct key_t *key, struct row_t *row)
             row = row->next_row;
             key = key->next_multirow;
         } while (!is_multirow_parent (key));
-        return true;
     }
+    return true;
 }
 
 static inline
@@ -2297,7 +2299,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_BUTTON_RELEASE) {
-
+                // Allocate a new row if necessary. If so, set kv->added_key_ptr
+                // appropriately.
                 struct row_t *new_row = NULL;
                 if (kv->locate_stat == LOCATE_OUTSIDE_TOP || kv->locate_stat == LOCATE_OUTSIDE_BOTTOM) {
                     new_row = kv_allocate_row (kv);
@@ -2312,19 +2315,12 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv->added_key_ptr = &new_row->first_key;
                 }
 
+                // Allocate the new key
                 struct key_t *new_key = kv_allocate_key (kv);
                 new_key->type = KEY_UNASSIGNED;
                 new_key->width = 1;
 
-                // TODO: Design a dependency algorithm to know which of the
-                // first keys of each row requires user glue to keep the
-                // keyboard layout rigid.
-                //
-                // Currently we are letting negative glues exist and there are
-                // still some bugs, for example left margin computation. Maybe
-                // we can just fix that and everything will be fine?.
-
-                // Put the user glue where required.
+                // Compute the glue for the key next to the one being added
                 if (*kv->added_key_ptr != NULL) {
                     float internal_glue = (*kv->added_key_ptr)->internal_glue;
                     struct key_t *parent = kv_get_multirow_parent (*kv->added_key_ptr);
@@ -2338,11 +2334,31 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 }
                 new_key->user_glue = kv->added_key_user_glue;
 
+                // Insert the new key
                 new_key->next_key = *kv->added_key_ptr;
                 *(kv->added_key_ptr) = new_key;
 
+                // If a new key was created, set the last_key pointer
                 if (new_row != NULL) {
                     new_row->last_key = new_key;
+                }
+
+                // Move the keyboard right if the new key is beyond the left
+                // margin. This makes the first keys always have user_glue == 0.
+                // In theory this is O(n^2) where n is the number of rows, but
+                // in practice I doubt we will ever have a keyboard that causes
+                // trouble.
+                if (kv->added_key_user_glue < 0) {
+                    struct  row_t *curr_row = kv->first_row;
+                    while (curr_row != NULL) {
+                        struct key_t *curr_key = curr_row->first_key;
+                        if (!is_multirow_key (curr_key) || is_multirow_parent (curr_key)) {
+                            if (is_key_first (curr_key, curr_row)) {
+                                curr_key->user_glue -= kv->added_key_user_glue;
+                            }
+                        }
+                        curr_row = curr_row->next_row;
+                    }
                 }
 
                 kv_compute_glue (kv);

@@ -10,6 +10,7 @@ enum keyboard_view_state_t {
     KV_EDIT_KEY_SPLIT_NON_RECTANGULAR,
     KV_EDIT_KEY_RESIZE,
     KV_EDIT_KEY_RESIZE_NON_RECTANGULAR,
+    KV_EDIT_KEY_RESIZE_SEGMENT
     //KV_EDIT_KEYCODE_LOOKUP,
 };
 
@@ -25,6 +26,7 @@ enum keyboard_view_tools_t {
     KV_TOOL_SPLIT_KEY,
     KV_TOOL_DELETE_KEY,
     KV_TOOL_RESIZE_KEY,
+    KV_TOOL_RESIZE_SEGMENT,
     KV_TOOL_ADD_KEY
 };
 
@@ -114,6 +116,10 @@ struct keyboard_view_t {
     float original_user_glue;
     float min_width;
     bool edit_right_edge;
+
+    // KEY_RESIZE_SEGMENT state
+    struct key_t *resized_segment;
+    struct key_t *resized_segment_prev;
 
     // KEY_ADD state
     GdkRectangle to_add_rect;
@@ -1511,6 +1517,11 @@ void resize_key_handler (GtkButton *button, gpointer user_data)
     keyboard_view->active_tool = KV_TOOL_RESIZE_KEY;
 }
 
+void resize_segment_handler (GtkButton *button, gpointer user_data)
+{
+    keyboard_view->active_tool = KV_TOOL_RESIZE_SEGMENT;
+}
+
 void add_key_handler (GtkButton *button, gpointer user_data)
 {
     keyboard_view->active_tool = KV_TOOL_ADD_KEY;
@@ -1607,7 +1618,7 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
     gtk_grid_attach (GTK_GRID(*toolbar), stop_edit_button, 0, 0, 1, 1);
 
     GtkWidget *keycode_keypress = toolbar_button_new (NULL,
-                                                      "Assign a keycode by pressing a key",
+                                                      "Assign keycode by pressing the key",
                                                       G_CALLBACK (keycode_keypress_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), keycode_keypress, 1, 0, 1, 1);
 
@@ -1626,10 +1637,15 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
                                                       G_CALLBACK (resize_key_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), resize_key_button, 4, 0, 1, 1);
 
+    GtkWidget *resize_segment_button = toolbar_button_new (NULL,
+                                                           "Resize key segment",
+                                                           G_CALLBACK (resize_segment_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), resize_segment_button, 5, 0, 1, 1);
+
     GtkWidget *add_key_button = toolbar_button_new (NULL,
                                                     "Add key",
                                                     G_CALLBACK (add_key_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), add_key_button, 5, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(*toolbar), add_key_button, 6, 0, 1, 1);
 }
 
 // Round i downwards to the nearest multiple of 1/2^n. If i is negative treat it
@@ -1822,6 +1838,8 @@ void change_edge_width (struct key_t *edge_prev_sgmt,
                         struct key_t *edge_end_sgmt,
                         float delta_w)
 {
+    assert (edge_start->type != KEY_MULTIROW_SEGMENT);
+
     edge_start->width += delta_w;
 
     if (edge_prev_sgmt != NULL) {
@@ -1847,6 +1865,33 @@ void change_edge_width (struct key_t *edge_prev_sgmt,
             edge_end_sgmt->type = KEY_MULTIROW_SEGMENT;
         } else {
             edge_end_sgmt->type = KEY_MULTIROW_SEGMENT_SIZED;
+        }
+    }
+}
+
+void change_sgmt_width (struct key_t *prev_sgmt, struct key_t *sgmt, float delta_w, bool edit_right_edge)
+{
+    sgmt->width += delta_w;
+
+    if (prev_sgmt != NULL) {
+        if (sgmt->width == prev_sgmt->width) {
+            sgmt->type = KEY_MULTIROW_SEGMENT;
+        } else {
+            sgmt->type = KEY_MULTIROW_SEGMENT_SIZED;
+        }
+    }
+
+    if (sgmt->type == KEY_MULTIROW_SEGMENT_SIZED) {
+        sgmt->align = edit_right_edge ? MULTIROW_ALIGN_LEFT : MULTIROW_ALIGN_RIGHT;
+    }
+
+    if (is_multirow_key (sgmt) && !is_multirow_parent(sgmt->next_multirow)) {
+        struct key_t *end_sgmt = sgmt->next_multirow;
+        if (sgmt->width == end_sgmt->width) {
+            end_sgmt->type = KEY_MULTIROW_SEGMENT;
+        } else {
+            end_sgmt->type = KEY_MULTIROW_SEGMENT_SIZED;
+            end_sgmt->align = edit_right_edge ? MULTIROW_ALIGN_LEFT : MULTIROW_ALIGN_RIGHT;
         }
     }
 }
@@ -2292,6 +2337,63 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv->state = KV_EDIT_KEY_RESIZE_NON_RECTANGULAR;
                 }
 
+            } else if (kv->active_tool == KV_TOOL_RESIZE_SEGMENT &&
+                       e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+                GdkEventButton *event = (GdkEventButton*)e;
+                double x;
+                struct key_t *sgmt;
+                kv->locate_stat =
+                    kv_locate_sgmt (kv, event->x, event->y, &sgmt, NULL, NULL, &x, NULL, NULL, NULL);
+                if (event->x < x + get_sgmt_width (sgmt)*kv->default_key_size/2) {
+                    kv->edit_right_edge = false;
+                } else {
+                    kv->edit_right_edge = true;
+                }
+
+                kv->resized_segment_prev = NULL;
+                {
+                    struct key_t *curr_key = button_event_key;
+                    while (curr_key != button_event_key_clicked_sgmt) {
+                        kv->resized_segment_prev = curr_key;
+                        curr_key = curr_key->next_multirow;
+                    }
+                }
+
+                kv->resized_segment = button_event_key_clicked_sgmt;
+                kv->original_width = get_sgmt_width (button_event_key_clicked_sgmt);
+                kv->resized_segment->width = kv->original_width;
+                if (!is_multirow_parent (kv->resized_segment->next_multirow)) {
+                    kv->resized_segment->next_multirow->width = kv->original_width;
+                }
+
+                bool invalid_edge = false;
+                if (is_multirow_key (kv->resized_segment) &&
+                    !is_multirow_parent(kv->resized_segment->next_multirow)) {
+                    struct key_t *next = kv->resized_segment->next_multirow;
+                    if (kv->edit_right_edge) {
+                        if (next->type == KEY_MULTIROW_SEGMENT_SIZED &&
+                            next->align == MULTIROW_ALIGN_RIGHT) {
+                            printf ("Can't edit this segment's edge\n");
+                            invalid_edge = true;
+                        }
+                    } else {
+                        if (next->type == KEY_MULTIROW_SEGMENT_SIZED &&
+                            next->align == MULTIROW_ALIGN_LEFT) {
+                            printf ("Can't edit this segment's edge\n");
+                            invalid_edge = true;
+                        }
+                    }
+                }
+
+                if (!invalid_edge) {
+                    kv->state = KV_EDIT_KEY_RESIZE_SEGMENT;
+                }
+
+                kv->min_width = kv_get_min_key_width(kv);
+                kv->x_clicked_pos = event->x;
+                kv->x_anchor = event->x;
+
+
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
@@ -2538,6 +2640,46 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 }
             }
 
+            break;
+
+        case KV_EDIT_KEY_RESIZE_SEGMENT:
+            if (e->type == GDK_MOTION_NOTIFY) {
+                GdkEventMotion *event = (GdkEventMotion*)e;
+                float delta_w;
+                if (kv->edit_right_edge) {
+                    delta_w = event->x - kv->x_anchor;
+                } else {
+                    delta_w = kv->x_anchor - event->x;
+                }
+
+                delta_w = bin_floor(delta_w/kv->default_key_size, 3);
+                float new_width = MIN(kv->resized_segment->width + delta_w, kv->min_width);
+
+                if (delta_w != 0 && new_width >= kv->min_width) {
+                    change_sgmt_width (kv->resized_segment_prev, kv->resized_segment, delta_w,
+                                       kv->edit_right_edge);
+                    kv_compute_glue (kv);
+
+                    if (kv->edit_right_edge) {
+                        kv->x_anchor += delta_w*kv->default_key_size;
+                    } else {
+                        kv->x_anchor -= delta_w*kv->default_key_size;
+                    }
+                }
+
+            } else if (e->type == GDK_BUTTON_RELEASE) {
+                kv->state = KV_EDIT;
+
+            } else if (e->type == GDK_KEY_PRESS) {
+                if (key_event_kc - 8 == KEY_ESC) {
+                    float delta_w = kv->original_width - kv->resized_segment->width;
+                    change_sgmt_width (kv->resized_segment_prev, kv->resized_segment, delta_w,
+                                       kv->edit_right_edge);
+
+                    kv_compute_glue (kv);
+                    kv->state = KV_EDIT;
+                }
+            }
             break;
     }
 

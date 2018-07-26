@@ -147,6 +147,7 @@ void cr_draw_round_corner (cairo_t *cr, double x, double y, double r,
 // NOTE: The following implmentation for paths with round corners has only been
 // implemented for the keyboard usecase (i.e. orthogonal closed paths). More
 // testing and code is required for a general implementation.
+#define DEBUG_ROUND_PATH 0
 struct round_path_ctx {
     cairo_t *cr;
     double x_prev, y_prev;
@@ -159,6 +160,9 @@ struct round_path_ctx {
 
 struct round_path_ctx round_path_start (cairo_t *cr, double x, double y, double radius)
 {
+#if DEBUG_ROUND_PATH
+    printf ("\nStart: (%f, %f)\n", x, y);
+#endif
     struct round_path_ctx res;
     res.start = true;
     res.cr = cr;
@@ -172,6 +176,10 @@ struct round_path_ctx round_path_start (cairo_t *cr, double x, double y, double 
 
 void round_path_move_to (struct round_path_ctx *ctx, double x, double y)
 {
+#if DEBUG_ROUND_PATH
+    printf ("Move: (%f, %f)\n", x, y);
+#endif
+
     assert ((x == ctx->x_prev || y == ctx->y_prev) && "Only orthogonal shapes are supported");
 
     enum edge_direction new_dir;
@@ -229,6 +237,10 @@ void round_path_move_to (struct round_path_ctx *ctx, double x, double y)
 
 void round_path_close (struct round_path_ctx *ctx)
 {
+#if DEBUG_ROUND_PATH
+    printf ("Close\n");
+#endif
+
     assert ((ctx->x_start == ctx->x_prev || ctx->y_start == ctx->y_prev)
             && "Start and end must be aligned to close the rounded path");
 

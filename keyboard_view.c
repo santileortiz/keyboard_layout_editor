@@ -43,6 +43,36 @@ enum key_render_type_t {
     KEY_MULTIROW_SEGMENT_SIZED
 };
 
+// TODO: Alignment modes have been limited to left or right. This leaves out the
+// case for arbitrary alignment, making impossible to create some key shapes
+// like:                                    +---+
+//                                          |   |
+//                       +-------+      +---+   +---+
+//                       |       |      |           |
+//                   +---+   +---+      +---+   +---+      
+//                   |       |              |   |
+//                   +-------+              +---+
+// An arbitrary rendering mode would need a displacement value from a fixed
+// reference point in the previous segment (the left edge for example). Even
+// though it "could" replace the left and right alignment modes, doing so may
+// require a lot of time. When originally choosing to implement right and left
+// alignment modes, I chose them because I wanted explicit detection of when two
+// contiguous multirow segments make a single straight line as edge. Doing so
+// avoids rendering ugly rounded corners.
+//
+// Now that we have settled on a fixed step size for all widths, this should
+// extend to the displacement value for arbitrary alignment. Which means we
+// could detect straight edges by comparisons between width and the displacement
+// values, without the need for an epsilon value.
+//
+// Anyway, this change is non trivial because it implies changes in all complex
+// parts of the code. Algorithms that would be modified include: non rectangular
+// key path drawing, glue computation, size computation, key search from pointer
+// coordinates, segment search from pointer coordinates. Also, it's necessary to
+// keep an invariant that forbids keys with disjoint segments.
+//
+// @arbitrary_align
+#define sgmt_check_align(sgmt,algn) ((sgmt)->type == KEY_MULTIROW_SEGMENT_SIZED && (sgmt)->align == algn)
 enum multirow_key_align_t {
     MULTIROW_ALIGN_LEFT,
     MULTIROW_ALIGN_RIGHT
@@ -2362,29 +2392,32 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->resized_segment = button_event_key_clicked_sgmt;
                 kv->original_width = get_sgmt_width (button_event_key_clicked_sgmt);
                 kv->resized_segment->width = kv->original_width;
-                if (!is_multirow_parent (kv->resized_segment->next_multirow)) {
-                    kv->resized_segment->next_multirow->width = kv->original_width;
+                struct key_t *end_sgmt = kv->resized_segment->next_multirow;
+                if (end_sgmt->type == KEY_MULTIROW_SEGMENT) {
+                    end_sgmt->width = kv->original_width;
                 }
 
+                // TODO: Some segment edges can't be resized because currently
+                // non rectangular multirow key shapes are limited to aligning
+                // segments either left or right. If arbitrary alignment is ever
+                // implemented (@arbitrary_align) then when invalid_edge == true
+                // we should use that new alignment.
+                //
+                // If some time passes and arbitrary alignment isn't
+                // implemented, then we should notify the user about this
+                // limitation in some way other than a printf(). Changing the
+                // pointer to something like  ⃠ should work.
                 bool invalid_edge = false;
-                if (is_multirow_key (kv->resized_segment) &&
-                    !is_multirow_parent(kv->resized_segment->next_multirow)) {
-                    struct key_t *next = kv->resized_segment->next_multirow;
-                    if (kv->edit_right_edge) {
-                        if (next->type == KEY_MULTIROW_SEGMENT_SIZED &&
-                            next->align == MULTIROW_ALIGN_RIGHT) {
-                            printf ("Can't edit this segment's edge\n");
-                            invalid_edge = true;
-                        }
-                    } else {
-                        if (next->type == KEY_MULTIROW_SEGMENT_SIZED &&
-                            next->align == MULTIROW_ALIGN_LEFT) {
-                            printf ("Can't edit this segment's edge\n");
-                            invalid_edge = true;
-                        }
+                if (!button_event_key_is_rectangular) {
+                    enum multirow_key_align_t
+                        test_align = kv->edit_right_edge ? MULTIROW_ALIGN_RIGHT : MULTIROW_ALIGN_LEFT;
+
+                    if (sgmt_check_align(kv->resized_segment, test_align) ||
+                        (!is_multirow_parent(end_sgmt) && sgmt_check_align(end_sgmt, test_align))) {
+                        printf ("Can't edit this segment's edge\n");
+                        invalid_edge = true;
                     }
                 }
-
                 if (!invalid_edge) {
                     kv->state = KV_EDIT_KEY_RESIZE_SEGMENT;
                 }
@@ -2392,7 +2425,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->min_width = kv_get_min_key_width(kv);
                 kv->x_clicked_pos = event->x;
                 kv->x_anchor = event->x;
-
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_MOTION_NOTIFY) {

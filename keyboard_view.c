@@ -2128,6 +2128,57 @@ void kv_set_add_key_state (struct keyboard_view_t *kv, double event_x, double ev
     }
 }
 
+struct key_t* kv_insert_new_sgmt (struct keyboard_view_t *kv,
+                                  enum locate_sgmt_status_t location, struct key_t **sgmt_ptr,
+                                  float new_key_user_glue)
+{
+    // Allocate a new row if necessary. If so, set kv->added_key_ptr
+    // appropriately.
+    struct row_t *new_row = NULL;
+    if (location == LOCATE_OUTSIDE_TOP || location == LOCATE_OUTSIDE_BOTTOM) {
+        new_row = kv_allocate_row (kv);
+        if (location == LOCATE_OUTSIDE_TOP) {
+            new_row->next_row = kv->first_row;
+            kv->first_row = new_row;
+
+        } else if (location == LOCATE_OUTSIDE_BOTTOM) {
+            kv->last_row->next_row = new_row;
+            kv->last_row = new_row;
+        }
+        sgmt_ptr = &new_row->first_key;
+    }
+
+    // Allocate the new key
+    struct key_t *new_key = kv_allocate_key (kv);
+    new_key->type = KEY_UNASSIGNED;
+    new_key->width = 1;
+
+    // Compute the glue for the key next to the one being added
+    if (*sgmt_ptr != NULL) {
+        float internal_glue = (*sgmt_ptr)->internal_glue;
+        struct key_t *parent = kv_get_multirow_parent (*sgmt_ptr);
+        float new_user_glue = parent->user_glue - (new_key_user_glue + 1 - internal_glue);
+        new_user_glue = MAX (new_user_glue, 0);
+        if (is_key_first (parent, kv->added_key_row)) {
+            parent->user_glue = new_user_glue;
+        } else {
+            parent->user_glue = MIN (new_user_glue, parent->user_glue);
+        }
+    }
+    new_key->user_glue = new_key_user_glue;
+
+    // Insert the new key
+    new_key->next_key = *sgmt_ptr;
+    *(sgmt_ptr) = new_key;
+
+    // If a new row was created, set the last_key pointer
+    if (new_row != NULL) {
+        new_row->last_key = new_key;
+    }
+
+    return new_key;
+}
+
 // FIXME: I was unable to easily find the height of the toolbar to ignore clicks
 // when setting the tool. The grid widget kv->toolbar is the size of the full
 // keyboard view, the size of the tool buttons in kv_set_full_toolbar() is 1px
@@ -2433,49 +2484,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_BUTTON_RELEASE) {
-                // Allocate a new row if necessary. If so, set kv->added_key_ptr
-                // appropriately.
-                struct row_t *new_row = NULL;
-                if (kv->locate_stat == LOCATE_OUTSIDE_TOP || kv->locate_stat == LOCATE_OUTSIDE_BOTTOM) {
-                    new_row = kv_allocate_row (kv);
-                    if (kv->locate_stat == LOCATE_OUTSIDE_TOP) {
-                        new_row->next_row = kv->first_row;
-                        kv->first_row = new_row;
-
-                    } else if (kv->locate_stat == LOCATE_OUTSIDE_BOTTOM) {
-                        kv->last_row->next_row = new_row;
-                        kv->last_row = new_row;
-                    }
-                    kv->added_key_ptr = &new_row->first_key;
-                }
-
-                // Allocate the new key
-                struct key_t *new_key = kv_allocate_key (kv);
-                new_key->type = KEY_UNASSIGNED;
-                new_key->width = 1;
-
-                // Compute the glue for the key next to the one being added
-                if (*kv->added_key_ptr != NULL) {
-                    float internal_glue = (*kv->added_key_ptr)->internal_glue;
-                    struct key_t *parent = kv_get_multirow_parent (*kv->added_key_ptr);
-                    float new_user_glue = parent->user_glue - (kv->added_key_user_glue + 1 - internal_glue);
-                    new_user_glue = MAX (new_user_glue, 0);
-                    if (is_key_first (parent, kv->added_key_row)) {
-                        parent->user_glue = new_user_glue;
-                    } else {
-                        parent->user_glue = MIN (new_user_glue, parent->user_glue);
-                    }
-                }
-                new_key->user_glue = kv->added_key_user_glue;
-
-                // Insert the new key
-                new_key->next_key = *kv->added_key_ptr;
-                *(kv->added_key_ptr) = new_key;
-
-                // If a new key was created, set the last_key pointer
-                if (new_row != NULL) {
-                    new_row->last_key = new_key;
-                }
+                kv_insert_new_sgmt (kv, kv->locate_stat, kv->added_key_ptr, kv->added_key_user_glue);
 
                 // Move the keyboard right if the new key is beyond the left
                 // margin. This makes the first keys always have user_glue == 0.

@@ -240,6 +240,12 @@ void kv_new_row_h (struct keyboard_view_t *kv, float height)
     }
 }
 
+// TODO: Consider removing this function and instead adding a pointer in
+// key_t to the respective row. Because the move key tool does not seem likely
+// to be implemented, this pointer only needs to be set at key_t allocation.
+// This would reduce the time complexity of every place this function is called,
+// from linear in the number of segments to O(1). At first I thought this 
+//
 // Returns the row where sgmt is located
 struct row_t* kv_get_row (struct keyboard_view_t *kv, struct key_t *sgmt)
 {
@@ -1899,7 +1905,29 @@ void change_edge_width (struct key_t *edge_prev_sgmt,
     }
 }
 
-void change_sgmt_width (struct key_t *prev_sgmt, struct key_t *sgmt, float delta_w, bool edit_right_edge)
+// This function adjusts the user glue of the key containing sgmt so that it
+// stays fixed in place. It is used when the glue of sgmt changes for some
+// reason. The glue argument represents the difference between the old total
+// glue to the new total glue (total glue := internal_glue + user_glue). Note
+// that in the case of sgmt being the first segment of a row this also works but
+// the glue argument will be negative.
+void kv_adjust_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float glue)
+{
+    if (sgmt != NULL) {
+        struct key_t *parent = kv_get_multirow_parent (sgmt);
+        struct row_t *row = kv_get_row (kv, parent);
+        float new_user_glue = parent->user_glue + sgmt->internal_glue - glue;
+        new_user_glue = MAX (new_user_glue, 0);
+        if (is_key_first (parent, row)) {
+            parent->user_glue = new_user_glue;
+        } else {
+            parent->user_glue = MIN (new_user_glue, parent->user_glue);
+        }
+    }
+}
+
+void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_sgmt,
+                           struct key_t *sgmt, float delta_w, bool edit_right_edge)
 {
     sgmt->width += delta_w;
 
@@ -1924,6 +1952,14 @@ void change_sgmt_width (struct key_t *prev_sgmt, struct key_t *sgmt, float delta
             end_sgmt->align = edit_right_edge ? MULTIROW_ALIGN_LEFT : MULTIROW_ALIGN_RIGHT;
         }
     }
+
+    struct key_t *glue_key;
+    if (edit_right_edge) {
+        glue_key = sgmt->next_key;
+    } else {
+        glue_key = sgmt;
+    }
+    kv_adjust_glue (kv, glue_key, delta_w);
 }
 
 struct key_t* kv_create_multirow_split (struct keyboard_view_t *kv,
@@ -2129,8 +2165,7 @@ void kv_set_add_key_state (struct keyboard_view_t *kv, double event_x, double ev
 }
 
 struct key_t* kv_insert_new_sgmt (struct keyboard_view_t *kv,
-                                  enum locate_sgmt_status_t location, struct key_t **sgmt_ptr,
-                                  float new_key_user_glue)
+                                  enum locate_sgmt_status_t location, struct key_t **sgmt_ptr)
 {
     // Allocate a new row if necessary. If so, set kv->added_key_ptr
     // appropriately.
@@ -2152,20 +2187,6 @@ struct key_t* kv_insert_new_sgmt (struct keyboard_view_t *kv,
     struct key_t *new_key = kv_allocate_key (kv);
     new_key->type = KEY_UNASSIGNED;
     new_key->width = 1;
-
-    // Compute the glue for the key next to the one being added
-    if (*sgmt_ptr != NULL) {
-        float internal_glue = (*sgmt_ptr)->internal_glue;
-        struct key_t *parent = kv_get_multirow_parent (*sgmt_ptr);
-        float new_user_glue = parent->user_glue - (new_key_user_glue + 1 - internal_glue);
-        new_user_glue = MAX (new_user_glue, 0);
-        if (is_key_first (parent, kv->added_key_row)) {
-            parent->user_glue = new_user_glue;
-        } else {
-            parent->user_glue = MIN (new_user_glue, parent->user_glue);
-        }
-    }
-    new_key->user_glue = new_key_user_glue;
 
     // Insert the new key
     new_key->next_key = *sgmt_ptr;
@@ -2484,13 +2505,17 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_BUTTON_RELEASE) {
-                kv_insert_new_sgmt (kv, kv->locate_stat, kv->added_key_ptr, kv->added_key_user_glue);
+                struct key_t *new_key =
+                    kv_insert_new_sgmt (kv, kv->locate_stat, kv->added_key_ptr);
+                kv_adjust_glue (kv, new_key->next_key, kv->added_key_user_glue + 1);
 
+                // TODO: Should this be inside kv_adjust_glue()?
                 // Move the keyboard right if the new key is beyond the left
                 // margin. This makes the first keys always have user_glue == 0.
                 // In theory this is O(n^2) where n is the number of rows, but
                 // in practice I doubt we will ever have a keyboard that causes
                 // trouble.
+                new_key->user_glue = kv->added_key_user_glue;
                 if (kv->added_key_user_glue < 0) {
                     struct  row_t *curr_row = kv->first_row;
                     while (curr_row != NULL) {
@@ -2697,8 +2722,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 float new_width = MIN(kv->resized_segment->width + delta_w, kv->min_width);
 
                 if (delta_w != 0 && new_width >= kv->min_width) {
-                    change_sgmt_width (kv->resized_segment_prev, kv->resized_segment, delta_w,
-                                       kv->edit_right_edge);
+                    kv_change_sgmt_width (kv, kv->resized_segment_prev, kv->resized_segment,
+                                          delta_w, kv->edit_right_edge);
                     kv_compute_glue (kv);
 
                     if (kv->edit_right_edge) {
@@ -2714,8 +2739,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
                     float delta_w = kv->original_width - kv->resized_segment->width;
-                    change_sgmt_width (kv->resized_segment_prev, kv->resized_segment, delta_w,
-                                       kv->edit_right_edge);
+                    kv_change_sgmt_width (kv, kv->resized_segment_prev, kv->resized_segment,
+                                          delta_w, kv->edit_right_edge);
 
                     kv_compute_glue (kv);
                     kv->state = KV_EDIT;

@@ -190,6 +190,18 @@ bool is_multirow_parent (struct key_t *key)
     return key->type != KEY_MULTIROW_SEGMENT && key->type != KEY_MULTIROW_SEGMENT_SIZED;
 }
 
+static inline
+int kv_get_num_rows (struct keyboard_view_t *kv)
+{
+    int num_rows = 0;
+    struct row_t *r = kv->first_row;
+    while (r != NULL) {
+        num_rows++;
+        r = r->next_row;
+    }
+    return num_rows;
+}
+
 struct key_t* kv_get_multirow_parent (struct key_t *key)
 {
     while (!is_multirow_parent (key)) {
@@ -776,14 +788,7 @@ struct row_state_t {
 
 void kv_compute_glue (struct keyboard_view_t *kv)
 {
-    int num_rows = 0;
-    {
-        struct row_t *r = kv->first_row;
-        while (r != NULL) {
-            num_rows++;
-            r = r->next_row;
-        }
-    }
+    int num_rows = kv_get_num_rows (kv);
 
     struct key_state_t keys_state[num_rows];
     {
@@ -949,8 +954,28 @@ void kv_compute_glue (struct keyboard_view_t *kv)
 // Makes sure the amount of user glue in the first keys is the minimum
 // necessary. If any change to the keyboard may have reduced the width of the
 // total keyboard from the left side, then this must be called.
-void kv_equalize_left_edge (struct keyboard_view_t *kv) {
-    // TODO: Implement this function
+void kv_equalize_left_edge (struct keyboard_view_t *kv)
+{
+    int idx = 0;
+    struct row_t *curr_row = kv->first_row;
+    float extra_glue = INFINITY;
+    while (curr_row != NULL) {
+        extra_glue = MIN (extra_glue, get_sgmt_total_glue(curr_row->first_key));
+        curr_row = curr_row->next_row;
+        idx++;
+    }
+
+    curr_row = kv->first_row;
+    while (curr_row != NULL) {
+        if (is_key_first(curr_row->first_key, curr_row)) {
+            curr_row->first_key->user_glue = MAX (0, curr_row->first_key->user_glue - extra_glue);
+        }
+        curr_row = curr_row->next_row;
+    }
+
+    // TODO: Is there a way to do this without recomputing the internal glue
+    // here?
+    kv_compute_glue (kv);
 }
 
 void multirow_test_geometry (struct keyboard_view_t *kv)
@@ -1073,16 +1098,7 @@ void cr_non_rectangular_key_path (cairo_t *cr, double x, double y, double margin
     double left = x + margin + 0.5;
     double right = left + key->width*kv->default_key_size - 2*margin - 1;
 
-    // Count the number of rows.
-    int num_rows = 0;
-    {
-        struct row_t *r = row;
-        while (r != NULL) {
-            num_rows++;
-            r = r->next_row;
-        }
-    }
-
+    int num_rows = kv_get_num_rows (kv);
     int num_return_points = 0;
     dvec2 return_path[num_rows*2];
 

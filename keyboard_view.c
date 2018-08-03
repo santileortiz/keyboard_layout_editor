@@ -734,16 +734,16 @@ struct key_t* kv_add_key_multirow_sized (struct keyboard_view_t *kv, struct key_
 
 // This function adjusts the user glue of the key containing sgmt so that it
 // stays fixed in place. It is used when the glue of sgmt changes for some
-// reason. The glue argument represents the difference between the old total
-// glue to the new total glue (total glue := internal_glue + user_glue). Note
-// that in the case of sgmt being the first segment of a row this also works but
-// the glue argument will be negative.
-void kv_adjust_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float glue)
+// reason. The delta_glue argument represents the difference between the new
+// total glue to the old total glue (total glue := internal_glue + user_glue).
+// Note that in the case of sgmt being the first segment of a row this also
+// works but the glue argument is negative.
+void kv_adjust_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float delta_glue)
 {
     if (sgmt != NULL) {
         struct key_t *parent = kv_get_multirow_parent (sgmt);
         struct row_t *row = kv_get_row (kv, parent);
-        float new_user_glue = parent->user_glue + sgmt->internal_glue - glue;
+        float new_user_glue = parent->user_glue + sgmt->internal_glue + delta_glue;
         new_user_glue = MAX (new_user_glue, 0);
         if (is_key_first (parent, row)) {
             parent->user_glue = new_user_glue;
@@ -972,10 +972,6 @@ void kv_equalize_left_edge (struct keyboard_view_t *kv)
         }
         curr_row = curr_row->next_row;
     }
-
-    // TODO: Is there a way to do this without recomputing the internal glue
-    // here?
-    kv_compute_glue (kv);
 }
 
 void multirow_test_geometry (struct keyboard_view_t *kv)
@@ -2003,17 +1999,16 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_sgmt, 
         }
     }
 
-    struct key_t *glue_key;
     if (edit_right_edge) {
-        glue_key = sgmt->next_key;
+        kv_adjust_glue (kv, sgmt->next_key, -delta_w);
     } else {
-        glue_key = sgmt;
         struct row_t *row = kv_get_row (kv, sgmt);
-        if (sgmt->width > max_width_before_bleed && sgmt == row->first_key) {
-            kv_adjust_left_edge (kv, sgmt, get_sgmt_total_glue (sgmt) - delta_w);
+        if (sgmt->width >= max_width_before_bleed && sgmt == row->first_key) {
+            kv_adjust_left_edge (kv, sgmt, -delta_w);
+        } else {
+            kv_adjust_glue (kv, sgmt, -delta_w);
         }
     }
-    kv_adjust_glue (kv, glue_key, delta_w);
 }
 
 struct key_t* kv_create_multirow_split (struct keyboard_view_t *kv,
@@ -2765,8 +2760,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 if (delta_w != 0 && new_width >= kv->min_width) {
                     kv_change_sgmt_width (kv, kv->resized_segment_prev, kv->resized_segment,
                                           kv->resized_segment_max_width, delta_w, kv->edit_right_edge);
+                    //kv_equalize_left_edge (kv);
                     kv_compute_glue (kv);
-                    kv_equalize_left_edge (kv);
 
                     if (kv->edit_right_edge) {
                         kv->x_anchor += delta_w*kv->default_key_size;
@@ -2784,8 +2779,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv_change_sgmt_width (kv, kv->resized_segment_prev, kv->resized_segment,
                                           kv->resized_segment_max_width, delta_w, kv->edit_right_edge);
 
-                    kv_compute_glue (kv);
                     kv_equalize_left_edge (kv);
+                    kv_compute_glue (kv);
                     kv->state = KV_EDIT;
                 }
             }

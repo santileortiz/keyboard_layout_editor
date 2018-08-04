@@ -151,6 +151,7 @@ struct keyboard_view_t {
     struct key_t *resized_segment;
     struct key_t *resized_segment_prev;
     float resized_segment_max_width;
+    float resized_segment_original_user_glue;
 
     // KEY_ADD state
     GdkRectangle to_add_rect;
@@ -738,17 +739,21 @@ struct key_t* kv_add_key_multirow_sized (struct keyboard_view_t *kv, struct key_
 // total glue to the old total glue (total glue := internal_glue + user_glue).
 // Note that in the case of sgmt being the first segment of a row this also
 // works but the glue argument is negative.
-void kv_adjust_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float delta_glue)
+void kv_adjust_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float delta_glue, float original_user_glue)
 {
     if (sgmt != NULL) {
         struct key_t *parent = kv_get_multirow_parent (sgmt);
+        if (original_user_glue < 0) {
+            original_user_glue = parent->user_glue;
+        }
+
         struct row_t *row = kv_get_row (kv, parent);
         float new_user_glue = parent->user_glue + sgmt->internal_glue + delta_glue;
         new_user_glue = MAX (new_user_glue, 0);
         if (is_key_first (parent, row)) {
             parent->user_glue = new_user_glue;
         } else {
-            parent->user_glue = MIN (new_user_glue, parent->user_glue);
+            parent->user_glue = MIN (new_user_glue, original_user_glue);
         }
     }
 }
@@ -2000,13 +2005,13 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_sgmt, 
     }
 
     if (edit_right_edge) {
-        kv_adjust_glue (kv, sgmt->next_key, -delta_w);
+        kv_adjust_glue (kv, sgmt->next_key, -delta_w, kv->resized_segment_original_user_glue);
     } else {
         struct row_t *row = kv_get_row (kv, sgmt);
         if (sgmt->width >= max_width_before_bleed && sgmt == row->first_key) {
             kv_adjust_left_edge (kv, sgmt, -delta_w);
         } else {
-            kv_adjust_glue (kv, sgmt, -delta_w);
+            kv_adjust_glue (kv, sgmt, -delta_w, kv->resized_segment_original_user_glue);
         }
     }
 }
@@ -2548,6 +2553,11 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->x_clicked_pos = event->x;
                 kv->x_anchor = event->x;
                 kv->resized_segment_max_width = kv->original_width + get_sgmt_total_glue (kv->resized_segment);
+                if (kv->edit_right_edge) {
+                    kv->resized_segment_original_user_glue = get_sgmt_user_glue(kv->resized_segment->next_key);
+                } else {
+                    kv->resized_segment_original_user_glue = get_sgmt_user_glue(kv->resized_segment);
+                }
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_MOTION_NOTIFY) {
@@ -2558,7 +2568,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                        e->type == GDK_BUTTON_RELEASE) {
                 struct key_t *new_key =
                     kv_insert_new_sgmt (kv, kv->locate_stat, kv->added_key_ptr);
-                kv_adjust_glue (kv, new_key->next_key, kv->added_key_user_glue + 1);
+                kv_adjust_glue (kv, new_key->next_key, kv->added_key_user_glue + 1, -1);
                 if (kv->added_key_user_glue < 0) {
                     kv_adjust_left_edge (kv, new_key, kv->added_key_user_glue);
                 } else {
@@ -2760,7 +2770,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 if (delta_w != 0 && new_width >= kv->min_width) {
                     kv_change_sgmt_width (kv, kv->resized_segment_prev, kv->resized_segment,
                                           kv->resized_segment_max_width, delta_w, kv->edit_right_edge);
-                    //kv_equalize_left_edge (kv);
                     kv_compute_glue (kv);
 
                     if (kv->edit_right_edge) {
@@ -2778,6 +2787,12 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     float delta_w = kv->original_width - kv->resized_segment->width;
                     kv_change_sgmt_width (kv, kv->resized_segment_prev, kv->resized_segment,
                                           kv->resized_segment_max_width, delta_w, kv->edit_right_edge);
+
+                    if (kv->edit_right_edge) {
+                        kv->resized_segment->next_key->user_glue = kv->resized_segment_original_user_glue;
+                    } else {
+                        kv->resized_segment->user_glue = kv->resized_segment_original_user_glue;
+                    }
 
                     kv_equalize_left_edge (kv);
                     kv_compute_glue (kv);

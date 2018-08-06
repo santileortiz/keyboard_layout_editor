@@ -2793,10 +2793,16 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv_change_sgmt_width (kv, kv->resized_segment_prev, kv->resized_segment,
                                           kv->resized_segment_max_width, delta_w, kv->edit_right_edge);
 
-                    if (kv->edit_right_edge) {
-                        kv->resized_segment->next_key->user_glue = kv->resized_segment_original_user_glue;
-                    } else {
-                        kv->resized_segment->user_glue = kv->resized_segment_original_user_glue;
+                    // Restore user glue
+                    {
+                        struct key_t *glue_key;
+                        if (kv->edit_right_edge) {
+                            glue_key = kv->resized_segment->next_key;
+                        } else {
+                            glue_key = kv->resized_segment;
+                        }
+                        struct key_t *parent = kv_get_multirow_parent (glue_key);
+                        parent->user_glue = kv->resized_segment_original_user_glue;
                     }
 
                     kv_equalize_left_edge (kv);

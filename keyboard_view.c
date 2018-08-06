@@ -2558,10 +2558,19 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->x_clicked_pos = event->x;
                 kv->x_anchor = event->x;
                 kv->resized_segment_max_width = kv->original_width + get_sgmt_total_glue (kv->resized_segment);
-                if (kv->edit_right_edge) {
-                    kv->resized_segment_original_user_glue = get_sgmt_user_glue(kv->resized_segment->next_key);
-                } else {
-                    kv->resized_segment_original_user_glue = get_sgmt_user_glue(kv->resized_segment);
+
+                // Store original user glue
+                {
+                    struct key_t *glue_key;
+                    if (kv->edit_right_edge) {
+                        glue_key = kv->resized_segment->next_key;
+                    } else {
+                        glue_key = kv->resized_segment;
+                    }
+
+                    if (glue_key != NULL) {
+                        kv->resized_segment_original_user_glue = get_sgmt_user_glue(glue_key);
+                    }
                 }
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
@@ -2801,8 +2810,11 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                         } else {
                             glue_key = kv->resized_segment;
                         }
-                        struct key_t *parent = kv_get_multirow_parent (glue_key);
-                        parent->user_glue = kv->resized_segment_original_user_glue;
+
+                        if (glue_key != NULL) {
+                            struct key_t *parent = kv_get_multirow_parent (glue_key);
+                            parent->user_glue = kv->resized_segment_original_user_glue;
+                        }
                     }
 
                     kv_equalize_left_edge (kv);

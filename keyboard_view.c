@@ -218,7 +218,7 @@ bool is_key_first (struct key_t *key, struct row_t *row)
             return false;
         }
     } else {
-        assert (is_multirow_parent (key));
+        key = kv_get_multirow_parent (key);
         do {
             if (row->first_key != key) {
                 return false;
@@ -480,7 +480,7 @@ void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
         double row_w = 0;
         struct key_t *curr_key = curr_row->first_key;
         while (curr_key != NULL) {
-            row_w += curr_key->internal_glue + curr_key->user_glue + get_sgmt_width(curr_key);
+            row_w += curr_key->internal_glue + get_sgmt_user_glue(curr_key) + get_sgmt_width(curr_key);
             curr_key = curr_key->next_key;
         }
         row_w *= kv->default_key_size;
@@ -738,27 +738,9 @@ struct key_t* kv_add_key_multirow_sized (struct keyboard_view_t *kv, struct key_
 }
 
 static inline
-bool is_supporting_sgmt (struct key_t *sgmt, float user_glue)
+bool is_supporting_sgmt (struct key_t *sgmt)
 {
-    if (is_multirow_parent (sgmt)) {
-        return sgmt->internal_glue == 0;
-    } else {
-        return sgmt->internal_glue == user_glue;
-    }
-}
-
-// TODO: The only reason this function exists is due to an implementation
-// mistake where I thought internal glue and user glue was separated in multirow
-// segments but it turns out it isn't. User glue is included inside the internal
-// glue of multirow segments. Fix that.
-static inline
-float sgmt_get_internal_glue (struct key_t *sgmt, float user_glue)
-{
-    if (is_multirow_parent (sgmt)) {
-        return sgmt->internal_glue;
-    } else {
-        return sgmt->internal_glue - user_glue;
-    }
+    return sgmt->internal_glue == 0;
 }
 
 // Computes the change in a key's user glue, if the total glue of the segment
@@ -776,14 +758,14 @@ bool multirow_user_glue_for_delta_glue (struct key_t *sgmt, float delta_glue, fl
 
     float user_glue = get_sgmt_user_glue (sgmt);
 
-    if (delta_glue > 0 && !is_supporting_sgmt(sgmt, user_glue)) {
+    if (delta_glue > 0 && !is_supporting_sgmt(sgmt)) {
         return false;
     }
 
     float next_min_glue = INFINITY;
     struct key_t *curr_sgmt = sgmt->next_multirow;
     while (curr_sgmt != sgmt) {
-        next_min_glue = MIN (next_min_glue, sgmt_get_internal_glue (curr_sgmt, user_glue));
+        next_min_glue = MIN (next_min_glue, curr_sgmt->internal_glue);
         curr_sgmt = curr_sgmt->next_multirow;
     }
 
@@ -792,7 +774,7 @@ bool multirow_user_glue_for_delta_glue (struct key_t *sgmt, float delta_glue, fl
         return true;
     }
 
-    float sgmt_internal_glue = sgmt_get_internal_glue (sgmt, user_glue);
+    float sgmt_internal_glue = sgmt->internal_glue;
     if (delta_glue < 0 && sgmt_internal_glue + delta_glue < 0) {
         *glue = MAX (0, user_glue + sgmt_internal_glue + delta_glue);
         return true;
@@ -1000,12 +982,11 @@ void kv_compute_glue (struct keyboard_view_t *kv)
                             }
                         }
 
-                        sgmt->internal_glue = left - rows_state[r_i].width;
+                        sgmt->internal_glue = left - rows_state[r_i].width - key_state->parent->user_glue;
                         rows_state[r_i].width = right;
                         r_i++;
                         sgmt = sgmt->next_multirow;
                     } while (sgmt != key_state->parent);
-                    key_state->parent->internal_glue -= key_state->parent->user_glue;
 
                     // Continue processing at the multirow parent's row.
                     row_idx = key_state->parent_idx;
@@ -1033,8 +1014,9 @@ void kv_equalize_left_edge (struct keyboard_view_t *kv)
 
     curr_row = kv->first_row;
     while (curr_row != NULL) {
-        if (is_key_first(curr_row->first_key, curr_row)) {
-            curr_row->first_key->user_glue = MAX (0, curr_row->first_key->user_glue - extra_glue);
+        struct key_t *curr_key = curr_row->first_key;
+        if (is_multirow_parent(curr_key) && is_key_first(curr_key, curr_row)) {
+            curr_key->user_glue = MAX (0, curr_key->user_glue - extra_glue);
         }
         curr_row = curr_row->next_row;
     }
@@ -1373,7 +1355,7 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
                 }
             }
 
-            x_pos += (curr_key->internal_glue + curr_key->user_glue)*kv->default_key_size;
+            x_pos += (curr_key->internal_glue + get_sgmt_user_glue(curr_key))*kv->default_key_size;
 
             dvec4 key_color;
             if (curr_key->type != KEY_MULTIROW_SEGMENT) {
@@ -1496,7 +1478,7 @@ kv_locate_sgmt (struct keyboard_view_t *kv, double x, double y,
         curr_key = curr_row->first_key;
         while (curr_key != NULL) {
             // Check if x is inside a glue, if the point is here we return NULL.
-            kbd_x += (curr_key->internal_glue + curr_key->user_glue)*kv->default_key_size;
+            kbd_x += (curr_key->internal_glue + get_sgmt_user_glue(curr_key))*kv->default_key_size;
             if (kbd_x > x) {
                 status = LOCATE_HIT_GLUE;
                 break;
@@ -1631,7 +1613,7 @@ float kv_get_sgmt_x_pos (struct keyboard_view_t *kv, struct key_t *sgmt)
         struct key_t *curr_key = curr_row->first_key;
         x = kbd_x;
         while (curr_key != NULL) {
-            x += (curr_key->internal_glue + curr_key->user_glue)*kv->default_key_size;
+            x += (curr_key->internal_glue + get_sgmt_user_glue(curr_key))*kv->default_key_size;
 
             if (curr_key == sgmt) {
                 break;
@@ -2542,7 +2524,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv->min_width = kv_get_min_key_width(kv);
                     kv->x_clicked_pos = event->x;
                     kv->original_width = kv->edge_start->width;
-                    kv->original_user_glue = kv->edge_start->user_glue;
+                    kv->original_user_glue = get_sgmt_user_glue(kv->edge_start);
                     kv->state = KV_EDIT_KEY_RESIZE;
 
                 } else {
@@ -2743,6 +2725,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             break;
 
         case KV_EDIT_KEY_RESIZE:
+            // TODO: Key resizing should use the new kv_adjust_glue() so it behaves
+            // similarly to segment resizing.
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
                 float delta_w;
@@ -2760,7 +2744,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                     if (!kv->edit_right_edge) {
                         float max_glue = kv->original_user_glue + kv->original_width - kv->min_width;
-                        kv->edge_start->user_glue = CLAMP(kv->original_user_glue - delta_w, 0, max_glue);
+                        struct key_t *parent = kv_get_multirow_parent (kv->edge_start);
+                        parent->user_glue = CLAMP(kv->original_user_glue - delta_w, 0, max_glue);
                     }
 
                     kv_compute_glue (kv);
@@ -2774,7 +2759,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv->edge_start->width = kv->original_width;
 
                     if (!kv->edit_right_edge) {
-                        kv->edge_start->user_glue = kv->original_user_glue;
+                        struct key_t *parent = kv_get_multirow_parent (kv->edge_start);
+                        parent->user_glue = kv->original_user_glue;
                     }
 
                     kv_compute_glue (kv);

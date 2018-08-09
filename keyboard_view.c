@@ -240,7 +240,11 @@ float get_sgmt_user_glue (struct key_t *sgmt)
 static inline
 float get_sgmt_total_glue (struct key_t *sgmt)
 {
-    return get_sgmt_user_glue(sgmt) + sgmt->internal_glue;
+    if (is_multirow_key(sgmt) && !is_multirow_parent(sgmt)) {
+        return sgmt->internal_glue;
+    } else {
+        return get_sgmt_user_glue(sgmt) + sgmt->internal_glue;
+    }
 }
 
 #define kv_new_row(kbd) kv_new_row_h(kbd,1)
@@ -733,19 +737,68 @@ struct key_t* kv_add_key_multirow_sized (struct keyboard_view_t *kv, struct key_
     return new_key;
 }
 
-bool sgmt_is_unique_support (struct key_t *sgmt)
+static inline
+bool is_supporting_sgmt (struct key_t *sgmt, float user_glue)
 {
-    float user_glue = get_sgmt_user_glue (sgmt);
-    assert (sgmt->internal_glue == user_glue);
+    if (is_multirow_parent (sgmt)) {
+        return sgmt->internal_glue == 0;
+    } else {
+        return sgmt->internal_glue == user_glue;
+    }
+}
 
+// TODO: The only reason this function exists is due to an implementation
+// mistake where I thought internal glue and user glue was separated in multirow
+// segments but it turns out it isn't. User glue is included inside the internal
+// glue of multirow segments. Fix that.
+static inline
+float sgmt_get_internal_glue (struct key_t *sgmt, float user_glue)
+{
+    if (is_multirow_parent (sgmt)) {
+        return sgmt->internal_glue;
+    } else {
+        return sgmt->internal_glue - user_glue;
+    }
+}
+
+// Computes the change in a key's user glue, if the total glue of the segment
+// sgmt changes by delta_glue and we want to keep the key fixed in place. If the
+// key's user glue needs to change, the new value will be set in the provided
+// glue argument, and true will be returned. If the key's user glue should
+// remain the same then false is returned and the glue argument isn't modified.
+bool multirow_user_glue_for_delta_glue (struct key_t *sgmt, float delta_glue, float *glue)
+{
+    assert (is_multirow_key (sgmt));
+
+    if (delta_glue == 0) {
+        return false;
+    }
+
+    float user_glue = get_sgmt_user_glue (sgmt);
+
+    if (delta_glue > 0 && !is_supporting_sgmt(sgmt, user_glue)) {
+        return false;
+    }
+
+    float next_min_glue = INFINITY;
     struct key_t *curr_sgmt = sgmt->next_multirow;
     while (curr_sgmt != sgmt) {
-        if (curr_sgmt->internal_glue == user_glue) {
-            return false;
-        }
+        next_min_glue = MIN (next_min_glue, sgmt_get_internal_glue (curr_sgmt, user_glue));
         curr_sgmt = curr_sgmt->next_multirow;
     }
-    return true;
+
+    if (delta_glue > 0) {
+        *glue = MIN (user_glue + delta_glue, next_min_glue + user_glue);
+        return true;
+    }
+
+    float sgmt_internal_glue = sgmt_get_internal_glue (sgmt, user_glue);
+    if (delta_glue < 0 && sgmt_internal_glue + delta_glue < 0) {
+        *glue = MAX (0, user_glue + sgmt_internal_glue + delta_glue);
+        return true;
+    }
+
+    return false;
 }
 
 // This function adjusts the user glue of the key containing sgmt so that it
@@ -756,9 +809,12 @@ void kv_adjust_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float delta
 {
     if (sgmt != NULL) {
         struct key_t *parent = kv_get_multirow_parent (sgmt);
-        if (!is_multirow_key(sgmt) ||
-            (sgmt->internal_glue == parent->user_glue && sgmt_is_unique_support (sgmt))) {
+
+        float new_glue;
+        if (!is_multirow_key(sgmt)) {
             parent->user_glue = MAX (0, parent->user_glue + delta_glue);
+        } else if (multirow_user_glue_for_delta_glue (sgmt, delta_glue, &new_glue)) {
+            parent->user_glue = new_glue;
         }
     }
 }

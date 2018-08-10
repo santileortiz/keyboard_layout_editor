@@ -1989,8 +1989,6 @@ void change_edge_width (struct key_t *edge_prev_sgmt,
                         struct key_t *edge_end_sgmt,
                         float delta_w)
 {
-    assert (edge_start->type != KEY_MULTIROW_SEGMENT);
-
     edge_start->width += delta_w;
 
     if (edge_prev_sgmt != NULL) {

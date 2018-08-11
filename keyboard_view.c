@@ -149,9 +149,11 @@ struct keyboard_view_t {
 
     // KEY_RESIZE_SEGMENT state
     struct key_t *resized_segment;
+    struct row_t *resized_segment_row;
     struct key_t *resized_segment_prev;
-    float resized_segment_max_width;
+    float resized_segment_glue_plus_w;
     float resized_segment_original_user_glue;
+    float resized_segment_original_glue;
 
     // KEY_ADD state
     GdkRectangle to_add_rect;
@@ -2019,7 +2021,8 @@ void change_edge_width (struct key_t *edge_prev_sgmt,
 }
 
 void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_sgmt, struct key_t *sgmt,
-                           float max_width_before_bleed, float delta_w, bool edit_right_edge)
+                           struct row_t *row, float original_glue_plus_w, float original_glue,
+                           float delta_w, bool edit_right_edge)
 {
     sgmt->width += delta_w;
 
@@ -2045,15 +2048,20 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_sgmt, 
         }
     }
 
+    struct key_t *glue_key;
     if (edit_right_edge) {
-        kv_adjust_glue (kv, sgmt->next_key, -delta_w);
+        glue_key = sgmt->next_key;
     } else {
-        struct row_t *row = kv_get_row (kv, sgmt);
-        if (sgmt->width >= max_width_before_bleed && sgmt == row->first_key) {
+        if (sgmt == row->first_key && sgmt->width > original_glue_plus_w) {
             kv_adjust_left_edge (kv, sgmt, -delta_w);
-        } else {
-            kv_adjust_glue (kv, sgmt, -delta_w);
         }
+        glue_key = sgmt;
+    }
+
+    bool glue_shrinks = delta_w > 0;
+    if (glue_shrinks ||
+        (sgmt->width - delta_w <= original_glue_plus_w && get_sgmt_total_glue(sgmt) < original_glue)) {
+        kv_adjust_glue (kv, glue_key, -delta_w);
     }
 }
 
@@ -2593,7 +2601,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->min_width = kv_get_min_key_width(kv);
                 kv->x_clicked_pos = event->x;
                 kv->x_anchor = event->x;
-                kv->resized_segment_max_width = kv->original_width + get_sgmt_total_glue (kv->resized_segment);
+                kv->resized_segment_row = kv_get_row (kv, kv->resized_segment);
 
                 // Store original user glue
                 {
@@ -2608,6 +2616,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                         kv->resized_segment_original_user_glue = get_sgmt_user_glue(glue_key);
                     }
                 }
+                kv->resized_segment_original_glue =
+                    kv->resized_segment_original_user_glue + kv->resized_segment->internal_glue;
+                kv->resized_segment_glue_plus_w = kv->original_width + kv->resized_segment_original_glue;
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_MOTION_NOTIFY) {
@@ -2823,7 +2834,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 if (delta_w != 0 && new_width >= kv->min_width) {
                     kv_change_sgmt_width (kv, kv->resized_segment_prev, kv->resized_segment,
-                                          kv->resized_segment_max_width, delta_w, kv->edit_right_edge);
+                                          kv->resized_segment_row, kv->resized_segment_glue_plus_w,
+                                          kv->resized_segment_original_glue, delta_w, kv->edit_right_edge);
                     kv_compute_glue (kv);
 
                     if (kv->edit_right_edge) {
@@ -2840,7 +2852,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 if (key_event_kc - 8 == KEY_ESC) {
                     float delta_w = kv->original_width - kv->resized_segment->width;
                     kv_change_sgmt_width (kv, kv->resized_segment_prev, kv->resized_segment,
-                                          kv->resized_segment_max_width, delta_w, kv->edit_right_edge);
+                                          kv->resized_segment_row, kv->resized_segment_glue_plus_w,
+                                          kv->resized_segment_original_glue, delta_w, kv->edit_right_edge);
 
                     // Restore user glue
                     {

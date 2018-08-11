@@ -2027,7 +2027,7 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_sgmt, 
     sgmt->width += delta_w;
 
     if (prev_sgmt != NULL) {
-        if (sgmt->width == prev_sgmt->width) {
+        if (sgmt->width == get_sgmt_width(prev_sgmt)) {
             sgmt->type = KEY_MULTIROW_SEGMENT;
         } else {
             sgmt->type = KEY_MULTIROW_SEGMENT_SIZED;
@@ -2058,9 +2058,9 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_sgmt, 
         glue_key = sgmt;
     }
 
-    bool glue_shrinks = delta_w > 0;
-    if (glue_shrinks ||
-        (sgmt->width - delta_w <= original_glue_plus_w && get_sgmt_total_glue(sgmt) < original_glue)) {
+    // Glue adjustment behavior
+    if (delta_w > 0 || // glue shrinks
+        (original_glue != 0 && sgmt->width - delta_w <= original_glue_plus_w)) {
         kv_adjust_glue (kv, glue_key, -delta_w);
     }
 }

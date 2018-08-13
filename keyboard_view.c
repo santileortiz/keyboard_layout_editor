@@ -27,6 +27,8 @@ enum keyboard_view_tools_t {
     KV_TOOL_DELETE_KEY,
     KV_TOOL_RESIZE_KEY,
     KV_TOOL_RESIZE_SEGMENT,
+    KV_TOOL_VERTICAL_EXTEND,
+    KV_TOOL_VERTICAL_SHRINK,
     KV_TOOL_ADD_KEY
 };
 
@@ -95,6 +97,10 @@ struct row_t {
     struct row_t *next_row;
 
     struct key_t *first_key;
+    // TODO: Is this pointer really necessary? The only place it's read is in
+    // kv_add_key_full(). Maybe we should have a keyboard generator context
+    // with this state.
+    // @row_last_key_unnecessary
     struct key_t *last_key;
 };
 
@@ -303,6 +309,11 @@ struct key_t* kv_get_prev_sgmt (struct row_t *row, struct key_t *sgmt)
     return prev;
 }
 
+// NOTE: This does not update the multirow circular linked list, as it requires
+// computing the prev multirow segment. Then deleting a multirow key would
+// become O(n^2) in the length of the key. Althought multirow keys are not big,
+// I prefer to not add quadratic costs in unexpected places. To unlink a segment
+// from the multirow circular linked list use kv_unlink_multirow_sgmt().
 void kv_remove_key_sgmt (struct keyboard_view_t *kv, struct key_t **sgmt_ptr,
                          struct row_t *row, struct key_t *prev_sgmt) // Optional
 {
@@ -327,6 +338,23 @@ void kv_remove_key_sgmt (struct keyboard_view_t *kv, struct key_t **sgmt_ptr,
     (*sgmt_ptr)->next_key = kv->spare_keys;
     kv->spare_keys = *sgmt_ptr;
     *sgmt_ptr = tmp;
+}
+
+// Unlinks sgmt->nex_multirow from the multirow circular linked list. The
+// argument prev_multirow is the previous segment in the circular linked list,
+// it can be NULL in which case the multirow key is iterated.
+static inline
+void kv_unlink_multirow_sgmt (struct key_t *sgmt, struct key_t *prev_multirow)
+{
+    if (prev_multirow == NULL) {
+        prev_multirow = sgmt;
+        while (prev_multirow->next_multirow != sgmt) {
+            prev_multirow = prev_multirow->next_multirow;
+        }
+    }
+
+    assert (prev_multirow->next_multirow == sgmt);
+    prev_multirow->next_multirow = sgmt->next_multirow;
 }
 
 // NOTE: If the key being removed can contain the last segment of a row, then
@@ -377,7 +405,7 @@ void kv_remove_empty_rows (struct keyboard_view_t *kv)
 {
     struct row_t **row_ptr = &kv->first_row;
     while (*row_ptr != NULL) {
-        if ((*row_ptr)->first_key == NULL && (*row_ptr)->last_key == NULL) {
+        if ((*row_ptr)->first_key == NULL) {
             struct row_t *tmp = (*row_ptr)->next_row;
             (*row_ptr)->next_row = kv->spare_rows;
             kv->spare_rows = *row_ptr;
@@ -1410,17 +1438,17 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
     return FALSE;
 }
 
-// Returns a pointer to the pointer that points to key. It assumes that key is
+// Returns a pointer to the pointer that points to sgmt. It assumes that sgmt is
 // located in row, otherwise an assert is triggered.
 //
 // This pointer to a pointer is useful because it can be located either inside a
 // row_t or a key_t. The equivalent approach of returning the parent structure
 // to key would require sometimes returning a row_t, when key is the first in
 // the row, and a key_t in the rest of the cases.
-struct key_t** kv_get_key_ptr (struct row_t *row, struct key_t *key)
+struct key_t** kv_get_sgmt_ptr (struct row_t *row, struct key_t *sgmt)
 {
     struct key_t **key_ptr = &row->first_key;
-    while (*key_ptr != key) {
+    while (*key_ptr != sgmt) {
         key_ptr = &(*key_ptr)->next_key;
         assert (*key_ptr != NULL);
     }
@@ -1587,7 +1615,7 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
                 *parent_ptr = NULL;
 
                 if (curr_key != NULL) {
-                    *parent_ptr = kv_get_key_ptr (kv_get_row (kv, curr_key), curr_key);
+                    *parent_ptr = kv_get_sgmt_ptr (kv_get_row (kv, curr_key), curr_key);
                 }
             }
 
@@ -1632,11 +1660,7 @@ float kv_get_sgmt_x_pos (struct keyboard_view_t *kv, struct key_t *sgmt)
         curr_row = curr_row->next_row;
     }
 
-    if (is_multirow_key(sgmt) && !is_multirow_parent (sgmt)) {
-        return x + get_sgmt_user_glue (sgmt);
-    } else {
-        return x;
-    }
+    return x;
 }
 
 void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, GdkEvent *e);
@@ -1673,6 +1697,16 @@ void resize_key_handler (GtkButton *button, gpointer user_data)
 void resize_segment_handler (GtkButton *button, gpointer user_data)
 {
     keyboard_view->active_tool = KV_TOOL_RESIZE_SEGMENT;
+}
+
+void vertical_extend_handler (GtkButton *button, gpointer user_data)
+{
+    keyboard_view->active_tool = KV_TOOL_VERTICAL_EXTEND;
+}
+
+void vertical_shrink_handler (GtkButton *button, gpointer user_data)
+{
+    keyboard_view->active_tool = KV_TOOL_VERTICAL_SHRINK;
 }
 
 void add_key_handler (GtkButton *button, gpointer user_data)
@@ -1795,10 +1829,20 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
                                                            G_CALLBACK (resize_segment_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), resize_segment_button, 5, 0, 1, 1);
 
+    GtkWidget *vertical_extend_button = toolbar_button_new (NULL,
+                                                            "Extend key vertically",
+                                                            G_CALLBACK (vertical_extend_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), vertical_extend_button, 6, 0, 1, 1);
+
+    GtkWidget *vertical_shrink_button = toolbar_button_new (NULL,
+                                                            "Shrink key vertically",
+                                                            G_CALLBACK (vertical_shrink_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), vertical_shrink_button, 7, 0, 1, 1);
+
     GtkWidget *add_key_button = toolbar_button_new (NULL,
                                                     "Add key",
                                                     G_CALLBACK (add_key_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), add_key_button, 6, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(*toolbar), add_key_button, 8, 0, 1, 1);
 }
 
 // Round i downwards to the nearest multiple of 1/2^n. If i is negative treat it
@@ -2104,7 +2148,7 @@ struct key_t* kv_create_multirow_split (struct keyboard_view_t *kv,
         struct row_t *curr_row = kv_get_row (kv, start_sgmt);
 
         if (start_sgmt_ptr == NULL) {
-            start_sgmt_ptr = kv_get_key_ptr (curr_row, start_sgmt);
+            start_sgmt_ptr = kv_get_sgmt_ptr (curr_row, start_sgmt);
         }
         struct key_t **sgmt_ptr = start_sgmt_ptr;
 
@@ -2115,7 +2159,7 @@ struct key_t* kv_create_multirow_split (struct keyboard_view_t *kv,
             sgmt = sgmt->next_multirow;
             if (sgmt != end_sgmt) {
                 curr_row = curr_row->next_row;
-                sgmt_ptr = kv_get_key_ptr (curr_row, sgmt);
+                sgmt_ptr = kv_get_sgmt_ptr (curr_row, sgmt);
 
                 struct key_t *tmp = kv_allocate_key (kv);
                 tmp->type = KEY_MULTIROW_SEGMENT;
@@ -2296,6 +2340,13 @@ struct key_t* kv_insert_new_sgmt (struct keyboard_view_t *kv,
     *(sgmt_ptr) = new_key;
 
     // If a new row was created, set the last_key pointer
+    //
+    // FIXME: If *sgmt_ptr == NULL then we are at the end of the row, and in
+    // this case we are not updating the last_key pointer from that row.
+    // Currently the only code that reads this pointer is kv_add_key_full(), so
+    // it isn't a problem because this function is never used after the initial
+    // keyboard is created.
+    // @row_last_key_unnecessary
     if (new_row != NULL) {
         new_row->last_key = new_key;
     }
@@ -2548,8 +2599,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 GdkEventButton *event = (GdkEventButton*)e;
                 double x;
                 struct key_t *sgmt;
-                kv->locate_stat =
-                    kv_locate_sgmt (kv, event->x, event->y, &sgmt, NULL, NULL, &x, NULL, NULL, NULL);
+                kv_locate_sgmt (kv, event->x, event->y, &sgmt, NULL, NULL, &x, NULL, NULL, NULL);
                 if (event->x < x + get_sgmt_width (sgmt)*kv->default_key_size/2) {
                     kv->edit_right_edge = false;
                 } else {
@@ -2619,6 +2669,55 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->resized_segment_original_glue =
                     kv->resized_segment_original_user_glue + kv->resized_segment->internal_glue;
                 kv->resized_segment_glue_plus_w = kv->original_width + kv->resized_segment_original_glue;
+
+            } else if (kv->active_tool == KV_TOOL_VERTICAL_EXTEND &&
+                     e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+                struct key_t *sgmt;
+                struct row_t *row;
+                float left_margin;
+                GdkEventButton *event = (GdkEventButton*)e;
+                kv_locate_sgmt (kv, event->x, event->y, &sgmt, &row, NULL, NULL, NULL, &left_margin, NULL);
+
+                while (!is_multirow_parent(sgmt->next_multirow)) {
+                    row = row->next_row;
+                    sgmt = sgmt->next_multirow;
+                }
+                row = row->next_row;
+                if (row == NULL) {
+                    // TODO: Create new row.
+                }
+
+                float x_last = kv_get_sgmt_x_pos (kv, sgmt);
+
+                struct key_t *curr_key = row->first_key;
+                float x = left_margin;
+                while (curr_key != NULL) {
+                    x += curr_key->internal_glue + get_sgmt_user_glue(curr_key) + get_sgmt_width (curr_key);
+
+                    if (x*kv->default_key_size > x_last) {
+                        break;
+                    }
+
+                    curr_key = curr_key->next_key;
+                }
+
+                // TODO: Add key next to curr_key
+
+            } else if (kv->active_tool == KV_TOOL_VERTICAL_SHRINK &&
+                     e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+                struct key_t *sgmt;
+                struct row_t *row;
+                GdkEventButton *event = (GdkEventButton*)e;
+                kv_locate_sgmt (kv, event->x, event->y, &sgmt, &row, NULL, NULL, NULL, NULL, NULL);
+
+                struct key_t *prev_multirow = NULL;
+                while (!is_multirow_parent(sgmt->next_multirow)) {
+                    prev_multirow = sgmt;
+                    sgmt = sgmt->next_multirow;
+                    row = row->next_row;
+                }
+                kv_unlink_multirow_sgmt (sgmt, prev_multirow);
+                kv_remove_key_sgmt (kv, kv_get_sgmt_ptr (row, sgmt), row, NULL);
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_MOTION_NOTIFY) {

@@ -2674,7 +2674,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                      e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 struct key_t *sgmt;
                 struct row_t *row;
-                float left_margin;
+                double left_margin;
                 GdkEventButton *event = (GdkEventButton*)e;
                 kv_locate_sgmt (kv, event->x, event->y, &sgmt, &row, NULL, NULL, NULL, &left_margin, NULL);
 
@@ -2683,25 +2683,35 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     sgmt = sgmt->next_multirow;
                 }
                 row = row->next_row;
-                if (row == NULL) {
-                    // TODO: Create new row.
-                }
 
-                float x_last = kv_get_sgmt_x_pos (kv, sgmt);
+                struct key_t **new_sgmt_ptr = NULL;
+                enum locate_sgmt_status_t new_sgmt_pos = LOCATE_OUTSIDE_BOTTOM;
+                if (row != NULL) {
+                    float x_last = kv_get_sgmt_x_pos (kv, sgmt);
+                    new_sgmt_ptr = &row->first_key;
+                    struct key_t *curr_key = row->first_key;
+                    float x = left_margin;
+                    while (curr_key != NULL) {
+                        float w = curr_key->internal_glue + get_sgmt_user_glue(curr_key) +
+                                  get_sgmt_width (curr_key);
+                        x += w*kv->default_key_size;
 
-                struct key_t *curr_key = row->first_key;
-                float x = left_margin;
-                while (curr_key != NULL) {
-                    x += curr_key->internal_glue + get_sgmt_user_glue(curr_key) + get_sgmt_width (curr_key);
+                        if (x > x_last) {
+                            break;
+                        }
 
-                    if (x*kv->default_key_size > x_last) {
-                        break;
+                        new_sgmt_ptr = &curr_key->next_key;
+                        curr_key = curr_key->next_key;
                     }
-
-                    curr_key = curr_key->next_key;
+                    new_sgmt_pos = LOCATE_HIT_GLUE;
                 }
 
-                // TODO: Add key next to curr_key
+                struct key_t *new_sgmt =
+                    kv_insert_new_sgmt (kv, new_sgmt_pos, new_sgmt_ptr);
+                new_sgmt->next_multirow = sgmt->next_multirow;
+                new_sgmt->type = KEY_MULTIROW_SEGMENT;
+                sgmt->next_multirow = new_sgmt;
+                kv_compute_glue (kv);
 
             } else if (kv->active_tool == KV_TOOL_VERTICAL_SHRINK &&
                      e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
@@ -2718,6 +2728,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 }
                 kv_unlink_multirow_sgmt (sgmt, prev_multirow);
                 kv_remove_key_sgmt (kv, kv_get_sgmt_ptr (row, sgmt), row, NULL);
+                kv_remove_empty_rows (kv);
+                kv_compute_glue (kv);
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_MOTION_NOTIFY) {

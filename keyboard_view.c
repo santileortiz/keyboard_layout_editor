@@ -2711,6 +2711,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 new_sgmt->next_multirow = sgmt->next_multirow;
                 new_sgmt->type = KEY_MULTIROW_SEGMENT;
                 sgmt->next_multirow = new_sgmt;
+                kv_adjust_glue (kv, new_sgmt->next_key, -get_sgmt_width(sgmt));
                 kv_compute_glue (kv);
 
             } else if (kv->active_tool == KV_TOOL_VERTICAL_SHRINK &&

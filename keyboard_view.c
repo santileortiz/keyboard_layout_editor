@@ -344,7 +344,7 @@ void kv_remove_key_sgmt (struct keyboard_view_t *kv, struct key_t **sgmt_ptr,
 // argument prev_multirow is the previous segment in the circular linked list,
 // it can be NULL in which case the multirow key is iterated.
 static inline
-void kv_unlink_multirow_sgmt (struct key_t *sgmt, struct key_t *prev_multirow)
+struct key_t* kv_unlink_multirow_sgmt (struct key_t *sgmt, struct key_t *prev_multirow)
 {
     if (prev_multirow == NULL) {
         prev_multirow = sgmt;
@@ -355,6 +355,7 @@ void kv_unlink_multirow_sgmt (struct key_t *sgmt, struct key_t *prev_multirow)
 
     assert (prev_multirow->next_multirow == sgmt);
     prev_multirow->next_multirow = sgmt->next_multirow;
+    return prev_multirow;
 }
 
 // NOTE: If the key being removed can contain the last segment of a row, then
@@ -864,6 +865,8 @@ struct row_state_t {
     float width;
 };
 
+// NOTE: This function only modifies the internal glue for multirow keys, it's
+// expected that all other keys will have internal_glue == 0.
 void kv_compute_glue (struct keyboard_view_t *kv)
 {
     int num_rows = kv_get_num_rows (kv);
@@ -2727,7 +2730,21 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     sgmt = sgmt->next_multirow;
                     row = row->next_row;
                 }
-                kv_unlink_multirow_sgmt (sgmt, prev_multirow);
+
+                if (sgmt->next_key != NULL && get_sgmt_total_glue (sgmt->next_key) != 0) {
+                    kv_adjust_glue (kv, sgmt->next_key, get_sgmt_width (sgmt) + get_sgmt_total_glue(sgmt));
+                }
+
+                struct key_t *last_multirow = kv_unlink_multirow_sgmt (sgmt, prev_multirow);
+                if (!is_multirow_key (last_multirow)) {
+                    // kv_compute_glue() never modifies non multirow segments,
+                    // because their internal_glue == 0. In this case a multirow
+                    // key becomes non multirow, so we move its internal glue
+                    // into the user glue.
+                    last_multirow->user_glue += last_multirow->internal_glue;
+                    last_multirow->internal_glue = 0;
+                }
+
                 kv_remove_key_sgmt (kv, kv_get_sgmt_ptr (row, sgmt), row, NULL);
                 kv_remove_empty_rows (kv);
                 kv_compute_glue (kv);

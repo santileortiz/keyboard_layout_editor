@@ -2719,16 +2719,54 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (kv->active_tool == KV_TOOL_VERTICAL_SHRINK &&
                      e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
-                struct key_t *sgmt;
-                struct row_t *row;
+                double y;
+                struct key_t *clicked_sgmt;
+                struct row_t *clicked_row;
                 GdkEventButton *event = (GdkEventButton*)e;
-                kv_locate_sgmt (kv, event->x, event->y, &sgmt, &row, NULL, NULL, NULL, NULL, NULL);
+                kv_locate_sgmt (kv, event->x, event->y, &clicked_sgmt, &clicked_row, NULL, NULL, &y, NULL, NULL);
 
+                bool top = false;
+                struct key_t *sgmt = clicked_sgmt;
+                struct row_t *row = clicked_row;
                 struct key_t *prev_multirow = NULL;
-                while (!is_multirow_parent(sgmt->next_multirow)) {
+                {
+                    int len = 1;
+                    while (!is_multirow_parent(sgmt->next_multirow)) {
+                        prev_multirow = sgmt;
+                        sgmt = sgmt->next_multirow;
+                        row = row->next_row;
+                        len++;
+                    }
+
+                    int idx = 0;
+                    struct key_t *curr_sgmt = sgmt->next_multirow;
+                    while (curr_sgmt != clicked_sgmt) {
+                        curr_sgmt = curr_sgmt->next_multirow;
+                        idx++;
+                        len++;
+                    }
+
+                    if (len%2 == 1 && idx == len/2) {
+                        if (event->y < y + clicked_row->height*kv->default_key_size/2) {
+                            top = true;
+                        }
+
+                    } else if (idx < len/2) {
+                        top = true;
+                    }
+                }
+
+                if (top) {
                     prev_multirow = sgmt;
                     sgmt = sgmt->next_multirow;
-                    row = row->next_row;
+                    row = kv_get_row (kv, sgmt);
+
+                    if (sgmt->next_multirow->type != KEY_MULTIROW_SEGMENT_SIZED) {
+                        sgmt->next_multirow->width = sgmt->width;
+                    }
+                    sgmt->next_multirow->type = sgmt->type;
+                    sgmt->next_multirow->kc = sgmt->kc;
+                    sgmt->next_multirow->user_glue = sgmt->user_glue;
                 }
 
                 if (sgmt->next_key != NULL && get_sgmt_total_glue (sgmt->next_key) != 0) {

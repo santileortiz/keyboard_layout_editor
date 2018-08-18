@@ -2744,7 +2744,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 struct key_t *sgmt, *prev_multirow;
                 kv_locate_vedge (kv, clicked_sgmt, clicked_row, event->y, y, &sgmt, &prev_multirow, &row, &top);
 
-                struct key_t **new_sgmt_ptr = NULL;
                 enum locate_sgmt_status_t new_sgmt_pos = LOCATE_HIT_KEY;
                 if (top) {
                     row = kv_get_prev_row (kv, row);
@@ -2754,6 +2753,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     if (row == NULL) new_sgmt_pos = LOCATE_OUTSIDE_BOTTOM;
                 }
 
+                struct key_t **new_sgmt_ptr = NULL;
                 if (new_sgmt_pos == LOCATE_HIT_KEY) {
                     float x_last = kv_get_sgmt_x_pos (kv, sgmt);
                     new_sgmt_ptr = &row->first_key;
@@ -2772,9 +2772,20 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 }
 
                 struct key_t *new_sgmt = kv_insert_new_sgmt (kv, new_sgmt_pos, new_sgmt_ptr);
-                new_sgmt->next_multirow = sgmt->next_multirow;
-                new_sgmt->type = KEY_MULTIROW_SEGMENT;
-                sgmt->next_multirow = new_sgmt;
+                struct key_t *new_sgmt_prev;
+                if (top) {
+                    new_sgmt_prev = prev_multirow;
+                    new_sgmt->width = sgmt->width;
+                    new_sgmt->kc = sgmt->kc;
+                    new_sgmt->type = sgmt->type;
+                    sgmt->type = KEY_MULTIROW_SEGMENT;
+                } else {
+                    new_sgmt_prev = sgmt;
+                    new_sgmt->type = KEY_MULTIROW_SEGMENT;
+                }
+
+                new_sgmt->next_multirow = new_sgmt_prev->next_multirow;
+                new_sgmt_prev->next_multirow = new_sgmt;
                 kv_adjust_glue (kv, new_sgmt->next_key, -get_sgmt_width(sgmt));
                 kv_compute_glue (kv);
 

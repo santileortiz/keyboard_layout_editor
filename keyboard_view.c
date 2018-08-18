@@ -309,6 +309,16 @@ struct key_t* kv_get_prev_sgmt (struct row_t *row, struct key_t *sgmt)
     return prev;
 }
 
+struct row_t* kv_get_prev_row (struct keyboard_view_t *kv, struct row_t *row)
+{
+    struct row_t *prev_row = NULL, *curr_row = kv->first_row;
+    while (curr_row != row) {
+        prev_row = curr_row;
+        curr_row = curr_row->next_row;
+    }
+    return prev_row;
+}
+
 // NOTE: This does not update the multirow circular linked list, as it requires
 // computing the prev multirow segment. Then deleting a multirow key would
 // become O(n^2) in the length of the key. Althought multirow keys are not big,
@@ -2032,6 +2042,53 @@ void kv_locate_edge (struct keyboard_view_t *kv,
 #endif
 }
 
+void kv_locate_vedge (struct keyboard_view_t *kv,
+                      struct key_t *clicked_sgmt, struct row_t *clicked_row, double ptr_y, double sgmt_y,
+                      struct key_t **sgmt, struct key_t **prev_multirow, struct row_t **row, bool *is_top)
+{
+    *is_top = false;
+    *sgmt = clicked_sgmt;
+    *row = clicked_row;
+    *prev_multirow = NULL;
+
+    int len = 1;
+    while (!is_multirow_parent((*sgmt)->next_multirow)) {
+        *prev_multirow = *sgmt;
+        *sgmt = (*sgmt)->next_multirow;
+        *row = (*row)->next_row;
+        len++;
+    }
+
+    int idx = 0;
+    struct key_t *curr_sgmt = (*sgmt)->next_multirow;
+    while (curr_sgmt != clicked_sgmt) {
+        *prev_multirow = curr_sgmt;
+        curr_sgmt = curr_sgmt->next_multirow;
+        idx++;
+        len++;
+    }
+
+    if (!is_multirow_key (*sgmt)) {
+        *prev_multirow = *sgmt;
+    }
+    assert (*prev_multirow != NULL);
+
+    if (len%2 == 1 && idx == len/2) {
+        if (ptr_y < sgmt_y + clicked_row->height*kv->default_key_size/2) {
+            *is_top = true;
+        }
+
+    } else if (idx < len/2) {
+        *is_top = true;
+    }
+
+    if (*is_top) {
+        *prev_multirow = *sgmt;
+        *sgmt = (*sgmt)->next_multirow;
+        *row = kv_get_row (kv, *sgmt);
+    }
+}
+
 static inline
 void change_edge_width (struct key_t *edge_prev_sgmt,
                         struct key_t *edge_start,
@@ -2675,21 +2732,29 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (kv->active_tool == KV_TOOL_VERTICAL_EXTEND &&
                      e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
-                struct key_t *sgmt;
-                struct row_t *row;
-                double left_margin;
+                struct key_t *clicked_sgmt;
+                struct row_t *clicked_row;
+                double left_margin, y;
                 GdkEventButton *event = (GdkEventButton*)e;
-                kv_locate_sgmt (kv, event->x, event->y, &sgmt, &row, NULL, NULL, NULL, &left_margin, NULL);
+                kv_locate_sgmt (kv, event->x, event->y, &clicked_sgmt, &clicked_row,
+                                NULL, NULL, &y, &left_margin, NULL);
 
-                while (!is_multirow_parent(sgmt->next_multirow)) {
-                    row = row->next_row;
-                    sgmt = sgmt->next_multirow;
-                }
-                row = row->next_row;
+                bool top;
+                struct row_t *row;
+                struct key_t *sgmt, *prev_multirow;
+                kv_locate_vedge (kv, clicked_sgmt, clicked_row, event->y, y, &sgmt, &prev_multirow, &row, &top);
 
                 struct key_t **new_sgmt_ptr = NULL;
-                enum locate_sgmt_status_t new_sgmt_pos = LOCATE_OUTSIDE_BOTTOM;
-                if (row != NULL) {
+                enum locate_sgmt_status_t new_sgmt_pos = LOCATE_HIT_KEY;
+                if (top) {
+                    row = kv_get_prev_row (kv, row);
+                    if (row == NULL) new_sgmt_pos = LOCATE_OUTSIDE_TOP;
+                } else {
+                    row = row->next_row;
+                    if (row == NULL) new_sgmt_pos = LOCATE_OUTSIDE_BOTTOM;
+                }
+
+                if (new_sgmt_pos == LOCATE_HIT_KEY) {
                     float x_last = kv_get_sgmt_x_pos (kv, sgmt);
                     new_sgmt_ptr = &row->first_key;
                     struct key_t *curr_key = row->first_key;
@@ -2699,18 +2764,14 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                                   get_sgmt_width (curr_key);
                         x += w*kv->default_key_size;
 
-                        if (x > x_last) {
-                            break;
-                        }
+                        if (x > x_last) break;
 
                         new_sgmt_ptr = &curr_key->next_key;
                         curr_key = curr_key->next_key;
                     }
-                    new_sgmt_pos = LOCATE_HIT_GLUE;
                 }
 
-                struct key_t *new_sgmt =
-                    kv_insert_new_sgmt (kv, new_sgmt_pos, new_sgmt_ptr);
+                struct key_t *new_sgmt = kv_insert_new_sgmt (kv, new_sgmt_pos, new_sgmt_ptr);
                 new_sgmt->next_multirow = sgmt->next_multirow;
                 new_sgmt->type = KEY_MULTIROW_SEGMENT;
                 sgmt->next_multirow = new_sgmt;
@@ -2725,42 +2786,12 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 GdkEventButton *event = (GdkEventButton*)e;
                 kv_locate_sgmt (kv, event->x, event->y, &clicked_sgmt, &clicked_row, NULL, NULL, &y, NULL, NULL);
 
-                bool top = false;
-                struct key_t *sgmt = clicked_sgmt;
-                struct row_t *row = clicked_row;
-                struct key_t *prev_multirow = NULL;
-                {
-                    int len = 1;
-                    while (!is_multirow_parent(sgmt->next_multirow)) {
-                        prev_multirow = sgmt;
-                        sgmt = sgmt->next_multirow;
-                        row = row->next_row;
-                        len++;
-                    }
-
-                    int idx = 0;
-                    struct key_t *curr_sgmt = sgmt->next_multirow;
-                    while (curr_sgmt != clicked_sgmt) {
-                        curr_sgmt = curr_sgmt->next_multirow;
-                        idx++;
-                        len++;
-                    }
-
-                    if (len%2 == 1 && idx == len/2) {
-                        if (event->y < y + clicked_row->height*kv->default_key_size/2) {
-                            top = true;
-                        }
-
-                    } else if (idx < len/2) {
-                        top = true;
-                    }
-                }
+                bool top;
+                struct row_t *row;
+                struct key_t *sgmt, *prev_multirow;
+                kv_locate_vedge (kv, clicked_sgmt, clicked_row, event->y, y, &sgmt, &prev_multirow, &row, &top);
 
                 if (top) {
-                    prev_multirow = sgmt;
-                    sgmt = sgmt->next_multirow;
-                    row = kv_get_row (kv, sgmt);
-
                     if (sgmt->next_multirow->type != KEY_MULTIROW_SEGMENT_SIZED) {
                         sgmt->next_multirow->width = sgmt->width;
                     }
@@ -2773,14 +2804,16 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv_adjust_glue (kv, sgmt->next_key, get_sgmt_width (sgmt) + get_sgmt_total_glue(sgmt));
                 }
 
-                struct key_t *last_multirow = kv_unlink_multirow_sgmt (sgmt, prev_multirow);
-                if (!is_multirow_key (last_multirow)) {
-                    // kv_compute_glue() never modifies non multirow segments,
-                    // because their internal_glue == 0. In this case a multirow
-                    // key becomes non multirow, so we move its internal glue
-                    // into the user glue.
-                    last_multirow->user_glue += last_multirow->internal_glue;
-                    last_multirow->internal_glue = 0;
+                if (is_multirow_key (sgmt)) {
+                    kv_unlink_multirow_sgmt (sgmt, prev_multirow);
+                    if (!is_multirow_key (prev_multirow)) {
+                        // kv_compute_glue() never modifies non multirow segments,
+                        // because their internal_glue == 0. In this case a multirow
+                        // key becomes non multirow, so we move its internal glue
+                        // into the user glue.
+                        prev_multirow->user_glue += prev_multirow->internal_glue;
+                        prev_multirow->internal_glue = 0;
+                    }
                 }
 
                 kv_remove_key_sgmt (kv, kv_get_sgmt_ptr (row, sgmt), row, NULL);

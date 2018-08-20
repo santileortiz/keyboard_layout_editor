@@ -910,16 +910,13 @@ void kv_compute_glue (struct keyboard_view_t *kv)
             curr_key = curr_key->next_key;
         }
 
-        // Handle the end conditions.
         if (curr_key != NULL) {
-            // Here the end of the row is found after a multirow key.
+            // Move row state to the segment after the multirow segment that
+            // will be processed.
             rows_state[row_idx].curr_key = curr_key->next_key;
-            if (curr_key->next_key == NULL) {
-                done_rows++;
-            }
 
         } else {
-            // This happens when the row does not end in a multirow key.
+            // Reached the end of a row
             done_rows++;
             row_idx++;
             continue;

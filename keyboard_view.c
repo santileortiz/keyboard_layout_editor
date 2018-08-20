@@ -299,6 +299,7 @@ struct row_t* kv_get_row (struct keyboard_view_t *kv, struct key_t *sgmt)
     return curr_row;
 }
 
+static inline
 struct key_t* kv_get_prev_sgmt (struct row_t *row, struct key_t *sgmt)
 {
     struct key_t *prev = NULL, *curr = row->first_key;
@@ -309,6 +310,16 @@ struct key_t* kv_get_prev_sgmt (struct row_t *row, struct key_t *sgmt)
     return prev;
 }
 
+static inline
+struct key_t* kv_get_prev_multirow (struct key_t *sgmt) {
+    struct key_t *curr_key = sgmt;
+    while (curr_key->next_multirow != sgmt) {
+        curr_key = curr_key->next_multirow;
+    }
+    return curr_key;
+}
+
+static inline
 struct row_t* kv_get_prev_row (struct keyboard_view_t *kv, struct row_t *row)
 {
     struct row_t *prev_row = NULL, *curr_row = kv->first_row;
@@ -2729,8 +2740,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (kv->active_tool == KV_TOOL_VERTICAL_EXTEND &&
                      e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
-                struct key_t *clicked_sgmt;
                 struct row_t *clicked_row;
+                struct key_t *clicked_sgmt;
                 double left_margin, y;
                 GdkEventButton *event = (GdkEventButton*)e;
                 kv_locate_sgmt (kv, event->x, event->y, &clicked_sgmt, &clicked_row,
@@ -2741,30 +2752,43 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 struct key_t *sgmt, *prev_multirow;
                 kv_locate_vedge (kv, clicked_sgmt, clicked_row, event->y, y, &sgmt, &prev_multirow, &row, &top);
 
-                enum locate_sgmt_status_t new_sgmt_pos = LOCATE_HIT_KEY;
-                if (top) {
-                    row = kv_get_prev_row (kv, row);
-                    if (row == NULL) new_sgmt_pos = LOCATE_OUTSIDE_TOP;
-                } else {
-                    row = row->next_row;
-                    if (row == NULL) new_sgmt_pos = LOCATE_OUTSIDE_BOTTOM;
-                }
+                // Set _row_ to the row that will contain the new segment.
+                row = top ? kv_get_prev_row (kv, row) : row->next_row;
+                enum locate_sgmt_status_t new_sgmt_pos = top ? LOCATE_OUTSIDE_TOP : LOCATE_OUTSIDE_BOTTOM;
+                if (row != NULL) { new_sgmt_pos = LOCATE_HIT_KEY; }
 
                 struct key_t **new_sgmt_ptr = NULL;
                 if (new_sgmt_pos == LOCATE_HIT_KEY) {
+                    // Set new_sgmt_ptr to the location of the pointer such that
+                    // *new_sgmt_ptr is the first segment in _row_ whose right
+                    // edge is beyond the left edge of sgmt. The new segment
+                    // will tentatively be inserted before *new_sgmt_ptr.
                     float x_last = kv_get_sgmt_x_pos (kv, sgmt);
                     new_sgmt_ptr = &row->first_key;
-                    struct key_t *curr_key = row->first_key;
                     float x = left_margin;
-                    while (curr_key != NULL) {
-                        float w = curr_key->internal_glue + get_sgmt_user_glue(curr_key) +
-                                  get_sgmt_width (curr_key);
+                    while (*new_sgmt_ptr != NULL) {
+                        float w = (*new_sgmt_ptr)->internal_glue + get_sgmt_user_glue(*new_sgmt_ptr) +
+                                  get_sgmt_width (*new_sgmt_ptr);
                         x += w*kv->default_key_size;
 
                         if (x > x_last) break;
 
-                        new_sgmt_ptr = &curr_key->next_key;
-                        curr_key = curr_key->next_key;
+                        new_sgmt_ptr = &(*new_sgmt_ptr)->next_key;
+                    }
+
+                    // In the case where *new_sgmt_ptr is a multirow key that
+                    // extends to the left of sgmt, we move new_sgmt_ptr to the
+                    // next segment.
+                    if (*new_sgmt_ptr && is_multirow_key(*new_sgmt_ptr)) {
+                        struct key_t *curr_key =
+                            top ? (*new_sgmt_ptr)->next_multirow : kv_get_prev_multirow (*new_sgmt_ptr);
+                        while (curr_key != NULL) {
+                            if (curr_key == sgmt) {
+                                new_sgmt_ptr = &(*new_sgmt_ptr)->next_key;
+                                break;
+                            }
+                            curr_key = curr_key->next_key;
+                        }
                     }
                 }
 

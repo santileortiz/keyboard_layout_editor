@@ -10,7 +10,8 @@ enum keyboard_view_state_t {
     KV_EDIT_KEY_SPLIT_NON_RECTANGULAR,
     KV_EDIT_KEY_RESIZE,
     KV_EDIT_KEY_RESIZE_NON_RECTANGULAR,
-    KV_EDIT_KEY_RESIZE_SEGMENT
+    KV_EDIT_KEY_RESIZE_SEGMENT,
+    KV_EDIT_KEY_RESIZE_ROW
     //KV_EDIT_KEYCODE_LOOKUP,
 };
 
@@ -27,6 +28,7 @@ enum keyboard_view_tools_t {
     KV_TOOL_DELETE_KEY,
     KV_TOOL_RESIZE_KEY,
     KV_TOOL_RESIZE_SEGMENT,
+    KV_TOOL_RESIZE_ROW,
     KV_TOOL_VERTICAL_EXTEND,
     KV_TOOL_VERTICAL_SHRINK,
     KV_TOOL_ADD_KEY
@@ -1720,6 +1722,11 @@ void resize_segment_handler (GtkButton *button, gpointer user_data)
     keyboard_view->active_tool = KV_TOOL_RESIZE_SEGMENT;
 }
 
+void resize_row_handler (GtkButton *button, gpointer user_data)
+{
+    keyboard_view->active_tool = KV_TOOL_RESIZE_ROW;
+}
+
 void vertical_extend_handler (GtkButton *button, gpointer user_data)
 {
     keyboard_view->active_tool = KV_TOOL_VERTICAL_EXTEND;
@@ -1850,20 +1857,25 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
                                                            G_CALLBACK (resize_segment_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), resize_segment_button, 5, 0, 1, 1);
 
+    GtkWidget *resize_row_button = toolbar_button_new (NULL,
+                                                       "Resize row",
+                                                       G_CALLBACK (resize_row_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), resize_row_button, 6, 0, 1, 1);
+
     GtkWidget *vertical_extend_button = toolbar_button_new (NULL,
                                                             "Extend key vertically",
                                                             G_CALLBACK (vertical_extend_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), vertical_extend_button, 6, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(*toolbar), vertical_extend_button, 7, 0, 1, 1);
 
     GtkWidget *vertical_shrink_button = toolbar_button_new (NULL,
                                                             "Shrink key vertically",
                                                             G_CALLBACK (vertical_shrink_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), vertical_shrink_button, 7, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(*toolbar), vertical_shrink_button, 8, 0, 1, 1);
 
     GtkWidget *add_key_button = toolbar_button_new (NULL,
                                                     "Add key",
                                                     G_CALLBACK (add_key_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), add_key_button, 8, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(*toolbar), add_key_button, 9, 0, 1, 1);
 }
 
 // Round i downwards to the nearest multiple of 1/2^n. If i is negative treat it
@@ -2738,6 +2750,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv->resized_segment_original_user_glue + kv->resized_segment->internal_glue;
                 kv->resized_segment_glue_plus_w = kv->original_width + kv->resized_segment_original_glue;
 
+            } else if (kv->active_tool == KV_TOOL_RESIZE_ROW &&
+                       e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+
             } else if (kv->active_tool == KV_TOOL_VERTICAL_EXTEND &&
                      e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 struct row_t *clicked_row;
@@ -3107,6 +3122,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv->state = KV_EDIT;
                 }
             }
+            break;
+
+        case KV_EDIT_KEY_RESIZE_ROW:
             break;
     }
 

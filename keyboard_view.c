@@ -163,6 +163,12 @@ struct keyboard_view_t {
     float resized_segment_original_user_glue;
     float resized_segment_original_glue;
 
+    // KEY_RESIZE_ROW state
+    bool resize_row_top;
+    struct row_t *resized_row;
+    float resized_row_original_height;
+    float y_anchor;
+
     // KEY_ADD state
     GdkRectangle to_add_rect;
     float added_key_user_glue;
@@ -2752,6 +2758,19 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (kv->active_tool == KV_TOOL_RESIZE_ROW &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+                GdkEventButton *event = (GdkEventButton*)e;
+                double y;
+                struct row_t *row;
+                kv_locate_sgmt (kv, event->x, event->y, NULL, &row, NULL, NULL, &y, NULL, NULL);
+                if (event->y < y + row->height*kv->default_key_size/2) {
+                    kv->resize_row_top = true;
+                } else {
+                    kv->resize_row_top = false;
+                }
+                kv->resized_row = row;
+                kv->resized_row_original_height = row->height;
+                kv->y_anchor = event->y;
+                kv->state = KV_EDIT_KEY_RESIZE_ROW;
 
             } else if (kv->active_tool == KV_TOOL_VERTICAL_EXTEND &&
                      e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
@@ -3125,6 +3144,31 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             break;
 
         case KV_EDIT_KEY_RESIZE_ROW:
+            if (e->type == GDK_MOTION_NOTIFY) {
+                GdkEventMotion *event = (GdkEventMotion*)e;
+                float delta = bin_floor((event->y - kv->y_anchor)/kv->default_key_size, 3);
+
+                float new_height = kv->resize_row_top ?
+                    kv->resized_row->height - delta : kv->resized_row->height + delta;
+                new_height = MAX(new_height, kv_get_min_key_width(kv));
+
+                if (new_height != kv->resized_row->height) {
+                    float effective_delta = kv->resize_row_top ?
+                        kv->resized_row->height - new_height : new_height - kv->resized_row->height;
+                    kv->y_anchor += effective_delta*kv->default_key_size;
+
+                    kv->resized_row->height = new_height;
+                }
+
+            } else if (e->type == GDK_BUTTON_RELEASE) {
+                kv->state = KV_EDIT;
+
+            } else if (e->type == GDK_KEY_PRESS) {
+                if (key_event_kc - 8 == KEY_ESC) {
+                    kv->resized_row->height = kv->resized_row_original_height;
+                    kv->state = KV_EDIT;
+                }
+            }
             break;
     }
 

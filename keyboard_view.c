@@ -2766,11 +2766,11 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                     if (glue_key != NULL) {
                         kv->resized_segment_original_user_glue = get_sgmt_user_glue(glue_key);
+                        kv->resized_segment_original_glue =
+                            kv->resized_segment_original_user_glue + glue_key->internal_glue;
                     }
+                    kv->resized_segment_glue_plus_w = kv->original_width + kv->resized_segment_original_glue;
                 }
-                kv->resized_segment_original_glue =
-                    kv->resized_segment_original_user_glue + kv->resized_segment->internal_glue;
-                kv->resized_segment_glue_plus_w = kv->original_width + kv->resized_segment_original_glue;
 
             } else if (kv->active_tool == KV_TOOL_RESIZE_ROW &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {

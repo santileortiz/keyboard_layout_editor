@@ -11,7 +11,8 @@ enum keyboard_view_state_t {
     KV_EDIT_KEY_RESIZE,
     KV_EDIT_KEY_RESIZE_NON_RECTANGULAR,
     KV_EDIT_KEY_RESIZE_SEGMENT,
-    KV_EDIT_KEY_RESIZE_ROW
+    KV_EDIT_KEY_RESIZE_ROW,
+    KV_EDIT_KEY_PUSH_RIGHT
     //KV_EDIT_KEYCODE_LOOKUP,
 };
 
@@ -31,7 +32,8 @@ enum keyboard_view_tools_t {
     KV_TOOL_RESIZE_ROW,
     KV_TOOL_VERTICAL_EXTEND,
     KV_TOOL_VERTICAL_SHRINK,
-    KV_TOOL_ADD_KEY
+    KV_TOOL_ADD_KEY,
+    KV_TOOL_PUSH_RIGHT
 };
 
 enum keyboard_view_label_mode_t {
@@ -175,6 +177,10 @@ struct keyboard_view_t {
     struct key_t **added_key_ptr;
     struct row_t *added_key_row;
     enum locate_sgmt_status_t locate_stat;
+
+    // PUSH_RIGHT state
+    struct key_t *push_right_key;
+    float push_right_original_glue;
 
     // Manual tooltips list
     mem_pool_t tooltips_pool;
@@ -1748,6 +1754,11 @@ void add_key_handler (GtkButton *button, gpointer user_data)
     keyboard_view->active_tool = KV_TOOL_ADD_KEY;
 }
 
+void push_right_handler (GtkButton *button, gpointer user_data)
+{
+    keyboard_view->active_tool = KV_TOOL_PUSH_RIGHT;
+}
+
 void kv_push_manual_tooltip (struct keyboard_view_t *kv, GdkRectangle *rect, const char *text)
 {
     struct manual_tooltip_t *new_tooltip =
@@ -1882,6 +1893,11 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
                                                     "Add key",
                                                     G_CALLBACK (add_key_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), add_key_button, 9, 0, 1, 1);
+
+    GtkWidget *push_right_button = toolbar_button_new (NULL,
+                                                       "Move and push keys to the right",
+                                                       G_CALLBACK (push_right_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), push_right_button, 10, 0, 1, 1);
 }
 
 // Round i downwards to the nearest multiple of 1/2^n. If i is negative treat it
@@ -2906,6 +2922,13 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 GdkEventButton *event = (GdkEventButton*)e;
                 kv_set_add_key_state (kv, event->x, event->y);
+
+            } else if (kv->active_tool == KV_TOOL_PUSH_RIGHT &&
+                       e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+                kv->x_anchor = ((GdkEventButton*)e)->x;
+                kv->push_right_key = button_event_key;
+                kv->push_right_original_glue = get_sgmt_user_glue (button_event_key);
+                kv->state = KV_EDIT_KEY_PUSH_RIGHT;
             }
             break;
 
@@ -3154,6 +3177,30 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 if (key_event_kc - 8 == KEY_ESC) {
                     kv->resized_row->height = kv->resized_row_original_height;
                     kv->state = KV_EDIT;
+                }
+            }
+            break;
+
+        case KV_EDIT_KEY_PUSH_RIGHT:
+            if (e->type == GDK_MOTION_NOTIFY) {
+                GdkEventMotion *event = (GdkEventMotion*)e;
+                float delta = bin_floor((event->x - kv->x_anchor)/kv->default_key_size, 3);
+                float new_glue = MAX (0, kv->push_right_key->user_glue + delta);
+
+                if (kv->push_right_key->user_glue != new_glue) {
+                    kv->x_anchor += (new_glue - kv->push_right_key->user_glue)*kv->default_key_size;
+                    kv->push_right_key->user_glue = new_glue;
+                    kv_compute_glue (kv);
+                }
+
+            } else if (e->type == GDK_BUTTON_RELEASE) {
+                kv->state = KV_EDIT;
+
+            } else if (e->type == GDK_KEY_PRESS) {
+                if (key_event_kc - 8 == KEY_ESC) {
+                    kv->push_right_key->user_glue = kv->push_right_original_glue;
+                    kv->state = KV_EDIT;
+                    kv_compute_glue (kv);
                 }
             }
             break;

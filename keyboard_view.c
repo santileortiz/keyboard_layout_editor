@@ -2198,10 +2198,24 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_sgmt, 
     if (edit_right_edge) {
         glue_key = sgmt->next_key;
     } else {
-        if (sgmt == row->first_key && sgmt->width > original_glue_plus_w) {
-            kv_adjust_left_edge (kv, sgmt, -delta_w);
-        }
         glue_key = sgmt;
+
+        // Adjust left edge if the left edge goes beyond the left margin
+        bool was_left = sgmt->width - delta_w > original_glue_plus_w;
+        bool is_left = sgmt->width > original_glue_plus_w;
+        if (is_left || was_left) {
+            float adjustment;
+            if (is_left && was_left) {
+                adjustment = -delta_w;
+            } else {
+                if (delta_w < 0) {
+                    adjustment = (sgmt->width - delta_w) - original_glue_plus_w;
+                } else {
+                    adjustment = original_glue_plus_w - sgmt->width;
+                }
+            }
+            kv_adjust_left_edge (kv, sgmt, adjustment);
+        }
     }
 
     // Glue adjustment behavior

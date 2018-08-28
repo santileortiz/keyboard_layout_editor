@@ -2166,6 +2166,66 @@ void change_edge_width (struct key_t *edge_prev_sgmt,
     }
 }
 
+// This function simplifies the task of increasing a value that has some
+// boundary before (or after) which the update should stop (or start) happening.
+//
+// Let ov (old value), nv (new value) and b (boundary) be 3 floating point
+// values, assuming (for now) that ov != nv != b. Define the active region as
+// the region of the number line grater than b. This function works in such a
+// way that if the change from ov to nv happens inside the active region, then
+// the change between these values will be returned. If instead, the change
+// happens inside the inactive region, 0 is returned. If the change in the value
+// crosses the boundary into the active region, the returned value is equal to
+// the distance between the bounday and the new value (nv - b). If the change in
+// value crosses the boundary out of the active region, the returned value is the
+// value necessary to move the old value into the boundary (b - ov).
+//
+//                                retval (positive)
+//                              |------->|
+//                  ---ov-------b++++++++nv+++++++++
+//                      ----------------->
+//                           change
+//                                                       - inactive region
+//                                                       + active region
+//                                retval (negative)
+//                              |<-------|
+//                  ---nv-------b++++++++ov+++++++++
+//                      <-----------------
+//                           change
+//
+// Even thought the explanation above assumes all values are different, care has
+// been taken to correctly handle all cases where equality happens. Which is in
+// fact, what makes the implementation tricky, and what motivated abstracting it
+// into a documented function.
+//
+// The macro bnd_delta_update_inv() is a version of the same function where the
+// active region, is the region of the number line less than the boundary b.
+//
+#define bnd_delta_update_inv(old,new,bnd) (-bnd_delta_update(-(old),-(new),-(bnd)))
+static inline
+float bnd_delta_update (float old_val, float new_val, float boundary)
+{
+    if (old_val == new_val) return 0;
+
+    float adjustment = 0;
+
+    bool was_after = old_val > boundary;
+    bool is_after = new_val > boundary;
+    if (was_after || is_after) {
+        if (was_after && is_after) {
+            adjustment = new_val - old_val;
+        } else {
+            if (old_val > new_val) {
+                adjustment = boundary - old_val;
+            } else {
+                adjustment = new_val - boundary;
+            }
+        }
+    }
+
+    return adjustment;
+}
+
 void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_sgmt, struct key_t *sgmt,
                            struct row_t *row, float original_glue_plus_w, float original_glue,
                            float delta_w, bool edit_right_edge)
@@ -2201,27 +2261,16 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_sgmt, 
         glue_key = sgmt;
 
         // Adjust left edge if the left edge goes beyond the left margin
-        bool was_left = sgmt->width - delta_w > original_glue_plus_w;
-        bool is_left = sgmt->width > original_glue_plus_w;
-        if (is_left || was_left) {
-            float adjustment;
-            if (is_left && was_left) {
-                adjustment = -delta_w;
-            } else {
-                if (delta_w < 0) {
-                    adjustment = (sgmt->width - delta_w) - original_glue_plus_w;
-                } else {
-                    adjustment = original_glue_plus_w - sgmt->width;
-                }
-            }
-            kv_adjust_left_edge (kv, sgmt, adjustment);
+        float adj = bnd_delta_update (sgmt->width - delta_w, sgmt->width, original_glue_plus_w);
+        if (adj != 0) {
+            kv_adjust_left_edge (kv, sgmt, -adj);
         }
     }
 
     // Glue adjustment behavior
-    if (delta_w > 0 || // glue shrinks
-        (original_glue != 0 && sgmt->width - delta_w <= original_glue_plus_w)) {
-        kv_adjust_glue (kv, glue_key, -delta_w);
+    float adj = bnd_delta_update_inv (sgmt->width - delta_w, sgmt->width, original_glue_plus_w);
+    if (adj != 0) {
+        kv_adjust_glue (kv, glue_key, -adj);
     }
 }
 

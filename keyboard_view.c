@@ -900,9 +900,8 @@ bool multirow_user_glue_for_delta_glue (struct key_t *sgmt, float delta_glue, fl
         return true;
     }
 
-    float sgmt_internal_glue = sgmt->internal_glue;
-    if (delta_glue < 0 && sgmt_internal_glue + delta_glue < 0) {
-        *glue = MAX (0, user_glue + sgmt_internal_glue + delta_glue);
+    if (delta_glue < 0 && sgmt->internal_glue + delta_glue < 0) {
+        *glue = MAX (0, user_glue + sgmt->internal_glue + delta_glue);
         return true;
     }
 
@@ -2261,16 +2260,29 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_sgmt, 
     } else {
         glue_key = sgmt;
         float adj = bnd_delta_update (sgmt->width - delta_w, sgmt->width, original_glue_plus_w);
-        if (!edit_right_edge && row->first_key == sgmt) {
+        if (row->first_key == sgmt) {
             // Adjust left edge if the left edge goes beyond the left margin
             kv_adjust_left_edge (kv, sgmt, -adj);
             adjusted_left_edge = true;
         }
     }
 
+
     float adj = bnd_delta_update_inv (sgmt->width - delta_w, sgmt->width, original_glue_plus_w);
-    if (adj != 0 && !adjusted_left_edge) {
-        kv_adjust_glue (kv, glue_key, -adj);
+
+    if (sgmt->width - delta_w > original_glue_plus_w && sgmt->width < original_glue_plus_w) {
+        kv_change_sgmt_width (kv, prev_sgmt, sgmt,
+                              row, original_glue_plus_w,
+                              original_glue, original_glue_plus_w - (sgmt->width - delta_w), edit_right_edge);
+
+        kv_change_sgmt_width (kv, prev_sgmt, sgmt,
+                              row, original_glue_plus_w,
+                              original_glue, original_glue_plus_w - sgmt->width, edit_right_edge);
+    } else {
+
+        if (adj != 0 && !adjusted_left_edge) {
+            kv_adjust_glue (kv, glue_key, -adj);
+        }
     }
 }
 

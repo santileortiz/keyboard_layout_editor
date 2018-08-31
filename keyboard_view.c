@@ -2039,17 +2039,17 @@ float kv_get_min_key_width (struct keyboard_view_t *kv)
 //      segment it will be set to the multirow parent.
 //
 //    min_width: Is set to the minimum width that edge_start can have so that at
-//      least one segment of the multirow has the minimum width.
+//      least one segment of the multirow key has the minimum width.
 //
 //    Example call:
 //
-//    kv_locate_edge (kv, X, K, false, edge_start, edge_prev_sgmt, edge_end_sgmt);
+//    kv_locate_edge (kv, X, K, false, &edge_start, &edge_prev_sgmt, &edge_end_sgmt, &min_w);
 //
 //            +-----+
-//            |  X  |       K: Segment provided as key_sgmt.
+//            |  X  |       K: Segment provided as key_sgmt (clicked segment).
 //            |   +-+       R: Segment returned in edge_start.
-//            | S |         S: Segment returned in edge_prev_sgmt. Note it is NOT
-//       ++---+   |            edge_start of the previous edge, that would be X.
+//            | S |         S: Segment returned in edge_prev_sgmt (note it is NOT
+//       ++---+   |            edge_start of the previous edge, that would be X).
 //       ||   R   |         X: Segment provided as multirow_parent and segment
 //       ||     +-+            returned in edge_end_sgmt.
 //       ||  K  |

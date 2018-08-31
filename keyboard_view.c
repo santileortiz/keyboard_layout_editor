@@ -814,35 +814,35 @@ bool is_supporting_sgmt (struct key_t *sgmt)
 //
 // Let ov (old value), nv (new value) and b (boundary) be 3 floating point
 // values, assuming (for now) that ov != nv != b. Define the active region as
-// the region of the number line grater than b. This function works in such a
-// way that if the change from ov to nv happens inside the active region, then
-// the change between these values will be returned. If instead, the change
-// happens inside the inactive region, 0 is returned. If the change in the value
-// crosses the boundary into the active region, the returned value is equal to
-// the distance between the bounday and the new value (nv - b). If the change in
-// value crosses the boundary out of the active region, the returned value is the
-// value necessary to move the old value into the boundary (b - ov).
+// the region of the number line less than b. This function works in such a way
+// that if the change from ov to nv happens inside the active region, then the
+// change between these values will be returned. If instead, the change happens
+// outside the active region, 0 is returned. If the change in the value crosses
+// the boundary into the active region, the returned value is equal to the
+// distance between the bounday and the new value (nv - b). If the change in
+// value crosses the boundary out of the active region, the returned value is
+// the value necessary to move the old value into the boundary (b - ov).
 //
 //                                retval (positive)
 //                              |------->|
-//                  ---ov-------b++++++++nv+++++++++
+//                  +++ov+++++++b--------nv---------
 //                      ----------------->
 //                           change
 //                                                       - inactive region
 //                                                       + active region
 //                                retval (negative)
 //                              |<-------|
-//                  ---nv-------b++++++++ov+++++++++
+//                  +++nv+++++++b--------ov---------
 //                      <-----------------
 //                           change
 //
 // Even though the explanation above assumes all values are different, care has
-// been taken to correctly handle all cases where equality happens. Which is in
-// fact, what makes the implementation tricky, and what motivated abstracting it
-// into a documented function.
+// been taken to correctly handle all cases where equality happens. This, in
+// fact, is what makes the implementation tricky, and what motivated abstracting
+// it into a documented function.
 //
 // The macro bnd_delta_update_inv() is a version of the same function where the
-// active region, is the region of the number line less than the boundary b.
+// active region, is the region of the number line grater than the boundary b.
 //
 #define bnd_delta_update_inv(old,new,bnd) (-bnd_delta_update(-(old),-(new),-(bnd)))
 static inline
@@ -852,13 +852,13 @@ float bnd_delta_update (float old_val, float new_val, float boundary)
 
     float adjustment = 0;
 
-    bool was_after = old_val > boundary;
-    bool is_after = new_val > boundary;
+    bool was_after = old_val < boundary;
+    bool is_after = new_val < boundary;
     if (was_after || is_after) {
         if (was_after && is_after) {
             adjustment = new_val - old_val;
         } else {
-            if (old_val > new_val) {
+            if (old_val < new_val) {
                 adjustment = boundary - old_val;
             } else {
                 adjustment = new_val - boundary;
@@ -2291,7 +2291,7 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multir
                            float delta_w, bool edit_right_edge)
 {
     // The glue is adjusted by the value that goes below original_glue_plus_w.
-    float glue_adj = bnd_delta_update_inv (sgmt->width, sgmt->width + delta_w, original_glue_plus_w);
+    float glue_adj = bnd_delta_update (sgmt->width, sgmt->width + delta_w, original_glue_plus_w);
 
     // Segment resizing for most cases happens by just calling kv_resize_sgmt(),
     // but not in all cases. Consider the case from @segment_resize_img, after
@@ -2345,7 +2345,7 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multir
         glue_key = sgmt;
 
         // Maybe adjust left edge if the edited edge goes beyond the left margin
-        float adj = bnd_delta_update (sgmt->width - delta_w, sgmt->width, original_glue_plus_w);
+        float adj = bnd_delta_update_inv (sgmt->width - delta_w, sgmt->width, original_glue_plus_w);
         if (row->first_key == sgmt) {
             kv_adjust_left_edge (kv, sgmt, -adj);
             adjusted_left_edge = true;

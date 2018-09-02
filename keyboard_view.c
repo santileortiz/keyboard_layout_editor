@@ -934,11 +934,23 @@ void kv_adjust_left_edge (struct keyboard_view_t *kv, struct key_t *sgmt, float 
     // In theory this is O(n^2) where n is the number of rows, but
     // in practice I doubt we will ever have a keyboard that causes
     // trouble.
-    struct  row_t *curr_row = kv->first_row;
+    struct row_t *curr_row = kv->first_row;
     while (curr_row != NULL) {
         struct key_t *curr_key = curr_row->first_key;
-        if (!is_multirow_key (curr_key) || is_multirow_parent (curr_key)) {
-            if (curr_key != sgmt && is_key_first (curr_key, curr_row)) {
+        if (is_multirow_parent (curr_key) && is_key_first (curr_key, curr_row)) {
+            // Check if the key whose parent is curr_key contains sgmt
+            struct key_t *s = NULL;
+            if (sgmt && is_multirow_key (curr_key)) {
+                s = curr_key;
+                do {
+                    if (sgmt == s) break;
+                    s = s->next_multirow;
+                } while (!is_multirow_parent (s));
+            }
+
+            // Adjust row unconditionally if sgmt was not provided. Otherwise
+            // only update the row if sgmt wasn't found inside curr_key.
+            if (sgmt == NULL || sgmt != s) {
                 curr_key->user_glue -= change;
             }
         }

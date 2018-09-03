@@ -402,13 +402,15 @@ void kv_remove_key (struct keyboard_view_t *kv, struct key_t **key_ptr)
 {
     assert (key_ptr != NULL);
 
+    struct key_t *multirow_parent = kv_get_multirow_parent(*key_ptr);
+    // Remove the pointer to *key_ptr from the lookup table
+    kv->keys_by_kc[multirow_parent->kc] = NULL;
+
     if (is_multirow_key(*key_ptr)) {
         // Rows are singly linked lists so we don't have the pointers to the
-        // parent of each multirow segment. We iterate the whole keyboard to
+        // parent of each multirow segment. We may iterate the whole keyboard to
         // delete a multirow key. I don't think this will be a performance issue
         // as this should not be the most common usecase.
-
-        struct key_t *multirow_parent = kv_get_multirow_parent(*key_ptr);
 
         // Find the row in which multirow_parent is located.
         struct row_t *curr_row = kv_get_row (kv, multirow_parent);
@@ -3004,6 +3006,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 struct key_t *new_sgmt = kv_insert_new_sgmt (kv, new_sgmt_pos, new_sgmt_ptr);
                 struct key_t *new_sgmt_prev;
                 if (top) {
+                    kv->keys_by_kc[sgmt->kc] = new_sgmt;
                     new_sgmt_prev = prev_multirow;
                     new_sgmt->width = sgmt->width;
                     new_sgmt->kc = sgmt->kc;
@@ -3033,6 +3036,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv_locate_vedge (kv, clicked_sgmt, clicked_row, event->y, y, &sgmt, &prev_multirow, &row, &top);
 
                 if (top) {
+                    kv->keys_by_kc[sgmt->kc] = sgmt->next_multirow;
                     if (sgmt->next_multirow->type != KEY_MULTIROW_SEGMENT_SIZED) {
                         sgmt->next_multirow->width = sgmt->width;
                     }
@@ -3537,8 +3541,12 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool, GtkWidget *window)
     kv_set_simple_toolbar (&kv->toolbar);
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
 
+#if 0
     multirow_test_geometry (kv);
-    //keyboard_view_build_default_geometry (kv);
+#else
+    keyboard_view_build_default_geometry (kv);
+#endif
+
     kv->pool = pool;
     kv->state = KV_PREVIEW;
     kv_update (kv, KV_CMD_SET_MODE_EDIT, NULL);

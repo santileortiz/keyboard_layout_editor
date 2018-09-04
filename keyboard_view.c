@@ -143,7 +143,7 @@ struct keyboard_view_t {
     struct key_t *new_key;
     struct key_t **new_key_ptr;
     struct key_t *split_key;
-    float left_min_width, right_min_width;
+    float left_min_width, right_min_width, min_glue;
     float split_rect_x;
     float split_full_width;
 
@@ -2057,7 +2057,7 @@ float kv_get_min_key_width (struct keyboard_view_t *kv)
 //
 //    Example call:
 //
-//    kv_locate_edge (kv, X, K, false, &edge_start, &edge_prev_sgmt, &edge_end_sgmt, &min_w);
+//    kv_locate_edge (kv, X, K, false, &edge_start, &edge_prev_sgmt, &edge_end_sgmt, &min_w, &min_g);
 //
 //            +-----+
 //            |  X  |       K: Segment provided as key_sgmt (clicked segment).
@@ -2072,7 +2072,7 @@ float kv_get_min_key_width (struct keyboard_view_t *kv)
 void kv_locate_edge (struct keyboard_view_t *kv,
                      struct key_t *multirow_parent, struct key_t *key_sgmt, bool is_right_edge,
                      struct key_t **edge_start, struct key_t **edge_prev_sgmt, struct key_t **edge_end_sgmt,
-                     float *min_width)
+                     float *min_width, float *min_glue)
 {
     assert (edge_start != NULL && edge_prev_sgmt != NULL && edge_end_sgmt != NULL && min_width != NULL);
 
@@ -2140,6 +2140,17 @@ void kv_locate_edge (struct keyboard_view_t *kv,
         } while (curr_key != *edge_end_sgmt);
     }
     *min_width = (*edge_start)->width - min_w + kv_get_min_key_width(kv);
+
+    {
+        struct key_t *curr_key = *edge_start;
+        float min_g = INFINITY;
+        do {
+            struct key_t *glue_key = is_right_edge ? curr_key->next_key : curr_key;
+            min_g = MIN (min_g, glue_key->internal_glue);
+            curr_key = curr_key->next_multirow;
+        } while (curr_key != *edge_end_sgmt);
+        *min_glue = multirow_parent->user_glue + min_g;
+    }
 
 #if 0
     // Debug code
@@ -2770,11 +2781,11 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 } else {
 
-                    float split_key_min_width, new_key_min_width;
+                    float split_key_min_width, new_key_min_width, min_glue;
                     new_key_min_width = kv_get_min_key_width (kv);
                     kv_locate_edge (kv, button_event_key, button_event_key_clicked_sgmt, kv->edit_right_edge,
                                     &kv->edge_start, &kv->edge_prev_sgmt, &kv->edge_end_sgmt,
-                                    &split_key_min_width);
+                                    &split_key_min_width, &min_glue);
 
                     kv->split_rect_x = kv_get_sgmt_x_pos (kv, kv->edge_start);
                     kv->split_key = button_event_key;
@@ -2849,7 +2860,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 } else {
                     kv_locate_edge (kv, button_event_key, button_event_key_clicked_sgmt, kv->edit_right_edge,
-                                    &kv->edge_start, &kv->edge_prev_sgmt, &kv->edge_end_sgmt, &kv->min_width);
+                                    &kv->edge_start, &kv->edge_prev_sgmt, &kv->edge_end_sgmt, &kv->min_width, &kv->min_glue);
 
                     kv->x_clicked_pos = event->x;
                     kv->original_width = kv->edge_start->width;

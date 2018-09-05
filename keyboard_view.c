@@ -264,11 +264,7 @@ float get_sgmt_user_glue (struct key_t *sgmt)
 static inline
 float get_sgmt_total_glue (struct key_t *sgmt)
 {
-    if (is_multirow_key(sgmt) && !is_multirow_parent(sgmt)) {
-        return sgmt->internal_glue;
-    } else {
-        return get_sgmt_user_glue(sgmt) + sgmt->internal_glue;
-    }
+    return get_sgmt_user_glue(sgmt) + sgmt->internal_glue;
 }
 
 #define kv_new_row(kbd) kv_new_row_h(kbd,1)

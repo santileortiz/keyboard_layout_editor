@@ -158,6 +158,7 @@ struct keyboard_view_t {
     bool edit_right_edge;
     mem_pool_t resize_pool;
     struct multirow_glue_info_t *edge_glue;
+    int edge_glue_len;
 
     // KEY_RESIZE_SEGMENT state
     struct key_t *resized_segment;
@@ -1160,6 +1161,7 @@ void kv_equalize_left_edge (struct keyboard_view_t *kv)
 
 void multirow_test_geometry (struct keyboard_view_t *kv)
 {
+#if 0
     kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
     kv_new_row_h (kv, 1.5);
     struct key_t *multi1 = kv_add_key (kv, KEY_A);
@@ -1184,6 +1186,28 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
     kv_add_key (kv, KEY_6);
     kv_add_key_multirow (kv, multi3);
     kv_add_key_multirow_sized (kv, multi4, 3, MULTIROW_ALIGN_RIGHT);
+
+#else
+    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
+    kv_new_row_h (kv, 1);
+    struct key_t *m = kv_add_key_w (kv, KEY_A, 3);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow_sized (kv, m, 2, MULTIROW_ALIGN_LEFT);
+    kv_add_key (kv, KEY_1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow_sized (kv, m, 3, MULTIROW_ALIGN_RIGHT);
+    kv_add_key_full (kv, KEY_2, 1, 1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow_sized (kv, m, 4, MULTIROW_ALIGN_RIGHT);
+    kv_add_key_full (kv, KEY_3, 1, 2);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow_sized (kv, m, 3, MULTIROW_ALIGN_LEFT);
+
+#endif
 
     kv_compute_glue (kv);
 }
@@ -2160,12 +2184,16 @@ struct multirow_glue_info_t {
     int num_sgmts;
 };
 
-struct multirow_glue_info_t*
-save_edge_glue (mem_pool_t *pool,
-                struct key_t *edge_start, struct key_t *edge_end_sgmt, bool is_right_edge)
-{
+templ_sort (mg_sort, struct multirow_glue_info_t*, (*a)->min_glue > (*b)->min_glue)
 
-    struct multirow_glue_info_t *info;
+void
+save_edge_glue (mem_pool_t *pool,
+                struct key_t *edge_start, struct key_t *edge_end_sgmt, bool is_right_edge,
+                struct multirow_glue_info_t** info, int *info_len)
+{
+    assert (info != NULL && info_len != NULL);
+
+    struct multirow_glue_info_t *info_l;
     int len = 0;
     {
         struct key_t *curr_key = edge_start;
@@ -2174,7 +2202,7 @@ save_edge_glue (mem_pool_t *pool,
             curr_key = curr_key->next_multirow;
         } while (curr_key != edge_end_sgmt);
 
-        info = mem_pool_push_array (pool, len, struct multirow_glue_info_t);
+        info_l = mem_pool_push_array (pool, len, struct multirow_glue_info_t);
     }
 
     int idx = 0;
@@ -2184,13 +2212,13 @@ save_edge_glue (mem_pool_t *pool,
         struct key_t *new_glue_key = is_right_edge ? curr_key->next_key : curr_key;
         if (new_glue_key) {
             if (!prev_glue_key || prev_glue_key->next_multirow != new_glue_key) {
-                info[idx].min_glue = get_sgmt_total_glue(new_glue_key);
-                info[idx].num_sgmts = 1;
+                info_l[idx].min_glue = get_sgmt_total_glue(new_glue_key);
+                info_l[idx].num_sgmts = 1;
                 idx++;
 
             } else {
-                info[idx-1].min_glue = MIN (info[idx-1].min_glue, get_sgmt_total_glue(new_glue_key));
-                info[idx-1].num_sgmts++;
+                info_l[idx-1].min_glue = MIN (info_l[idx-1].min_glue, get_sgmt_total_glue(new_glue_key));
+                info_l[idx-1].num_sgmts++;
             }
 
             prev_glue_key = new_glue_key;
@@ -2201,7 +2229,8 @@ save_edge_glue (mem_pool_t *pool,
         curr_key = curr_key->next_multirow;
     } while (curr_key != edge_end_sgmt);
 
-    return info;
+    *info = info_l;
+    *info_len = idx;
 }
 
 void kv_resize_cleanup (struct keyboard_view_t *kv)
@@ -2211,6 +2240,7 @@ void kv_resize_cleanup (struct keyboard_view_t *kv)
         // We know resize_pool isn't bootstrapped so we can do this safely.
         kv->resize_pool = ZERO_INIT(mem_pool_t);
         kv->edge_glue = NULL;
+        kv->edge_glue_len = 0;
     }
 }
 
@@ -2261,11 +2291,13 @@ void kv_locate_vedge (struct keyboard_view_t *kv,
     }
 }
 
+// Move an edge and handle the cases where the edge should merge with the
+// previous or the end segments.
+// NOTE: This does not modify the glue in any way, for this take a look at
+// kv_change_edge_width().
 static inline
-void change_edge_width (struct key_t *edge_prev_sgmt,
-                        struct key_t *edge_start,
-                        struct key_t *edge_end_sgmt,
-                        float delta_w)
+void kv_resize_edge (struct key_t *edge_prev_sgmt, struct key_t *edge_start, struct key_t *edge_end_sgmt,
+                     float delta_w)
 {
     edge_start->width += delta_w;
 
@@ -2294,6 +2326,36 @@ void change_edge_width (struct key_t *edge_prev_sgmt,
             edge_end_sgmt->type = KEY_MULTIROW_SEGMENT_SIZED;
         }
     }
+}
+
+void kv_change_edge_width (struct keyboard_view_t *kv,
+                           struct key_t *edge_prev_sgmt, struct key_t *edge_start, struct key_t *edge_end_sgmt,
+                           bool is_right_edge, struct multirow_glue_info_t *glue_info, int glue_info_len,
+                           float original_w, float delta_w)
+{
+    float total_change = edge_start->width - original_w;
+    float adj = delta_w > 0 ?
+        delta_w : bnd_delta_update_inv (0, delta_w, -total_change);
+
+    if (delta_w < 0 && total_change > 0) {
+
+        // TODO: Implement edge shrink so that keys are left behind in their
+        // original positions.
+
+    }  else {
+        kv_resize_edge (edge_prev_sgmt, edge_start, edge_end_sgmt, delta_w);
+    }
+
+    if (adj != 0) {
+        struct key_t *curr_key = edge_start;
+        do {
+            struct key_t *glue_key = is_right_edge ? curr_key->next_key : curr_key;
+            if (glue_key) kv_adjust_glue (kv, glue_key, -adj);
+
+            curr_key = curr_key->next_multirow;
+        } while (curr_key != edge_end_sgmt);
+    }
+
 }
 
 // Resize a segment and handle the cases where the segment should merge with the
@@ -2534,7 +2596,7 @@ void kv_set_non_rectangular_split (struct keyboard_view_t *kv, float x)
 
     float delta_w = split_key_width - kv->edge_start->width;
     if (delta_w != 0) {
-        change_edge_width (kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt, delta_w);
+        kv_resize_edge (kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt, delta_w);
         kv->new_key->width = new_key_width;
     }
 }
@@ -2895,8 +2957,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     if (is_multirow_key(button_event_key)) {
                         kv->edge_start = kv_get_multirow_parent(button_event_key);
 
-                        kv->edge_glue = save_edge_glue (&kv->resize_pool,
-                                                        kv->edge_start, kv->edge_start, kv->edit_right_edge);
+                        save_edge_glue (&kv->resize_pool,
+                                        kv->edge_start, kv->edge_start, kv->edit_right_edge,
+                                        &kv->edge_glue, &kv->edge_glue_len);
                     } else {
                         kv->edge_start = button_event_key;
                     }
@@ -2911,8 +2974,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv_locate_edge (kv, button_event_key, button_event_key_clicked_sgmt, kv->edit_right_edge,
                                     &kv->edge_start, &kv->edge_prev_sgmt, &kv->edge_end_sgmt, &kv->min_width);
 
-                    kv->edge_glue = save_edge_glue (&kv->resize_pool,
-                                                    kv->edge_start, kv->edge_end_sgmt, kv->edit_right_edge);
+                    save_edge_glue (&kv->resize_pool,
+                                    kv->edge_start, kv->edge_start, kv->edit_right_edge,
+                                    &kv->edge_glue, &kv->edge_glue_len);
 
                     kv->x_clicked_pos = event->x;
                     kv->original_width = kv->edge_start->width;
@@ -3238,7 +3302,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     }
 
                     kv_remove_key (kv, kv->new_key_ptr);
-                    change_edge_width (kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt,
+                    kv_resize_edge (kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt,
                                        kv->split_full_width - kv->edge_start->width);
 
                     kv->state = KV_EDIT;
@@ -3302,7 +3366,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv->x_anchor += kv->edit_right_edge ?
                         delta_w*kv->default_key_size : -delta_w*kv->default_key_size;
 
-                    change_edge_width (kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt, delta_w);
+                    kv_change_edge_width (kv, kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt,
+                                          kv->edit_right_edge, kv->edge_glue, kv->edge_glue_len,
+                                          kv->original_width, delta_w);
                     kv_compute_glue (kv);
                 }
 
@@ -3313,7 +3379,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
                     float delta_w = kv->original_width - kv->edge_start->width;
-                    change_edge_width (kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt, delta_w);
+                    kv_resize_edge (kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt, delta_w);
 
                     kv_compute_glue (kv);
                     kv_resize_cleanup (kv);

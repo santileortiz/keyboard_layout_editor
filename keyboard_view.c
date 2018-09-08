@@ -2333,29 +2333,49 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
                            bool is_right_edge, struct multirow_glue_info_t *glue_info, int glue_info_len,
                            float original_w, float delta_w)
 {
-    float total_change = edge_start->width - original_w;
-    float adj = delta_w > 0 ?
-        delta_w : bnd_delta_update_inv (0, delta_w, -total_change);
+    // When shrinking a key that pushed some keys then leave them at their
+    // original positions.
+    if (delta_w < 0 && /*total change*/ edge_start->width - original_w > 0) {
+        int idx;
+        struct multirow_glue_info_t *sorted[glue_info_len];
+        for (idx=0; idx < glue_info_len; idx++) sorted[idx] = &glue_info[idx];
+        mg_sort (sorted, glue_info_len);
 
-    if (delta_w < 0 && total_change > 0) {
+        int step;
+        for (step=0; step < glue_info_len; step++) {
+            float step_dw = MAX (delta_w, original_w + sorted[step]->min_glue - edge_start->width);
+            if (step_dw < 0) {
+                kv_resize_edge (edge_prev_sgmt, edge_start, edge_end_sgmt, step_dw);
 
-        // TODO: Implement edge shrink so that keys are left behind in their
-        // original positions.
+                idx = 0;
+                struct key_t *curr_key = edge_start;
+                do {
+                    if (edge_start->width - original_w - step_dw <= glue_info[idx].min_glue) {
+                        struct key_t *glue_key = is_right_edge ? curr_key->next_key : curr_key;
+                        if (glue_key) kv_adjust_glue (kv, glue_key, -step_dw);
+                    }
 
-    }  else {
-        kv_resize_edge (edge_prev_sgmt, edge_start, edge_end_sgmt, delta_w);
+                    curr_key = curr_key->next_multirow;
+                    idx++;
+                } while (curr_key != edge_end_sgmt);
+                delta_w -= step_dw;
+            }
+        }
     }
 
-    if (adj != 0) {
+    // This is the normal case. If we entered the case above, then this handles
+    // the remaining delta_w.
+    if (delta_w != 0) {
+        kv_resize_edge (edge_prev_sgmt, edge_start, edge_end_sgmt, delta_w);
+
         struct key_t *curr_key = edge_start;
         do {
             struct key_t *glue_key = is_right_edge ? curr_key->next_key : curr_key;
-            if (glue_key) kv_adjust_glue (kv, glue_key, -adj);
+            if (glue_key) kv_adjust_glue (kv, glue_key, -delta_w);
 
             curr_key = curr_key->next_multirow;
         } while (curr_key != edge_end_sgmt);
     }
-
 }
 
 // Resize a segment and handle the cases where the segment should merge with the
@@ -3379,7 +3399,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
                     float delta_w = kv->original_width - kv->edge_start->width;
-                    kv_resize_edge (kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt, delta_w);
+                    kv_change_edge_width (kv, kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt,
+                                          kv->edit_right_edge, kv->edge_glue, kv->edge_glue_len,
+                                          kv->original_width, delta_w);
 
                     kv_compute_glue (kv);
                     kv_resize_cleanup (kv);

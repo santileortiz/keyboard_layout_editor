@@ -2098,43 +2098,26 @@ void kv_locate_edge (struct keyboard_view_t *kv,
 {
     assert (edge_start != NULL && edge_prev_sgmt != NULL && edge_end_sgmt != NULL && min_width != NULL);
 
-    enum multirow_key_align_t alignment = MULTIROW_ALIGN_RIGHT;
-    if (is_right_edge) {
-        alignment = MULTIROW_ALIGN_LEFT;
-    }
+    // The start of an edge is marked by a segment aligned with the opposite
+    // direction of the edge side we are looking for.
+    enum multirow_key_align_t alignment = is_right_edge ?  MULTIROW_ALIGN_LEFT : MULTIROW_ALIGN_RIGHT;
 
     *edge_prev_sgmt = NULL;
     *edge_start = multirow_parent;
     if (key_sgmt != multirow_parent) {
-        int num_same_edge = 1;
         struct key_t *curr_key = multirow_parent;
-        struct key_t *prev_sized;
+        struct key_t *prev_sized = NULL;
         do {
+            if (curr_key->type == KEY_MULTIROW_SEGMENT_SIZED && curr_key->align == alignment) {
+                *edge_prev_sgmt = prev_sized;
+                *edge_start = curr_key;
+            }
+
             if (curr_key->type != KEY_MULTIROW_SEGMENT) {
                 prev_sized = curr_key;
             }
-
             curr_key = curr_key->next_multirow;
-
-            if (curr_key->type == KEY_MULTIROW_SEGMENT_SIZED) {
-                if (curr_key->align == alignment) {
-                    num_same_edge = 0;
-                    *edge_prev_sgmt = prev_sized;
-                    *edge_start = curr_key;
-
-                } else {
-                    if (num_same_edge == 0) {
-                        *edge_start = curr_key;
-                    }
-                    num_same_edge++;
-                }
-            }
-
-            if (curr_key->type == KEY_MULTIROW_SEGMENT) {
-                num_same_edge++;
-            }
-
-        } while (curr_key != key_sgmt);
+        } while (curr_key != key_sgmt->next_multirow);
     }
 
     *edge_end_sgmt = multirow_parent;
@@ -2149,7 +2132,6 @@ void kv_locate_edge (struct keyboard_view_t *kv,
             curr_key = curr_key->next_multirow;
         }
     }
-
 
     float min_w = (*edge_start)->width;
     {
@@ -2166,15 +2148,16 @@ void kv_locate_edge (struct keyboard_view_t *kv,
 #if 0
     // Debug code
     {
-        struct key_t *curr_key = button_event_key;
+        struct key_t *curr_key = multirow_parent;
         do {
             printf ("%p ", curr_key);
             curr_key = curr_key->next_multirow;
-        } while (curr_key != button_event_key);
+        } while (curr_key != multirow_parent);
         printf ("\n");
-        printf ("r: %p ", edge_start);
-        printf ("s: %p ", edge_prev_sgmt);
-        printf ("e: %p\n", edge_end_sgmt);
+        printf ("sgmt %p ", key_sgmt);
+        printf ("prev %p ", *edge_prev_sgmt);
+        printf ("start: %p ", *edge_start);
+        printf ("end: %p\n\n", *edge_end_sgmt);
     }
 #endif
 }

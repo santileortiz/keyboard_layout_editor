@@ -1161,7 +1161,7 @@ void kv_equalize_left_edge (struct keyboard_view_t *kv)
 
 void multirow_test_geometry (struct keyboard_view_t *kv)
 {
-#if 0
+#if 1
     kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
     kv_new_row_h (kv, 1.5);
     struct key_t *multi1 = kv_add_key (kv, KEY_A);
@@ -2176,7 +2176,6 @@ save_edge_glue (mem_pool_t *pool,
 {
     assert (info != NULL && info_len != NULL);
 
-    struct multirow_glue_info_t *info_l;
     int len = 0;
     {
         struct key_t *curr_key = edge_start;
@@ -2185,8 +2184,8 @@ save_edge_glue (mem_pool_t *pool,
             curr_key = curr_key->next_multirow;
         } while (curr_key != edge_end_sgmt);
 
-        info_l = mem_pool_push_array (pool, len, struct multirow_glue_info_t);
     }
+    struct multirow_glue_info_t info_l[len];
 
     int idx = 0;
     struct key_t *curr_key = edge_start;
@@ -2212,8 +2211,9 @@ save_edge_glue (mem_pool_t *pool,
         curr_key = curr_key->next_multirow;
     } while (curr_key != edge_end_sgmt);
 
-    *info = info_l;
     *info_len = idx;
+    *info = mem_pool_push_array (pool, idx, struct multirow_glue_info_t);
+    for (int i=0; i<idx; i++) (*info)[i] = info_l[i];
 }
 
 void kv_resize_cleanup (struct keyboard_view_t *kv)
@@ -2318,7 +2318,7 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
 {
     // When shrinking a key that pushed some keys then leave them at their
     // original positions.
-    if (delta_w < 0 && /*total change*/ edge_start->width - original_w > 0) {
+    if (glue_info && delta_w < 0 && /*total change*/ edge_start->width - original_w > 0) {
         int idx;
         struct multirow_glue_info_t *sorted[glue_info_len];
         for (idx=0; idx < glue_info_len; idx++) sorted[idx] = &glue_info[idx];

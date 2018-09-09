@@ -941,7 +941,7 @@ void kv_adjust_left_edge (struct keyboard_view_t *kv, struct key_t *sgmt, float 
         if (is_multirow_parent (curr_key) && is_key_first (curr_key, curr_row)) {
             // Check if the key whose parent is curr_key contains sgmt
             struct key_t *s = NULL;
-            if (sgmt && is_multirow_key (curr_key)) {
+            if (sgmt) {
                 s = curr_key;
                 do {
                     if (sgmt == s) break;

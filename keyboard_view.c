@@ -1161,7 +1161,7 @@ void kv_equalize_left_edge (struct keyboard_view_t *kv)
 
 void multirow_test_geometry (struct keyboard_view_t *kv)
 {
-#if 1
+#if 0
     kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
     kv_new_row_h (kv, 1.5);
     struct key_t *multi1 = kv_add_key (kv, KEY_A);
@@ -2183,7 +2183,6 @@ save_edge_glue (mem_pool_t *pool,
             len ++;
             curr_key = curr_key->next_multirow;
         } while (curr_key != edge_end_sgmt);
-
     }
     struct multirow_glue_info_t info_l[len];
 
@@ -2202,18 +2201,34 @@ save_edge_glue (mem_pool_t *pool,
                 info_l[idx-1].min_glue = MIN (info_l[idx-1].min_glue, get_sgmt_total_glue(new_glue_key));
                 info_l[idx-1].num_sgmts++;
             }
-
             prev_glue_key = new_glue_key;
+
         } else {
+            info_l[idx].min_glue = 0;
+            info_l[idx].num_sgmts = 1;
+            idx++;
             prev_glue_key = NULL;
         }
 
         curr_key = curr_key->next_multirow;
     } while (curr_key != edge_end_sgmt);
 
-    *info_len = idx;
-    *info = mem_pool_push_array (pool, idx, struct multirow_glue_info_t);
-    for (int i=0; i<idx; i++) (*info)[i] = info_l[i];
+    // Check if at least one glue information is non zero
+    bool non_zero_glue = false;
+    for (int i=0; i<idx && !non_zero_glue; i++) {
+        if (info_l[i].min_glue != 0) non_zero_glue = true;
+    }
+
+    if (non_zero_glue) {
+        *info_len = idx;
+        *info = mem_pool_push_array (pool, idx, struct multirow_glue_info_t);
+        for (int i=0; i<idx; i++) (*info)[i] = info_l[i];
+    } else {
+        // Returning no glue information if all segments have zero min glue
+        // creates the behavior of not adding glue if there was none before.
+        *info_len = 0;
+        *info = NULL;
+    }
 }
 
 void kv_resize_cleanup (struct keyboard_view_t *kv)

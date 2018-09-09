@@ -1295,7 +1295,7 @@ void swap_n_bytes (void *a, void*b, uint32_t n)
 #define templ_sort(FUNCNAME,TYPE,IS_A_LT_B)                     \
 void FUNCNAME ## _user_data (TYPE *arr, int n, void *user_data) \
 {                                                               \
-    if (n==1) {                                                 \
+    if (n<=1) {                                                 \
         return;                                                 \
     } else if (n == 2) {                                        \
         TYPE *a = &arr[1];                                      \
@@ -1722,6 +1722,8 @@ enum alloc_opts {
 #define mem_pool_push_size(pool, size) mem_pool_push_size_full(pool, size, POOL_UNINITIALIZED)
 void* mem_pool_push_size_full (mem_pool_t *pool, uint32_t size, enum alloc_opts opts)
 {
+    if (size == 0) return NULL;
+
     if (pool->used + size >= pool->size) {
         pool->num_bins++;
         int new_bin_size = MAX (MAX (MEM_POOL_MIN_BIN_SIZE, pool->min_bin_size), size);

@@ -892,7 +892,9 @@ bool multirow_user_glue_for_delta_glue (struct key_t *sgmt, float delta_glue, fl
     float next_min_glue = INFINITY;
     struct key_t *curr_sgmt = sgmt->next_multirow;
     while (curr_sgmt != sgmt) {
-        next_min_glue = MIN (next_min_glue, curr_sgmt->internal_glue);
+        if (sgmt->internal_glue != curr_sgmt->internal_glue) {
+            next_min_glue = MIN (next_min_glue, curr_sgmt->internal_glue);
+        }
         curr_sgmt = curr_sgmt->next_multirow;
     }
 
@@ -932,30 +934,75 @@ void kv_adjust_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float delta
 // move right.
 void kv_adjust_left_edge (struct keyboard_view_t *kv, struct key_t *sgmt, float change)
 {
-    // In theory this is O(n^2) where n is the number of rows, but
-    // in practice I doubt we will ever have a keyboard that causes
-    // trouble.
+    int num_rows = kv_get_num_rows (kv);
+
+    struct key_t **row_first_sgmt[num_rows];
+    struct key_t *supporting_keys[num_rows];
+    int num_supporting_keys = 0;
+
+    // Find all supporting keys. Keys that contain segments that touch the left
+    // margin. Note that "touching" the left margin includes touching it through
+    // user glue (but not internal glue).
+    int row_idx = 0;
     struct row_t *curr_row = kv->first_row;
     while (curr_row != NULL) {
         struct key_t *curr_key = curr_row->first_key;
-        if (is_multirow_parent (curr_key) && is_key_first (curr_key, curr_row)) {
-            // Check if the key whose parent is curr_key contains sgmt
-            struct key_t *s = NULL;
-            if (sgmt) {
-                s = curr_key;
-                do {
-                    if (sgmt == s) break;
-                    s = s->next_multirow;
-                } while (!is_multirow_parent (s));
+        if (is_supporting_sgmt (curr_key)) {
+            struct key_t *parent = kv_get_multirow_parent (curr_key);
+
+            int support_idx = -1;
+            for (int i=0; i<num_supporting_keys && support_idx == -1; i++) {
+                if (supporting_keys[i] == parent) support_idx = i;
             }
 
-            // Adjust row unconditionally if sgmt was not provided. Otherwise
-            // only update the row if sgmt wasn't found inside curr_key.
-            if (sgmt == NULL || sgmt != s) {
-                curr_key->user_glue -= change;
+            if (support_idx == -1) {
+                support_idx = num_supporting_keys;
+                supporting_keys[num_supporting_keys++] = parent;
             }
+
+            row_first_sgmt[row_idx] = &supporting_keys[support_idx];
+
+        } else {
+            row_first_sgmt[row_idx] = NULL;
         }
+
         curr_row = curr_row->next_row;
+        row_idx++;
+    }
+
+    // Check that all supporting segments of supporting_keys are visible from
+    // the left edge. Ignore keys where this is not the case, because another
+    // supporting segment will push them.
+    for (int i=0; i<num_supporting_keys; i++) {
+        struct key_t *curr_sgmt = supporting_keys[i];
+        struct row_t *curr_row = kv_get_row(kv, curr_sgmt);
+        do  {
+            if (is_supporting_sgmt (curr_sgmt) && curr_sgmt != curr_row->first_key) {
+                supporting_keys[i] = NULL;
+                break;
+            }
+
+            curr_sgmt = curr_sgmt->next_multirow;
+            curr_row = curr_row->next_row;
+        } while (curr_sgmt != supporting_keys[i]);
+    }
+
+    // Ignore the key related to the provided segment.
+    if (sgmt != NULL) {
+        int row_idx = 0;
+        struct row_t *curr_row = kv->first_row;
+        while (curr_row != NULL) {
+            if (curr_row->first_key == sgmt && row_first_sgmt[row_idx]) {
+                *(row_first_sgmt[row_idx]) = NULL;
+            }
+            curr_row = curr_row->next_row;
+            row_idx++;
+        }
+    }
+
+    // Push the remaining keys to the right
+    for (int i=0; i<num_supporting_keys; i++) {
+        if (supporting_keys[i]) supporting_keys[i]->user_glue -= change;
     }
 }
 
@@ -3217,14 +3264,20 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_BUTTON_RELEASE) {
+                float glue_adj, new_glue;
+                if (kv->added_key_user_glue < 0) {
+                    kv_adjust_left_edge (kv, NULL, kv->added_key_user_glue);
+                    glue_adj = -1;
+                    new_glue = 0;
+                } else {
+                    glue_adj = -(kv->added_key_user_glue + 1);
+                    new_glue = kv->added_key_user_glue;
+                }
+
                 struct key_t *new_key =
                     kv_insert_new_sgmt (kv, kv->locate_stat, kv->added_key_ptr);
-                kv_adjust_glue (kv, new_key->next_key, -(kv->added_key_user_glue + 1));
-                if (kv->added_key_user_glue < 0) {
-                    kv_adjust_left_edge (kv, new_key, kv->added_key_user_glue);
-                } else {
-                    new_key->user_glue = kv->added_key_user_glue;
-                }
+                new_key->user_glue = new_glue;
+                kv_adjust_glue (kv, new_key->next_key, glue_adj);
 
                 kv_compute_glue (kv);
 

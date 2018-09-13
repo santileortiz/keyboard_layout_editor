@@ -1001,8 +1001,16 @@ void kv_adjust_left_edge (struct keyboard_view_t *kv, struct key_t *sgmt, float 
     }
 
     // Push the remaining keys to the right
-    for (int i=0; i<num_supporting_keys; i++) {
-        if (supporting_keys[i]) supporting_keys[i]->user_glue -= change;
+    row_idx = 0;
+    curr_row = kv->first_row;
+    while (curr_row != NULL) {
+        if (row_first_sgmt[row_idx] && *(row_first_sgmt[row_idx])) {
+            kv_adjust_glue(kv, curr_row->first_key, -change);
+            *(row_first_sgmt[row_idx]) = NULL;
+
+        }
+        curr_row = curr_row->next_row;
+        row_idx++;
     }
 }
 
@@ -1208,7 +1216,6 @@ void kv_equalize_left_edge (struct keyboard_view_t *kv)
 
 void multirow_test_geometry (struct keyboard_view_t *kv)
 {
-#if 0
     kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
     kv_new_row_h (kv, 1.5);
     struct key_t *multi1 = kv_add_key (kv, KEY_A);
@@ -1234,7 +1241,11 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
     kv_add_key_multirow (kv, multi3);
     kv_add_key_multirow_sized (kv, multi4, 3, MULTIROW_ALIGN_RIGHT);
 
-#else
+    kv_compute_glue (kv);
+}
+
+void non_rectangular_edge_resize_test_geometry (struct keyboard_view_t *kv)
+{
     kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
     kv_new_row_h (kv, 1);
     struct key_t *m = kv_add_key_w (kv, KEY_A, 3);
@@ -1254,7 +1265,25 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
     kv_new_row_h (kv, 1);
     kv_add_key_multirow_sized (kv, m, 3, MULTIROW_ALIGN_LEFT);
 
-#endif
+    kv_compute_glue (kv);
+}
+
+void adjust_left_edge_test_geometry (struct keyboard_view_t *kv)
+{
+    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
+    kv_new_row_h (kv, 1);
+    struct key_t *m1 = kv_add_key_full (kv, KEY_1, 1, 0);
+
+    kv_new_row_h (kv, 1);
+    struct key_t *m2 = kv_add_key_full (kv, KEY_2, 1, 1);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m2);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow_sized (kv, m1, 4, MULTIROW_ALIGN_RIGHT);
 
     kv_compute_glue (kv);
 }
@@ -3267,6 +3296,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 float glue_adj, new_glue;
                 if (kv->added_key_user_glue < 0) {
                     kv_adjust_left_edge (kv, NULL, kv->added_key_user_glue);
+                    kv_compute_glue (kv);
                     glue_adj = -1;
                     new_glue = 0;
                 } else {
@@ -3748,7 +3778,9 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool, GtkWidget *window)
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
 
 #if 1
-    multirow_test_geometry (kv);
+    //multirow_test_geometry (kv);
+    //non_rectangular_edge_resize_test_geometry (kv);
+    adjust_left_edge_test_geometry (kv);
 #else
     keyboard_view_build_default_geometry (kv);
 #endif

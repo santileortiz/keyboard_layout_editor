@@ -670,6 +670,30 @@ bool compute_key_size_full (struct keyboard_view_t *kv, struct key_t *key, struc
     return is_rectangular;
 }
 
+void kv_print (struct keyboard_view_t *kv)
+{
+    struct row_t *row = kv->first_row;
+    while (row != NULL) {
+        struct key_t *sgmt = row->first_key;
+        while (sgmt != NULL) {
+            if (!is_multirow_key (sgmt)) {
+                printf ("(KC: %i, W: %.3f, UG %.3f) ",
+                        sgmt->kc, sgmt->width, sgmt->user_glue);
+
+            } else if (is_multirow_parent (sgmt)) {
+                printf ("P:(KC: %i, W: %.3f, UG %.3f, IG: %.3f) ",
+                        sgmt->kc, sgmt->width, sgmt->user_glue, sgmt->internal_glue);
+            } else {
+                printf ("S:(W: %.3f, IG: %.3f) ", sgmt->width, sgmt->internal_glue);
+            }
+            sgmt = sgmt->next_key;
+        }
+        printf ("\n");
+        row = row->next_row;
+    }
+    printf ("\n");
+}
+
 // Simple default keyboard geometry.
 // NOTE: Keycodes are used as defined in the linux kernel. To translate them
 // into X11 keycodes offset them by 8 (x11_kc = kc+8).

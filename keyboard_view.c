@@ -147,12 +147,14 @@ struct keyboard_view_t {
     float split_rect_x;
     float split_full_width;
 
+    // State used by several resize tools: RESIZE_KEY, RESIZE_SEGMENT,
+    // RESIZE_ROW, PUSH_RIGHT (user glue resize).
+    float clicked_pos; // clicked x or y coordinate
+    float original_size;
+
     // KEY_RESIZE state
     struct key_t *edge_start;
     struct key_t *edge_prev_sgmt, *edge_end_sgmt;
-    float x_clicked_pos;
-    float x_anchor;
-    float original_width;
     float original_user_glue;
     float min_width;
     bool edit_right_edge;
@@ -171,8 +173,6 @@ struct keyboard_view_t {
     // KEY_RESIZE_ROW state
     bool resize_row_top;
     struct row_t *resized_row;
-    float resized_row_original_height;
-    float y_anchor;
 
     // KEY_ADD state
     GdkRectangle to_add_rect;
@@ -183,7 +183,6 @@ struct keyboard_view_t {
 
     // PUSH_RIGHT state
     struct key_t *push_right_key;
-    float push_right_original_glue;
 
     // Manual tooltips list
     mem_pool_t tooltips_pool;
@@ -2432,8 +2431,10 @@ void kv_resize_edge (struct key_t *edge_prev_sgmt, struct key_t *edge_start, str
 void kv_change_edge_width (struct keyboard_view_t *kv,
                            struct key_t *edge_prev_sgmt, struct key_t *edge_start, struct key_t *edge_end_sgmt,
                            bool is_right_edge, struct multirow_glue_info_t *glue_info, int glue_info_len,
-                           float original_w, float delta_w)
+                           float original_w, float new_width)
 {
+    float delta_w = new_width - kv->edge_start->width;
+
     // When shrinking a key that pushed some keys then leave them at their
     // original positions.
     if (glue_info && delta_w < 0 && /*total change*/ edge_start->width - original_w > 0) {
@@ -2542,8 +2543,10 @@ void kv_resize_sgmt (struct keyboard_view_t *kv, struct key_t *prev_multirow,
 
 void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multirow, struct key_t *sgmt,
                            struct row_t *row, float original_glue_plus_w, float original_glue,
-                           float delta_w, bool edit_right_edge)
+                           float new_width, bool edit_right_edge)
 {
+    float delta_w = new_width - sgmt->width;
+
     // The glue is adjusted by the value that goes below original_glue_plus_w.
     float glue_adj = bnd_delta_update (sgmt->width, sgmt->width + delta_w, original_glue_plus_w);
 
@@ -3086,8 +3089,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     }
 
                     kv->min_width = kv_get_min_key_width(kv);
-                    kv->x_clicked_pos = event->x;
-                    kv->original_width = kv->edge_start->width;
+                    kv->clicked_pos = event->x;
+                    kv->original_size = kv->edge_start->width;
                     kv->original_user_glue = get_sgmt_user_glue(kv->edge_start);
                     kv->state = KV_EDIT_KEY_RESIZE;
 
@@ -3099,9 +3102,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                                     kv->edge_start, kv->edge_start, kv->edit_right_edge,
                                     &kv->edge_glue, &kv->edge_glue_len);
 
-                    kv->x_clicked_pos = event->x;
-                    kv->original_width = kv->edge_start->width;
-                    kv->x_anchor = event->x;
+                    kv->original_size = kv->edge_start->width;
+                    kv->clicked_pos = event->x;
                     kv->state = KV_EDIT_KEY_RESIZE_NON_RECTANGULAR;
                 }
 
@@ -3127,11 +3129,11 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 }
 
                 kv->resized_segment = button_event_key_clicked_sgmt;
-                kv->original_width = get_sgmt_width (button_event_key_clicked_sgmt);
-                kv->resized_segment->width = kv->original_width;
+                kv->original_size = get_sgmt_width (button_event_key_clicked_sgmt);
+                kv->resized_segment->width = kv->original_size;
                 struct key_t *end_sgmt = kv->resized_segment->next_multirow;
                 if (end_sgmt->type == KEY_MULTIROW_SEGMENT) {
-                    end_sgmt->width = kv->original_width;
+                    end_sgmt->width = kv->original_size;
                 }
 
                 // TODO: Some segment edges can't be resized because currently
@@ -3160,8 +3162,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 }
 
                 kv->min_width = kv_get_min_key_width(kv);
-                kv->x_clicked_pos = event->x;
-                kv->x_anchor = event->x;
+                kv->clicked_pos = event->x;
                 kv->resized_segment_row = kv_get_row (kv, kv->resized_segment);
 
                 // Store original user glue
@@ -3178,7 +3179,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                         kv->resized_segment_original_glue =
                             kv->resized_segment_original_user_glue + glue_key->internal_glue;
                     }
-                    kv->resized_segment_glue_plus_w = kv->original_width + kv->resized_segment_original_glue;
+                    kv->resized_segment_glue_plus_w = kv->original_size + kv->resized_segment_original_glue;
                 }
 
             } else if (kv->active_tool == KV_TOOL_RESIZE_ROW &&
@@ -3193,8 +3194,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv->resize_row_top = false;
                 }
                 kv->resized_row = row;
-                kv->resized_row_original_height = row->height;
-                kv->y_anchor = event->y;
+                kv->original_size = row->height;
+                kv->clicked_pos = event->y;
                 kv->state = KV_EDIT_KEY_RESIZE_ROW;
 
             } else if (kv->active_tool == KV_TOOL_VERTICAL_EXTEND &&
@@ -3343,9 +3344,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (kv->active_tool == KV_TOOL_PUSH_RIGHT &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
-                kv->x_anchor = ((GdkEventButton*)e)->x;
+                kv->clicked_pos = ((GdkEventButton*)e)->x;
                 kv->push_right_key = button_event_key;
-                kv->push_right_original_glue = get_sgmt_user_glue (button_event_key);
+                kv->original_size = get_sgmt_user_glue (button_event_key);
                 kv->state = KV_EDIT_KEY_PUSH_RIGHT;
             }
             break;
@@ -3443,17 +3444,17 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         case KV_EDIT_KEY_RESIZE:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
-                float delta = bin_floor((event->x - kv->x_clicked_pos)/kv->default_key_size, 3);
+                float delta = bin_floor((event->x - kv->clicked_pos)/kv->default_key_size, 3);
 
                 float new_width = kv->edit_right_edge ?
-                    kv->original_width + delta : kv->original_width - delta;
+                    kv->original_size + delta : kv->original_size - delta;
                 new_width = MAX(new_width, kv->min_width);
 
                 if (kv->edge_start->width != new_width) {
                     kv->edge_start->width = new_width;
 
                     if (!kv->edit_right_edge) {
-                        float max_glue = kv->original_user_glue + kv->original_width - kv->min_width;
+                        float max_glue = kv->original_user_glue + kv->original_size - kv->min_width;
                         kv->edge_start->user_glue = CLAMP(kv->original_user_glue + delta, 0, max_glue);
                     }
 
@@ -3466,7 +3467,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
-                    kv->edge_start->width = kv->original_width;
+                    kv->edge_start->width = kv->original_size;
 
                     if (!kv->edit_right_edge) {
                         kv->edge_start->user_glue = kv->original_user_glue;
@@ -3483,20 +3484,16 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         case KV_EDIT_KEY_RESIZE_NON_RECTANGULAR:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
-                float delta = bin_floor((event->x - kv->x_anchor)/kv->default_key_size, 3);
+                float delta = bin_floor((event->x - kv->clicked_pos)/kv->default_key_size, 3);
 
                 float new_width = kv->edit_right_edge ?
-                    kv->edge_start->width + delta : kv->edge_start->width - delta;
+                    kv->original_size + delta : kv->original_size - delta;
                 new_width = MAX (new_width, kv->min_width);
 
                 if (new_width != kv->edge_start->width) {
-                    float delta_w = new_width - kv->edge_start->width;
-                    kv->x_anchor += kv->edit_right_edge ?
-                        delta_w*kv->default_key_size : -delta_w*kv->default_key_size;
-
                     kv_change_edge_width (kv, kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt,
                                           kv->edit_right_edge, kv->edge_glue, kv->edge_glue_len,
-                                          kv->original_width, delta_w);
+                                          kv->original_size, new_width);
                     kv_compute_glue (kv);
                 }
 
@@ -3506,10 +3503,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
-                    float delta_w = kv->original_width - kv->edge_start->width;
                     kv_change_edge_width (kv, kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt,
                                           kv->edit_right_edge, kv->edge_glue, kv->edge_glue_len,
-                                          kv->original_width, delta_w);
+                                          kv->original_size, kv->original_size);
 
                     kv_compute_glue (kv);
                     kv_resize_cleanup (kv);
@@ -3522,20 +3518,16 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         case KV_EDIT_KEY_RESIZE_SEGMENT:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
-                float delta = bin_floor((event->x - kv->x_anchor)/kv->default_key_size, 3);
+                float delta = bin_floor((event->x - kv->clicked_pos)/kv->default_key_size, 3);
 
                 float new_width = kv->edit_right_edge ?
-                    kv->resized_segment->width + delta : kv->resized_segment->width - delta;
+                    kv->original_size + delta : kv->original_size - delta;
                 new_width = MAX(new_width, kv->min_width);
 
                 if (new_width != kv->resized_segment->width) {
-                    float delta_w = new_width - kv->resized_segment->width; // effective delta
-                    kv->x_anchor += kv->edit_right_edge ?
-                        delta_w*kv->default_key_size : -delta_w*kv->default_key_size;
-
                     kv_change_sgmt_width (kv, kv->resized_segment_prev, kv->resized_segment,
                                           kv->resized_segment_row, kv->resized_segment_glue_plus_w,
-                                          kv->resized_segment_original_glue, delta_w, kv->edit_right_edge);
+                                          kv->resized_segment_original_glue, new_width, kv->edit_right_edge);
                     kv_compute_glue (kv);
                 }
 
@@ -3544,10 +3536,10 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
-                    float delta_w = kv->original_width - kv->resized_segment->width;
                     kv_change_sgmt_width (kv, kv->resized_segment_prev, kv->resized_segment,
                                           kv->resized_segment_row, kv->resized_segment_glue_plus_w,
-                                          kv->resized_segment_original_glue, delta_w, kv->edit_right_edge);
+                                          kv->resized_segment_original_glue, kv->original_size,
+                                          kv->edit_right_edge);
 
                     // Restore user glue
                     struct key_t *glue_key = kv->edit_right_edge ?
@@ -3567,17 +3559,13 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         case KV_EDIT_KEY_RESIZE_ROW:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
-                float delta = bin_floor((event->y - kv->y_anchor)/kv->default_key_size, 3);
+                float delta = bin_floor((event->y - kv->clicked_pos)/kv->default_key_size, 3);
 
                 float new_height = kv->resize_row_top ?
-                    kv->resized_row->height - delta : kv->resized_row->height + delta;
+                    kv->original_size - delta : kv->original_size + delta;
                 new_height = MAX(new_height, kv_get_min_key_width(kv));
 
                 if (new_height != kv->resized_row->height) {
-                    float delta_w = new_height - kv->resized_row->height; // effective delta
-                    kv->y_anchor += kv->resize_row_top ?
-                        -delta_w*kv->default_key_size : delta_w*kv->default_key_size;
-
                     kv->resized_row->height = new_height;
                 }
 
@@ -3586,7 +3574,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
-                    kv->resized_row->height = kv->resized_row_original_height;
+                    kv->resized_row->height = kv->original_size;
                     kv->state = KV_EDIT;
                 }
             }
@@ -3595,11 +3583,10 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         case KV_EDIT_KEY_PUSH_RIGHT:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
-                float delta = bin_floor((event->x - kv->x_anchor)/kv->default_key_size, 3);
-                float new_glue = MAX (0, kv->push_right_key->user_glue + delta);
+                float delta = bin_floor((event->x - kv->clicked_pos)/kv->default_key_size, 3);
+                float new_glue = MAX (0, kv->original_size + delta);
 
                 if (kv->push_right_key->user_glue != new_glue) {
-                    kv->x_anchor += (new_glue - kv->push_right_key->user_glue)*kv->default_key_size;
                     kv->push_right_key->user_glue = new_glue;
                     kv_compute_glue (kv);
                 }
@@ -3609,7 +3596,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
-                    kv->push_right_key->user_glue = kv->push_right_original_glue;
+                    kv->push_right_key->user_glue = kv->original_size;
                     kv->state = KV_EDIT;
                     kv_compute_glue (kv);
                 }
@@ -3805,9 +3792,9 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool, GtkWidget *window)
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
 
 #if 1
-    //multirow_test_geometry (kv);
+    multirow_test_geometry (kv);
     //non_rectangular_edge_resize_test_geometry (kv);
-    adjust_left_edge_test_geometry (kv);
+    //adjust_left_edge_test_geometry (kv);
 #else
     keyboard_view_build_default_geometry (kv);
 #endif

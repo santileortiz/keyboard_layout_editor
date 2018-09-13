@@ -953,9 +953,12 @@ void kv_adjust_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float delta
     }
 }
 
-// Move the keyboard by adding/removing user glue to the first keys. If sgmt is
-// not NULL then skip that segment from being modified. A negative change means
-// move right.
+// Pushes the full keyboard right by the amount specified in the change
+// argument. The segment provided as the sgmt argument will avoid the key
+// containing it to not be pushed right, as long as sgmt is the first segment in
+// a row. For exampe the sgmt argument is used in the resize segment tool, to
+// avoid pushing the key containing a segment being resized beyond the left
+// edge.
 void kv_adjust_left_edge (struct keyboard_view_t *kv, struct key_t *sgmt, float change)
 {
     int num_rows = kv_get_num_rows (kv);
@@ -1029,7 +1032,7 @@ void kv_adjust_left_edge (struct keyboard_view_t *kv, struct key_t *sgmt, float 
     curr_row = kv->first_row;
     while (curr_row != NULL) {
         if (row_first_sgmt[row_idx] && *(row_first_sgmt[row_idx])) {
-            kv_adjust_glue(kv, curr_row->first_key, -change);
+            kv_adjust_glue(kv, curr_row->first_key, change);
             *(row_first_sgmt[row_idx]) = NULL;
 
         }
@@ -2598,7 +2601,7 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multir
         // Maybe adjust left edge if the edited edge goes beyond the left margin
         float adj = bnd_delta_update_inv (sgmt->width - delta_w, sgmt->width, original_glue_plus_w);
         if (row->first_key == sgmt) {
-            kv_adjust_left_edge (kv, sgmt, -adj);
+            kv_adjust_left_edge (kv, sgmt, adj);
             adjusted_left_edge = true;
         }
     }
@@ -3319,7 +3322,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                        e->type == GDK_BUTTON_RELEASE) {
                 float glue_adj, new_glue;
                 if (kv->added_key_user_glue < 0) {
-                    kv_adjust_left_edge (kv, NULL, kv->added_key_user_glue);
+                    kv_adjust_left_edge (kv, NULL, -kv->added_key_user_glue);
                     kv_compute_glue (kv);
                     glue_adj = -1;
                     new_glue = 0;

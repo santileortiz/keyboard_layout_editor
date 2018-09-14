@@ -2470,13 +2470,15 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
     if (delta_w != 0) {
         kv_resize_edge (edge_prev_sgmt, edge_start, edge_end_sgmt, delta_w);
 
-        struct key_t *curr_key = edge_start;
-        do {
-            struct key_t *glue_key = is_right_edge ? curr_key->next_key : curr_key;
-            if (glue_key) kv_adjust_glue (kv, glue_key, -delta_w);
+        if (glue_info) {
+            struct key_t *curr_key = edge_start;
+            do {
+                struct key_t *glue_key = is_right_edge ? curr_key->next_key : curr_key;
+                if (glue_key) kv_adjust_glue (kv, glue_key, -delta_w);
 
-            curr_key = curr_key->next_multirow;
-        } while (curr_key != edge_end_sgmt);
+                curr_key = curr_key->next_multirow;
+            } while (curr_key != edge_end_sgmt);
+        }
     }
 }
 

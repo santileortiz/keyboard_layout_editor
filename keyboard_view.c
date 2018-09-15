@@ -9,7 +9,6 @@ enum keyboard_view_state_t {
     KV_EDIT_KEY_SPLIT,
     KV_EDIT_KEY_SPLIT_NON_RECTANGULAR,
     KV_EDIT_KEY_RESIZE,
-    KV_EDIT_KEY_RESIZE_NON_RECTANGULAR,
     KV_EDIT_KEY_RESIZE_SEGMENT,
     KV_EDIT_KEY_RESIZE_ROW,
     KV_EDIT_KEY_PUSH_RIGHT
@@ -893,25 +892,12 @@ float bnd_delta_update (float old_val, float new_val, float boundary)
     return adjustment;
 }
 
-float compute_next_min_glue (struct key_t *sgmt, struct key_t *edge_end)
-{
-    float next_min_glue = INFINITY;
-    struct key_t *curr_sgmt = sgmt->next_multirow;
-    while (curr_sgmt != sgmt) {
-        //if (sgmt->internal_glue != curr_sgmt->internal_glue) {
-            next_min_glue = MIN (next_min_glue, curr_sgmt->internal_glue);
-        //}
-        curr_sgmt = curr_sgmt->next_multirow;
-    }
-    return next_min_glue;
-}
-
 // Computes the change in a key's user glue, if the total glue of the segment
 // sgmt changes by delta_glue and we want to keep the key fixed in place. If the
 // key's user glue needs to change, the new value will be set in the provided
 // glue argument, and true will be returned. If the key's user glue should
 // remain the same then false is returned and the glue argument isn't modified.
-bool multirow_user_glue_for_delta_glue (struct key_t *sgmt, float delta_glue, float next_min_glue, float *glue)
+bool multirow_user_glue_for_delta_glue (struct key_t *sgmt, float delta_glue, float *glue)
 {
     assert (is_multirow_key (sgmt));
 
@@ -925,8 +911,11 @@ bool multirow_user_glue_for_delta_glue (struct key_t *sgmt, float delta_glue, fl
         return false;
     }
 
-    if (next_min_glue < 0) {
-        next_min_glue = compute_next_min_glue(sgmt, sgmt->next_multirow);
+    float next_min_glue = INFINITY;
+    struct key_t *curr_sgmt = sgmt->next_multirow;
+    while (curr_sgmt != sgmt) {
+        next_min_glue = MIN (next_min_glue, curr_sgmt->internal_glue);
+        curr_sgmt = curr_sgmt->next_multirow;
     }
 
     if (delta_glue > 0) {
@@ -946,8 +935,7 @@ bool multirow_user_glue_for_delta_glue (struct key_t *sgmt, float delta_glue, fl
 // stays fixed in place. It is used when the glue of sgmt changes for some
 // reason. The delta_glue argument represents the difference between the new
 // total glue to the old total glue (total glue := internal_glue + user_glue).
-#define kv_adjust_sgmt_glue(kv,sgmt,delta_glue) kv_adjust_glue(kv,sgmt,delta_glue,-1)
-void kv_adjust_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float delta_glue, float next_min_glue)
+void kv_adjust_sgmt_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float delta_glue)
 {
     if (sgmt != NULL) {
         struct key_t *parent = kv_get_multirow_parent (sgmt);
@@ -955,7 +943,7 @@ void kv_adjust_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float delta
         float new_glue;
         if (!is_multirow_key(sgmt)) {
             parent->user_glue = MAX (0, parent->user_glue + delta_glue);
-        } else if (multirow_user_glue_for_delta_glue (sgmt, delta_glue, next_min_glue, &new_glue)) {
+        } else if (multirow_user_glue_for_delta_glue (sgmt, delta_glue, &new_glue)) {
             parent->user_glue = new_glue;
         }
     }
@@ -3092,31 +3080,25 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     if (is_multirow_key(button_event_key)) {
                         kv->edge_start = kv_get_multirow_parent(button_event_key);
 
-                        save_edge_glue (&kv->resize_pool,
-                                        kv->edge_start, kv->edge_start, kv->edit_right_edge,
-                                        &kv->edge_glue, &kv->edge_glue_len);
                     } else {
                         kv->edge_start = button_event_key;
                     }
 
+                    kv->edge_end_sgmt = button_event_key;
                     kv->min_width = kv_get_min_key_width(kv);
-                    kv->clicked_pos = event->x;
-                    kv->original_size = kv->edge_start->width;
-                    kv->original_user_glue = get_sgmt_user_glue(kv->edge_start);
-                    kv->state = KV_EDIT_KEY_RESIZE;
 
                 } else {
                     kv_locate_edge (kv, button_event_key, button_event_key_clicked_sgmt, kv->edit_right_edge,
                                     &kv->edge_start, &kv->edge_prev_sgmt, &kv->edge_end_sgmt, &kv->min_width);
-
-                    save_edge_glue (&kv->resize_pool,
-                                    kv->edge_start, kv->edge_start, kv->edit_right_edge,
-                                    &kv->edge_glue, &kv->edge_glue_len);
-
-                    kv->original_size = kv->edge_start->width;
-                    kv->clicked_pos = event->x;
-                    kv->state = KV_EDIT_KEY_RESIZE_NON_RECTANGULAR;
                 }
+
+                save_edge_glue (&kv->resize_pool,
+                                kv->edge_start, kv->edge_end_sgmt, kv->edit_right_edge,
+                                &kv->edge_glue, &kv->edge_glue_len);
+
+                kv->original_size = kv->edge_start->width;
+                kv->clicked_pos = event->x;
+                kv->state = KV_EDIT_KEY_RESIZE;
 
             } else if (kv->active_tool == KV_TOOL_RESIZE_SEGMENT &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
@@ -3459,46 +3441,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 float new_width = kv->edit_right_edge ?
                     kv->original_size + delta : kv->original_size - delta;
-                new_width = MAX(new_width, kv->min_width);
-
-                if (kv->edge_start->width != new_width) {
-                    kv->edge_start->width = new_width;
-
-                    if (!kv->edit_right_edge) {
-                        float max_glue = kv->original_user_glue + kv->original_size - kv->min_width;
-                        kv->edge_start->user_glue = CLAMP(kv->original_user_glue + delta, 0, max_glue);
-                    }
-
-                    kv_compute_glue (kv);
-                }
-
-            } else if (e->type == GDK_BUTTON_RELEASE) {
-                kv_resize_cleanup (kv);
-                kv->state = KV_EDIT;
-
-            } else if (e->type == GDK_KEY_PRESS) {
-                if (key_event_kc - 8 == KEY_ESC) {
-                    kv->edge_start->width = kv->original_size;
-
-                    if (!kv->edit_right_edge) {
-                        kv->edge_start->user_glue = kv->original_user_glue;
-                    }
-
-                    kv_compute_glue (kv);
-                    kv_resize_cleanup (kv);
-                    kv->state = KV_EDIT;
-                }
-            }
-
-            break;
-
-        case KV_EDIT_KEY_RESIZE_NON_RECTANGULAR:
-            if (e->type == GDK_MOTION_NOTIFY) {
-                GdkEventMotion *event = (GdkEventMotion*)e;
-                float delta = bin_floor((event->x - kv->clicked_pos)/kv->default_key_size, 3);
-
-                float new_width = kv->edit_right_edge ?
-                    kv->original_size + delta : kv->original_size - delta;
                 new_width = MAX (new_width, kv->min_width);
 
                 if (new_width != kv->edge_start->width) {
@@ -3803,9 +3745,9 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool, GtkWidget *window)
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
 
 #if 1
-    multirow_test_geometry (kv);
+    //multirow_test_geometry (kv);
     //non_rectangular_edge_resize_test_geometry (kv);
-    //adjust_left_edge_test_geometry (kv);
+    adjust_left_edge_test_geometry (kv);
 #else
     keyboard_view_build_default_geometry (kv);
 #endif

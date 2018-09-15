@@ -893,12 +893,25 @@ float bnd_delta_update (float old_val, float new_val, float boundary)
     return adjustment;
 }
 
+float compute_next_min_glue (struct key_t *sgmt, struct key_t *edge_end)
+{
+    float next_min_glue = INFINITY;
+    struct key_t *curr_sgmt = sgmt->next_multirow;
+    while (curr_sgmt != sgmt) {
+        //if (sgmt->internal_glue != curr_sgmt->internal_glue) {
+            next_min_glue = MIN (next_min_glue, curr_sgmt->internal_glue);
+        //}
+        curr_sgmt = curr_sgmt->next_multirow;
+    }
+    return next_min_glue;
+}
+
 // Computes the change in a key's user glue, if the total glue of the segment
 // sgmt changes by delta_glue and we want to keep the key fixed in place. If the
 // key's user glue needs to change, the new value will be set in the provided
 // glue argument, and true will be returned. If the key's user glue should
 // remain the same then false is returned and the glue argument isn't modified.
-bool multirow_user_glue_for_delta_glue (struct key_t *sgmt, float delta_glue, float *glue)
+bool multirow_user_glue_for_delta_glue (struct key_t *sgmt, float delta_glue, float next_min_glue, float *glue)
 {
     assert (is_multirow_key (sgmt));
 
@@ -912,13 +925,8 @@ bool multirow_user_glue_for_delta_glue (struct key_t *sgmt, float delta_glue, fl
         return false;
     }
 
-    float next_min_glue = INFINITY;
-    struct key_t *curr_sgmt = sgmt->next_multirow;
-    while (curr_sgmt != sgmt) {
-        if (sgmt->internal_glue != curr_sgmt->internal_glue) {
-            next_min_glue = MIN (next_min_glue, curr_sgmt->internal_glue);
-        }
-        curr_sgmt = curr_sgmt->next_multirow;
+    if (next_min_glue < 0) {
+        next_min_glue = compute_next_min_glue(sgmt, sgmt->next_multirow);
     }
 
     if (delta_glue > 0) {
@@ -938,7 +946,8 @@ bool multirow_user_glue_for_delta_glue (struct key_t *sgmt, float delta_glue, fl
 // stays fixed in place. It is used when the glue of sgmt changes for some
 // reason. The delta_glue argument represents the difference between the new
 // total glue to the old total glue (total glue := internal_glue + user_glue).
-void kv_adjust_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float delta_glue)
+#define kv_adjust_sgmt_glue(kv,sgmt,delta_glue) kv_adjust_glue(kv,sgmt,delta_glue,-1)
+void kv_adjust_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float delta_glue, float next_min_glue)
 {
     if (sgmt != NULL) {
         struct key_t *parent = kv_get_multirow_parent (sgmt);
@@ -946,7 +955,7 @@ void kv_adjust_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float delta
         float new_glue;
         if (!is_multirow_key(sgmt)) {
             parent->user_glue = MAX (0, parent->user_glue + delta_glue);
-        } else if (multirow_user_glue_for_delta_glue (sgmt, delta_glue, &new_glue)) {
+        } else if (multirow_user_glue_for_delta_glue (sgmt, delta_glue, next_min_glue, &new_glue)) {
             parent->user_glue = new_glue;
         }
     }
@@ -1031,7 +1040,7 @@ void kv_adjust_left_edge (struct keyboard_view_t *kv, struct key_t *sgmt, float 
     curr_row = kv->first_row;
     while (curr_row != NULL) {
         if (row_first_sgmt[row_idx] && *(row_first_sgmt[row_idx])) {
-            kv_adjust_glue(kv, curr_row->first_key, change);
+            kv_adjust_sgmt_glue(kv, curr_row->first_key, change);
             *(row_first_sgmt[row_idx]) = NULL;
 
         }
@@ -2454,7 +2463,7 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
                 do {
                     if (edge_start->width - original_w - step_dw <= glue_info[idx].min_glue) {
                         struct key_t *glue_key = is_right_edge ? curr_key->next_key : curr_key;
-                        if (glue_key) kv_adjust_glue (kv, glue_key, -step_dw);
+                        if (glue_key) kv_adjust_sgmt_glue (kv, glue_key, -step_dw);
                     }
 
                     curr_key = curr_key->next_multirow;
@@ -2474,7 +2483,7 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
             struct key_t *curr_key = edge_start;
             do {
                 struct key_t *glue_key = is_right_edge ? curr_key->next_key : curr_key;
-                if (glue_key) kv_adjust_glue (kv, glue_key, -delta_w);
+                if (glue_key) kv_adjust_sgmt_glue (kv, glue_key, -delta_w);
 
                 curr_key = curr_key->next_multirow;
             } while (curr_key != edge_end_sgmt);
@@ -2567,13 +2576,13 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multir
     //                            +---+   +---+
     //                               STATE C
     //
-    // Normally kv_adjust_glue() assumes the key whose glue is being adjusted
+    // Normally kv_adjust_sgmt_glue() assumes the key whose glue is being adjusted
     // will remain static, but K should move to its original position before
     // actually adjusting the glue. The value of glue_adj will be correctly
     // computed to be the new glue for the segment K_1 (as the internal glue of
     // K_1 in state B was 0). Because the internal glue for the segment K_2 in
     // state B includes the distance by which K was pushed to the right, then if
-    // glue_adj < K_1's internal_glue, the call to kv_adjust_glue() will not
+    // glue_adj < K_1's internal_glue, the call to kv_adjust_sgmt_glue() will not
     // notice that K_1 stops being the supporting segment. This incorrectly sets
     // K's user glue to glue_adj, when it should have been set to K_2's original
     // internal glue (the one it had in state A).
@@ -2582,7 +2591,7 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multir
     // two stages. One that puts K into it's original position but leaves the X
     // edge coliding with K, followed by an internal glue recomputation. And a
     // second stage that actually resizes the segment to its intended size.
-    // Then, when kv_adjust_glue() is called, K_2's internal glue will be
+    // Then, when kv_adjust_sgmt_glue() is called, K_2's internal glue will be
     // correct, and supporting segment changes will be correctly handled.
 
     if (sgmt->width > original_glue_plus_w && sgmt->width + delta_w < original_glue_plus_w) {
@@ -2613,7 +2622,7 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multir
 
     // Adjust the glue
     if (glue_adj != 0 && !adjusted_left_edge) {
-        kv_adjust_glue (kv, glue_key, -glue_adj);
+        kv_adjust_sgmt_glue (kv, glue_key, -glue_adj);
     }
 }
 
@@ -3270,7 +3279,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 new_sgmt->next_multirow = new_sgmt_prev->next_multirow;
                 new_sgmt_prev->next_multirow = new_sgmt;
-                kv_adjust_glue (kv, new_sgmt->next_key, -get_sgmt_width(sgmt));
+                kv_adjust_sgmt_glue (kv, new_sgmt->next_key, -get_sgmt_width(sgmt));
                 kv_compute_glue (kv);
 
             } else if (kv->active_tool == KV_TOOL_VERTICAL_SHRINK &&
@@ -3297,7 +3306,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 }
 
                 if (sgmt->next_key != NULL && get_sgmt_total_glue (sgmt->next_key) != 0) {
-                    kv_adjust_glue (kv, sgmt->next_key, get_sgmt_width (sgmt) + get_sgmt_total_glue(sgmt));
+                    kv_adjust_sgmt_glue (kv, sgmt->next_key, get_sgmt_width (sgmt) + get_sgmt_total_glue(sgmt));
                 }
 
                 if (is_multirow_key (sgmt)) {
@@ -3337,7 +3346,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 struct key_t *new_key =
                     kv_insert_new_sgmt (kv, kv->locate_stat, kv->added_key_ptr);
                 new_key->user_glue = new_glue;
-                kv_adjust_glue (kv, new_key->next_key, glue_adj);
+                kv_adjust_sgmt_glue (kv, new_key->next_key, glue_adj);
 
                 kv_compute_glue (kv);
 

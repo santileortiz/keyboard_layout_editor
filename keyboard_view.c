@@ -949,6 +949,131 @@ void kv_adjust_sgmt_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float 
     }
 }
 
+struct adjust_edge_glue_info_t {
+    struct key_t *key;
+    struct key_t *first_visible_sgmt;
+    float min_glue_visible;
+    float min_glue_rest;
+    bool has_non_visible_support;
+};
+
+#define get_glue_key(sgmt,is_right_edge) (is_right_edge ? sgmt->next_key : sgmt)
+
+void kv_adjust_edge_glue (struct keyboard_view_t *kv,
+                          struct key_t *edge_start, struct key_t *edge_end_sgmt, bool is_right_edge,
+                          float delta_glue)
+{
+    int num_rows = kv_get_num_rows (kv);
+
+    struct adjust_edge_glue_info_t info[num_rows];
+    int num_info = 0;
+
+    {
+        struct key_t *curr_sgmt = edge_start;
+        do {
+            struct key_t *glue_key = is_right_edge ? curr_sgmt->next_key : curr_sgmt;
+            if (glue_key) {
+                struct key_t *parent = kv_get_multirow_parent (glue_key);
+
+                int i;
+                for (i=0; i<num_info; i++) {
+                    if (info[i].key == parent) break;
+                }
+
+                if (i == num_info) {
+                    info[num_info].key = parent;
+                    info[num_info].first_visible_sgmt = glue_key;
+                    num_info++;
+                }
+            }
+
+            curr_sgmt = curr_sgmt->next_multirow;
+        } while (curr_sgmt != edge_end_sgmt);
+    }
+
+    for (int i=0; i<num_info; i++) {
+        info[i].min_glue_rest = INFINITY;
+        info[i].min_glue_visible = INFINITY;
+        info[i].has_non_visible_support = false;
+
+        // Traverse leading non visible segments in info key.
+        struct key_t *info_sgmt = info[i].key;
+        while (info_sgmt != info[i].first_visible_sgmt) {
+            info[i].has_non_visible_support =
+                info[i].has_non_visible_support || is_supporting_sgmt (info_sgmt);
+            info[i].min_glue_rest = MIN (info[i].min_glue_rest, info_sgmt->internal_glue);
+            info_sgmt = info_sgmt->next_multirow;
+        }
+
+        // Traverse edge until first visible segment.
+        struct key_t *edge_sgmt = edge_start;
+        while (get_glue_key(edge_sgmt, is_right_edge) != info[i].first_visible_sgmt) {
+            edge_sgmt = edge_sgmt->next_multirow;
+        }
+
+        // Traverse edge and info key simultaneously and detect which info key
+        // segments are visible from the edge.
+        do {
+            struct key_t *glue_key = get_glue_key(edge_sgmt, is_right_edge);
+            // Because keys (info key, in particular) are continous vertically
+            // and keys can't cross each other (in particular edge key and info
+            // key) this must be true:
+            assert (glue_key != NULL); 
+
+            if (glue_key == info_sgmt) {
+                info[i].min_glue_visible = MIN (info[i].min_glue_visible, glue_key->internal_glue);
+            } else {
+                info[i].has_non_visible_support =
+                    info[i].has_non_visible_support || is_supporting_sgmt (glue_key);
+                info[i].min_glue_rest = MIN (info[i].min_glue_rest, glue_key->internal_glue);
+            }
+
+            edge_sgmt = edge_sgmt->next_multirow;
+            info_sgmt = info_sgmt->next_multirow;
+        } while (edge_sgmt != edge_end_sgmt && info_sgmt != info[i].key);
+
+        if (info_sgmt != info[i].key) {
+            do {
+                struct key_t *glue_key = is_right_edge ? info_sgmt->next_key : info_sgmt;
+                if (glue_key) {
+                    info[i].has_non_visible_support =
+                        info[i].has_non_visible_support || is_supporting_sgmt (glue_key);
+                    info[i].min_glue_rest = MIN (info[i].min_glue_rest, glue_key->internal_glue);
+                }
+
+                info_sgmt = info_sgmt->next_multirow;
+            } while (info_sgmt != info[i].key);
+        }
+    }
+
+    printf ("Edge: ");
+    struct key_t *curr_sgmt = edge_start;
+    do {
+        printf ("%p, ", curr_sgmt);
+        curr_sgmt = curr_sgmt->next_multirow;
+    } while (curr_sgmt != edge_start);
+    printf ("\n");
+
+    for (int i=0; i<num_info; i++) {
+        printf ("Info[%i]\n", i);
+        printf ("  Segments: ");
+        struct key_t *curr_sgmt = info[i].key;
+        do {
+            printf ("%p, ", curr_sgmt);
+            curr_sgmt = curr_sgmt->next_multirow;
+        } while (curr_sgmt != info[i].key);
+        printf ("\n");
+
+        printf ("  Key: %p\n", info[i].key);
+        printf ("  First visible sgmt: %p\n", info[i].first_visible_sgmt);
+        printf ("  Min glue visible: %f\n", info[i].min_glue_visible);
+        printf ("  Min glue rest: %f\n", info[i].min_glue_rest);
+        printf ("  Has non visible support: %s\n", info[i].has_non_visible_support ? "true" : "false");
+        printf ("\n");
+    }
+    printf ("\n");
+}
+
 // Pushes the full keyboard right by the amount specified in the change
 // argument. The segment provided as the sgmt argument will avoid the key
 // containing it to not be pushed right, as long as sgmt is the first segment in
@@ -1308,6 +1433,61 @@ void adjust_left_edge_test_geometry (struct keyboard_view_t *kv)
     kv_new_row_h (kv, 1);
     kv_add_key_multirow_sized (kv, m1, 4, MULTIROW_ALIGN_RIGHT);
 
+    kv_compute_glue (kv);
+}
+
+void adjust_edge_glue_test_geometry (struct keyboard_view_t *kv)
+{
+#if 0
+    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
+    kv_new_row_h (kv, 1);
+    struct key_t *l = kv_add_key_full (kv, KEY_L, 1, 0);
+    struct key_t *m1 = kv_add_key_full (kv, KEY_1, 1, 1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, l);
+    struct key_t *m2 = kv_add_key_full (kv, KEY_2, 1, 2.5);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, l);
+    kv_add_key_multirow (kv, m2);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, l);
+    kv_add_key_multirow_sized (kv, m1, 4, MULTIROW_ALIGN_RIGHT);
+
+#else
+    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
+    kv_new_row_h (kv, 1);
+    struct key_t *m1 = kv_add_key_full (kv, KEY_1, 1, 1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    struct key_t *m2 = kv_add_key_full (kv, KEY_2, 1, 0);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m2);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m2);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m1);
+
+#endif
     kv_compute_glue (kv);
 }
 
@@ -2468,13 +2648,7 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
         kv_resize_edge (edge_prev_sgmt, edge_start, edge_end_sgmt, delta_w);
 
         if (glue_info) {
-            struct key_t *curr_key = edge_start;
-            do {
-                struct key_t *glue_key = is_right_edge ? curr_key->next_key : curr_key;
-                if (glue_key) kv_adjust_sgmt_glue (kv, glue_key, -delta_w);
-
-                curr_key = curr_key->next_multirow;
-            } while (curr_key != edge_end_sgmt);
+            kv_adjust_edge_glue (kv, edge_start, edge_end_sgmt, is_right_edge, -delta_w);
         }
     }
 }
@@ -3747,7 +3921,8 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool, GtkWidget *window)
 #if 1
     //multirow_test_geometry (kv);
     //non_rectangular_edge_resize_test_geometry (kv);
-    adjust_left_edge_test_geometry (kv);
+    //adjust_left_edge_test_geometry (kv);
+    adjust_edge_glue_test_geometry (kv);
 #else
     keyboard_view_build_default_geometry (kv);
 #endif

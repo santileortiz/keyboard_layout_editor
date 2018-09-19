@@ -1072,6 +1072,18 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
         printf ("\n");
     }
     printf ("\n");
+
+    for (int i=0; i<num_info; i++) {
+        if (info[i].min_glue_rest == INFINITY) {
+            // The key is fully visible.
+            info[i].key->user_glue = MAX (0, info[i].key->user_glue + delta_glue);
+
+        } else {
+            if (!info[i].has_non_visible_support) {
+            }
+
+        }
+    }
 }
 
 // Pushes the full keyboard right by the amount specified in the change
@@ -1438,7 +1450,7 @@ void adjust_left_edge_test_geometry (struct keyboard_view_t *kv)
 
 void adjust_edge_glue_test_geometry (struct keyboard_view_t *kv)
 {
-#if 0
+#if 1
     kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
     kv_new_row_h (kv, 1);
     struct key_t *l = kv_add_key_full (kv, KEY_L, 1, 0);

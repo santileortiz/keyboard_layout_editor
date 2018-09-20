@@ -953,8 +953,8 @@ struct adjust_edge_glue_info_t {
     struct key_t *key;
     struct key_t *first_visible_sgmt;
     float min_glue_visible;
-    float min_glue_rest;
-    bool has_non_visible_support;
+    float min_glue_blocked;
+    bool has_blocked_support;
 };
 
 #define get_glue_key(sgmt,is_right_edge) (is_right_edge ? sgmt->next_key : sgmt)
@@ -992,16 +992,16 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
     }
 
     for (int i=0; i<num_info; i++) {
-        info[i].min_glue_rest = INFINITY;
+        info[i].min_glue_blocked = INFINITY;
         info[i].min_glue_visible = INFINITY;
-        info[i].has_non_visible_support = false;
+        info[i].has_blocked_support = false;
 
         // Traverse leading non visible segments in info key.
         struct key_t *info_sgmt = info[i].key;
         while (info_sgmt != info[i].first_visible_sgmt) {
-            info[i].has_non_visible_support =
-                info[i].has_non_visible_support || is_supporting_sgmt (info_sgmt);
-            info[i].min_glue_rest = MIN (info[i].min_glue_rest, info_sgmt->internal_glue);
+            info[i].has_blocked_support =
+                info[i].has_blocked_support || is_supporting_sgmt (info_sgmt);
+            info[i].min_glue_blocked = MIN (info[i].min_glue_blocked, info_sgmt->internal_glue);
             info_sgmt = info_sgmt->next_multirow;
         }
 
@@ -1023,22 +1023,23 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
             if (glue_key == info_sgmt) {
                 info[i].min_glue_visible = MIN (info[i].min_glue_visible, glue_key->internal_glue);
             } else {
-                info[i].has_non_visible_support =
-                    info[i].has_non_visible_support || is_supporting_sgmt (glue_key);
-                info[i].min_glue_rest = MIN (info[i].min_glue_rest, glue_key->internal_glue);
+                info[i].has_blocked_support =
+                    info[i].has_blocked_support || is_supporting_sgmt (info_sgmt);
+                info[i].min_glue_blocked = MIN (info[i].min_glue_blocked, info_sgmt->internal_glue);
             }
 
             edge_sgmt = edge_sgmt->next_multirow;
             info_sgmt = info_sgmt->next_multirow;
         } while (edge_sgmt != edge_end_sgmt && info_sgmt != info[i].key);
 
+        // Traverse the end of the info key if there is something left
         if (info_sgmt != info[i].key) {
             do {
                 struct key_t *glue_key = is_right_edge ? info_sgmt->next_key : info_sgmt;
                 if (glue_key) {
-                    info[i].has_non_visible_support =
-                        info[i].has_non_visible_support || is_supporting_sgmt (glue_key);
-                    info[i].min_glue_rest = MIN (info[i].min_glue_rest, glue_key->internal_glue);
+                    info[i].has_blocked_support =
+                        info[i].has_blocked_support || is_supporting_sgmt (glue_key);
+                    info[i].min_glue_blocked = MIN (info[i].min_glue_blocked, glue_key->internal_glue);
                 }
 
                 info_sgmt = info_sgmt->next_multirow;
@@ -1046,43 +1047,67 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
         }
     }
 
-    printf ("Edge: ");
-    struct key_t *curr_sgmt = edge_start;
-    do {
-        printf ("%p, ", curr_sgmt);
-        curr_sgmt = curr_sgmt->next_multirow;
-    } while (curr_sgmt != edge_start);
-    printf ("\n");
+    bool debug_info = 0;
+    float old_glue_dbg[num_info];
 
     for (int i=0; i<num_info; i++) {
-        printf ("Info[%i]\n", i);
-        printf ("  Segments: ");
-        struct key_t *curr_sgmt = info[i].key;
-        do {
-            printf ("%p, ", curr_sgmt);
-            curr_sgmt = curr_sgmt->next_multirow;
-        } while (curr_sgmt != info[i].key);
-        printf ("\n");
+        if (debug_info) old_glue_dbg[i] = info[i].key->user_glue;
 
-        printf ("  Key: %p\n", info[i].key);
-        printf ("  First visible sgmt: %p\n", info[i].first_visible_sgmt);
-        printf ("  Min glue visible: %f\n", info[i].min_glue_visible);
-        printf ("  Min glue rest: %f\n", info[i].min_glue_rest);
-        printf ("  Has non visible support: %s\n", info[i].has_non_visible_support ? "true" : "false");
-        printf ("\n");
-    }
-    printf ("\n");
-
-    for (int i=0; i<num_info; i++) {
-        if (info[i].min_glue_rest == INFINITY) {
+        if (info[i].min_glue_blocked == INFINITY) {
             // The key is fully visible.
             info[i].key->user_glue = MAX (0, info[i].key->user_glue + delta_glue);
 
         } else {
-            if (!info[i].has_non_visible_support) {
-            }
+            if (delta_glue > 0) {
+                if (!info[i].has_blocked_support) {
+                    info[i].key->user_glue += MIN (info[i].min_glue_blocked, delta_glue); 
+                }
 
+            } else {
+                if (info[i].min_glue_visible < -delta_glue) {
+                    float maybe_new_glue = info[i].key->user_glue + info[i].min_glue_visible + delta_glue;
+                    info[i].key->user_glue = MAX (0, maybe_new_glue);
+                }
+            }
         }
+    }
+
+    if (debug_info) {
+        struct key_t *curr_sgmt = edge_start;
+        printf ("Edge: ");
+        do {
+            printf ("%p, ", curr_sgmt);
+            curr_sgmt = curr_sgmt->next_multirow;
+        } while (curr_sgmt != edge_start);
+        printf ("\n");
+
+        printf ("Next: ");
+        curr_sgmt = edge_start;
+        do {
+            printf ("%p, ", curr_sgmt->next_key);
+            curr_sgmt = curr_sgmt->next_multirow;
+        } while (curr_sgmt != edge_start);
+        printf ("\n");
+
+        for (int i=0; i<num_info; i++) {
+            printf ("Info[%i]\n", i);
+            printf ("  Segments: ");
+            struct key_t *curr_sgmt = info[i].key;
+            do {
+                printf ("%p, ", curr_sgmt);
+                curr_sgmt = curr_sgmt->next_multirow;
+            } while (curr_sgmt != info[i].key);
+            printf ("\n");
+
+            printf ("  Key: %p\n", info[i].key);
+            printf ("  First visible sgmt: %p\n", info[i].first_visible_sgmt);
+            printf ("  Min glue visible: %f\n", info[i].min_glue_visible);
+            printf ("  Min glue rest: %f\n", info[i].min_glue_blocked);
+            printf ("  Has non visible support: %s\n", info[i].has_blocked_support ? "true" : "false");
+            printf ("  User glue change: %f -> %f\n", old_glue_dbg[i], info[i].key->user_glue); 
+            printf ("\n");
+        }
+        printf ("\n");
     }
 }
 

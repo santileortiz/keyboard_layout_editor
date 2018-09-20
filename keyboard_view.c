@@ -892,59 +892,37 @@ float bnd_delta_update (float old_val, float new_val, float boundary)
     return adjustment;
 }
 
-// Computes the change in a key's user glue, if the total glue of the segment
-// sgmt changes by delta_glue and we want to keep the key fixed in place. If the
-// key's user glue needs to change, the new value will be set in the provided
-// glue argument, and true will be returned. If the key's user glue should
-// remain the same then false is returned and the glue argument isn't modified.
-bool multirow_user_glue_for_delta_glue (struct key_t *sgmt, float delta_glue, float *glue)
-{
-    assert (is_multirow_key (sgmt));
-
-    if (delta_glue == 0) {
-        return false;
-    }
-
-    float user_glue = get_sgmt_user_glue (sgmt);
-
-    if (delta_glue > 0 && !is_supporting_sgmt(sgmt)) {
-        return false;
-    }
-
-    float next_min_glue = INFINITY;
-    struct key_t *curr_sgmt = sgmt->next_multirow;
-    while (curr_sgmt != sgmt) {
-        next_min_glue = MIN (next_min_glue, curr_sgmt->internal_glue);
-        curr_sgmt = curr_sgmt->next_multirow;
-    }
-
-    if (delta_glue > 0) {
-        *glue = MIN (user_glue + delta_glue, next_min_glue + user_glue);
-        return true;
-    }
-
-    if (delta_glue < 0 && sgmt->internal_glue + delta_glue < 0) {
-        *glue = MAX (0, user_glue + sgmt->internal_glue + delta_glue);
-        return true;
-    }
-
-    return false;
-}
-
 // This function adjusts the user glue of the key containing sgmt so that it
 // stays fixed in place. It is used when the glue of sgmt changes for some
 // reason. The delta_glue argument represents the difference between the new
 // total glue to the old total glue (total glue := internal_glue + user_glue).
 void kv_adjust_sgmt_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float delta_glue)
 {
-    if (sgmt != NULL) {
+    if (sgmt != NULL && delta_glue != 0) {
         struct key_t *parent = kv_get_multirow_parent (sgmt);
 
-        float new_glue;
         if (!is_multirow_key(sgmt)) {
             parent->user_glue = MAX (0, parent->user_glue + delta_glue);
-        } else if (multirow_user_glue_for_delta_glue (sgmt, delta_glue, &new_glue)) {
-            parent->user_glue = new_glue;
+
+        } else {
+            float next_min_glue = INFINITY;
+            struct key_t *curr_sgmt = sgmt->next_multirow;
+            while (curr_sgmt != sgmt) {
+                next_min_glue = MIN (next_min_glue, curr_sgmt->internal_glue);
+                curr_sgmt = curr_sgmt->next_multirow;
+            }
+
+            if (delta_glue > 0) {
+                if (is_supporting_sgmt(sgmt)) {
+                    parent->user_glue += MIN (next_min_glue, delta_glue);
+                }
+
+            } else {
+                if (sgmt->internal_glue < -delta_glue) {
+                    float maybe_new_glue = parent->user_glue + sgmt->internal_glue + delta_glue;
+                    parent->user_glue = MAX (0, maybe_new_glue);
+                }
+            }
         }
     }
 }

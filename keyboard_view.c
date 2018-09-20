@@ -1090,90 +1090,35 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
 }
 
 // Pushes the full keyboard right by the amount specified in the change
-// argument. The segment provided as the sgmt argument will avoid the key
-// containing it to not be pushed right, as long as sgmt is the first segment in
-// a row. For exampe the sgmt argument is used in the resize segment tool, to
-// avoid pushing the key containing a segment being resized beyond the left
-// edge.
+// argument. Any changes caused by this push, to the user glue of the sgmt
+// argument, will be reverted. For exampe the sgmt argument is used in the
+// resize segment tool, to avoid pushing the key containing a segment being
+// resized beyond the left edge.
 void kv_adjust_left_edge (struct keyboard_view_t *kv, struct key_t *sgmt, float change)
 {
     int num_rows = kv_get_num_rows (kv);
 
-    struct key_t **row_first_sgmt[num_rows];
-    struct key_t *supporting_keys[num_rows];
-    int num_supporting_keys = 0;
-
-    // Find all supporting keys. Keys that contain segments that touch the left
-    // margin. Note that "touching" the left margin includes touching it through
-    // user glue (but not internal glue).
-    int row_idx = 0;
+    struct key_t fake_edge[num_rows];
     struct row_t *curr_row = kv->first_row;
-    while (curr_row != NULL) {
-        struct key_t *curr_key = curr_row->first_key;
-        if (is_supporting_sgmt (curr_key)) {
-            struct key_t *parent = kv_get_multirow_parent (curr_key);
-
-            int support_idx = -1;
-            for (int i=0; i<num_supporting_keys && support_idx == -1; i++) {
-                if (supporting_keys[i] == parent) support_idx = i;
-            }
-
-            if (support_idx == -1) {
-                support_idx = num_supporting_keys;
-                supporting_keys[num_supporting_keys++] = parent;
-            }
-
-            row_first_sgmt[row_idx] = &supporting_keys[support_idx];
-
-        } else {
-            row_first_sgmt[row_idx] = NULL;
-        }
-
+    for (int i=0; i<num_rows; i++) {
+        fake_edge[i] = ZERO_INIT(struct key_t);
+        fake_edge[i].type = KEY_MULTIROW_SEGMENT;
+        fake_edge[i].next_key = curr_row->first_key;
+        fake_edge[i].next_multirow = &fake_edge[(i+1) % num_rows];
         curr_row = curr_row->next_row;
-        row_idx++;
     }
+    fake_edge[0].type = KEY_DEFAULT;
 
-    // Check that all supporting segments of supporting_keys are visible from
-    // the left edge. Ignore keys where this is not the case, because another
-    // supporting segment will push them.
-    for (int i=0; i<num_supporting_keys; i++) {
-        struct key_t *curr_sgmt = supporting_keys[i];
-        struct row_t *curr_row = kv_get_row(kv, curr_sgmt);
-        do  {
-            if (is_supporting_sgmt (curr_sgmt) && curr_sgmt != curr_row->first_key) {
-                supporting_keys[i] = NULL;
-                break;
-            }
+    if (sgmt) {
+        struct key_t *parent = kv_get_multirow_parent (sgmt);
+        float old_sgmt_glue = parent->user_glue;
 
-            curr_sgmt = curr_sgmt->next_multirow;
-            curr_row = curr_row->next_row;
-        } while (curr_sgmt != supporting_keys[i]);
-    }
+        kv_adjust_edge_glue (kv, fake_edge, fake_edge, true, change);
 
-    // Ignore the key related to the provided segment.
-    if (sgmt != NULL) {
-        int row_idx = 0;
-        struct row_t *curr_row = kv->first_row;
-        while (curr_row != NULL) {
-            if (curr_row->first_key == sgmt && row_first_sgmt[row_idx]) {
-                *(row_first_sgmt[row_idx]) = NULL;
-            }
-            curr_row = curr_row->next_row;
-            row_idx++;
-        }
-    }
+        parent->user_glue = old_sgmt_glue;
 
-    // Push the remaining keys to the right
-    row_idx = 0;
-    curr_row = kv->first_row;
-    while (curr_row != NULL) {
-        if (row_first_sgmt[row_idx] && *(row_first_sgmt[row_idx])) {
-            kv_adjust_sgmt_glue(kv, curr_row->first_key, change);
-            *(row_first_sgmt[row_idx]) = NULL;
-
-        }
-        curr_row = curr_row->next_row;
-        row_idx++;
+    } else {
+        kv_adjust_edge_glue (kv, fake_edge, fake_edge, true, change);
     }
 }
 
@@ -3936,8 +3881,8 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool, GtkWidget *window)
 #if 1
     //multirow_test_geometry (kv);
     //non_rectangular_edge_resize_test_geometry (kv);
-    //adjust_left_edge_test_geometry (kv);
-    adjust_edge_glue_test_geometry (kv);
+    adjust_left_edge_test_geometry (kv);
+    //adjust_edge_glue_test_geometry (kv);
 #else
     keyboard_view_build_default_geometry (kv);
 #endif

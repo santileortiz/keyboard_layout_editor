@@ -912,6 +912,7 @@ void kv_adjust_sgmt_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float 
                 curr_sgmt = curr_sgmt->next_multirow;
             }
 
+            // @user_glue_computation
             if (delta_glue > 0) {
                 if (is_supporting_sgmt(sgmt)) {
                     parent->user_glue += MIN (next_min_glue, delta_glue);
@@ -929,8 +930,52 @@ void kv_adjust_sgmt_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float 
 
 #define get_glue_key(is_right_edge,sgmt) (is_right_edge ? sgmt->next_key : sgmt)
 
+// This is a generalization of kv_adjust_sgmt_glue(), that adjusts the glue when
+// the same change happens to multiple contiguous segments of a key. At the
+// beginning this was done by just calling kv_adjust_sgmt_glue() for each
+// segment whose glue would change. Soon I noticed we can't just call
+// kv_adjust_sgmt_glue() for all segments, instead this should be done
+// conditionelly on some specific cases. As these conditions became more complex
+// I decided to separate them into this function. Consider the following
+// example:
+//
+//                                                key_1
+//                            +---+               +---+
+//                            |   |               | A |
+//                            |   |       key_2   |   |
+//                            |   X       +---+   |   |
+//                            |   |       | B |   | D |
+//                            |   |   +---+---+---+   |
+//                            |   |   |       C       |
+//                            +---+   +---------------+
+//
+//  When resizing the X edge, the naive approach would change the glue for the
+//  A, B and C segments. The problem with this is the glue of key_1 will be
+//  updated twice, once for A and then again for C. The straightforward solution
+//  was to call kv_adjust_sgmt_glue() in a clever way such as not to call it
+//  multiple times on the same glue, but this is not enough, as a call to
+//  kv_adjust_sgmt_glue() alters user glue immediately, then the next call to
+//  it will have a partial user glue state where some keys have been updated but
+//  some don't. This is the main objective of this function, gather all data
+//  necessary to produce a correct update, and then uptade all necessary keys
+//  from this static data and not from the changing data in the keyboard data
+//  structure.
+//
+//  The way the logic in kv_adjust_sgmt_glue() generalizes, is based arround a
+//  the concept of visibility: we say a segment S is visible form segment X if a
+//  horizontal line segment from X to S does not cross any other key other than
+//  X and S. A call to kv_adjust_sgmt_glue(sgmt) classifies the segments of the
+//  key containing smgt into two groups, "sgmt" and "the rest of the segments of
+//  the key", next_min_glue is computed from the second group while the maximum
+//  user glue is based on the internal glue in the first one. In the
+//  generalization kv_adjust_edge_glue(), these groups are replaced respectively
+//  by "visible segments" and "non visible segments" (also called blocked
+//  segments). To compare exactly how the logic changes see the segments of code
+//  marked with @user_glue_computation.
+
 struct adjust_edge_glue_info_t {
     struct key_t *key;
+    struct key_t *first_visible_edge;
     struct key_t *first_visible_sgmt;
     float min_glue_visible;
     float min_glue_blocked;
@@ -946,35 +991,39 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
     struct adjust_edge_glue_info_t info[num_rows];
     int num_info = 0;
 
-    {
-        struct key_t *curr_sgmt = edge_start;
-        do {
-            struct key_t *glue_key = is_right_edge ? curr_sgmt->next_key : curr_sgmt;
-            if (glue_key) {
-                struct key_t *parent = kv_get_multirow_parent (glue_key);
+    // Find all visible keys and create one info entry for each one, avoiding
+    // duplicates.
+    struct key_t *curr_sgmt = edge_start;
+    do {
+        struct key_t *glue_key = is_right_edge ? curr_sgmt->next_key : curr_sgmt;
+        if (glue_key) {
+            struct key_t *parent = kv_get_multirow_parent (glue_key);
 
-                int i;
-                for (i=0; i<num_info; i++) {
-                    if (info[i].key == parent) break;
-                }
-
-                if (i == num_info) {
-                    info[num_info].key = parent;
-                    info[num_info].first_visible_sgmt = glue_key;
-                    num_info++;
-                }
+            int i;
+            for (i=0; i<num_info; i++) {
+                if (info[i].key == parent) break;
             }
 
-            curr_sgmt = curr_sgmt->next_multirow;
-        } while (curr_sgmt != edge_end_sgmt);
-    }
+            if (i == num_info) {
+                info[num_info].key = parent;
+                info[num_info].first_visible_sgmt = glue_key;
+                info[num_info].first_visible_edge = curr_sgmt;
+                num_info++;
+            }
+        }
 
+        curr_sgmt = curr_sgmt->next_multirow;
+    } while (curr_sgmt != edge_end_sgmt);
+
+    // Compute the data required for each info entry.
     for (int i=0; i<num_info; i++) {
         info[i].min_glue_blocked = INFINITY;
         info[i].min_glue_visible = INFINITY;
         info[i].has_blocked_support = false;
 
-        // Traverse leading non visible segments in info key.
+        // We iterate each key that has an info entry in 3 stages: 
+        //
+        // 1) Traverse leading non visible segments in info key.
         struct key_t *info_sgmt = info[i].key;
         while (info_sgmt != info[i].first_visible_sgmt) {
             info[i].has_blocked_support =
@@ -983,14 +1032,9 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
             info_sgmt = info_sgmt->next_multirow;
         }
 
-        // Traverse edge until first visible segment.
-        struct key_t *edge_sgmt = edge_start;
-        while (get_glue_key(is_right_edge,edge_sgmt) != info[i].first_visible_sgmt) {
-            edge_sgmt = edge_sgmt->next_multirow;
-        }
-
-        // Traverse edge and info key simultaneously and detect which info key
-        // segments are visible from the edge.
+        // 2) Traverse edge and info key simultaneously. Handling all info key
+        // segments, either as blocked or visible.
+        struct key_t *edge_sgmt = info[i].first_visible_edge;
         do {
             struct key_t *glue_key = get_glue_key(is_right_edge,edge_sgmt);
             // Because keys (info key, in particular) are continous vertically
@@ -1010,7 +1054,8 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
             info_sgmt = info_sgmt->next_multirow;
         } while (edge_sgmt != edge_end_sgmt && info_sgmt != info[i].key);
 
-        // Traverse the end of the info key if there is something left
+        // 3) Traverse the remaining non visible segments of the info key if
+        // there are any.
         if (info_sgmt != info[i].key) {
             do {
                 struct key_t *glue_key = is_right_edge ? info_sgmt->next_key : info_sgmt;
@@ -1028,6 +1073,7 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
     bool debug_info = 0;
     float old_glue_dbg[num_info];
 
+    // Update the user glue of each info key, based on the computed data.
     for (int i=0; i<num_info; i++) {
         if (debug_info) old_glue_dbg[i] = info[i].key->user_glue;
 
@@ -1036,6 +1082,7 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
             info[i].key->user_glue = MAX (0, info[i].key->user_glue + delta_glue);
 
         } else {
+            // @user_glue_computation
             if (delta_glue > 0) {
                 if (!info[i].has_blocked_support) {
                     info[i].key->user_glue += MIN (info[i].min_glue_blocked, delta_glue); 

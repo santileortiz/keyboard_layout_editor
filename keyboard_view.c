@@ -927,6 +927,8 @@ void kv_adjust_sgmt_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float 
     }
 }
 
+#define get_glue_key(is_right_edge,sgmt) (is_right_edge ? sgmt->next_key : sgmt)
+
 struct adjust_edge_glue_info_t {
     struct key_t *key;
     struct key_t *first_visible_sgmt;
@@ -934,8 +936,6 @@ struct adjust_edge_glue_info_t {
     float min_glue_blocked;
     bool has_blocked_support;
 };
-
-#define get_glue_key(sgmt,is_right_edge) (is_right_edge ? sgmt->next_key : sgmt)
 
 void kv_adjust_edge_glue (struct keyboard_view_t *kv,
                           struct key_t *edge_start, struct key_t *edge_end_sgmt, bool is_right_edge,
@@ -985,14 +985,14 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
 
         // Traverse edge until first visible segment.
         struct key_t *edge_sgmt = edge_start;
-        while (get_glue_key(edge_sgmt, is_right_edge) != info[i].first_visible_sgmt) {
+        while (get_glue_key(is_right_edge,edge_sgmt) != info[i].first_visible_sgmt) {
             edge_sgmt = edge_sgmt->next_multirow;
         }
 
         // Traverse edge and info key simultaneously and detect which info key
         // segments are visible from the edge.
         do {
-            struct key_t *glue_key = get_glue_key(edge_sgmt, is_right_edge);
+            struct key_t *glue_key = get_glue_key(is_right_edge,edge_sgmt);
             // Because keys (info key, in particular) are continous vertically
             // and keys can't cross each other (in particular edge key and info
             // key) this must be true:
@@ -2429,7 +2429,7 @@ save_edge_glue (mem_pool_t *pool,
     struct key_t *curr_key = edge_start;
     struct key_t *prev_glue_key = NULL;
     do {
-        struct key_t *new_glue_key = is_right_edge ? curr_key->next_key : curr_key;
+        struct key_t *new_glue_key = get_glue_key (is_right_edge, curr_key);
         if (new_glue_key) {
             if (!prev_glue_key || prev_glue_key->next_multirow != new_glue_key) {
                 info_l[idx].min_glue = get_sgmt_total_glue(new_glue_key);
@@ -2590,7 +2590,7 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
                 struct key_t *curr_key = edge_start;
                 do {
                     if (edge_start->width - original_w - step_dw <= glue_info[idx].min_glue) {
-                        struct key_t *glue_key = is_right_edge ? curr_key->next_key : curr_key;
+                        struct key_t *glue_key = get_glue_key (is_right_edge, curr_key);
                         if (glue_key) kv_adjust_sgmt_glue (kv, glue_key, -step_dw);
                     }
 
@@ -2728,12 +2728,8 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multir
 
     // Find the segment whose glue should be updated.
     bool adjusted_left_edge = false;
-    struct key_t *glue_key;
-    if (edit_right_edge) {
-        glue_key = sgmt->next_key;
-    } else {
-        glue_key = sgmt;
-
+    struct key_t *glue_key = get_glue_key (edit_right_edge, sgmt);
+    if (!edit_right_edge) {
         // Maybe adjust left edge if the edited edge goes beyond the left margin
         float adj = bnd_delta_update_inv (sgmt->width - delta_w, sgmt->width, original_glue_plus_w);
         if (row->first_key == sgmt) {
@@ -3294,12 +3290,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 // Store original user glue
                 {
-                    struct key_t *glue_key;
-                    if (kv->edit_right_edge) {
-                        glue_key = kv->resized_segment->next_key;
-                    } else {
-                        glue_key = kv->resized_segment;
-                    }
+                    struct key_t *glue_key = get_glue_key (kv->edit_right_edge, kv->resized_segment);
 
                     if (glue_key != NULL) {
                         kv->resized_segment_original_user_glue = get_sgmt_user_glue(glue_key);
@@ -3629,8 +3620,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                                           kv->edit_right_edge);
 
                     // Restore user glue
-                    struct key_t *glue_key = kv->edit_right_edge ?
-                        kv->resized_segment->next_key : kv->resized_segment;
+                    struct key_t *glue_key = get_glue_key (kv->edit_right_edge, kv->resized_segment);
                     if (glue_key != NULL) {
                         struct key_t *parent = kv_get_multirow_parent (glue_key);
                         parent->user_glue = kv->resized_segment_original_user_glue;

@@ -2723,18 +2723,18 @@ void kv_resize_sgmt (struct keyboard_view_t *kv, struct key_t *prev_multirow,
 
 void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multirow, struct key_t *sgmt,
                            struct row_t *row, float original_glue_plus_w, float original_glue,
-                           float new_width, bool edit_right_edge)
+                           float new_width, bool is_right_edge)
 {
     float delta_w = new_width - sgmt->width;
 
-    // The glue is adjusted by the value that goes below original_glue_plus_w.
-    float glue_adj = bnd_delta_update (sgmt->width, sgmt->width + delta_w, original_glue_plus_w);
-
-    // Segment resizing for most cases happens by just calling kv_resize_sgmt(),
-    // but not in all cases. Consider the case from @segment_resize_img, after
-    // going from state A to state B, suppose the user moves edge X in a single
-    // move so that the segment is smaller than it originally was. The resulting
-    // state should be the following:
+    // It would seem like the straight forward implementation of both cases
+    // described above would be a call to kv_resize_sgmt() followed by a
+    // conditional call to kv_adjust_sgmt_glue() depending if the collision with
+    // a key happened or not. Sadly, things are a bit more complex. Consider
+    // the case from @segment_resize_img, after going from state A to state B,
+    // suppose the user moves edge X in a single step so that the segment is
+    // smaller than it originally was. The resulting state should be the
+    // following:
     //
     //                              glue_adj
     //                              |-----|
@@ -2745,49 +2745,48 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multir
     //                            +---+   +---+
     //                               STATE C
     //
-    // Normally kv_adjust_sgmt_glue() assumes the key whose glue is being adjusted
-    // will remain static, but K should move to its original position before
-    // actually adjusting the glue. The value of glue_adj will be correctly
-    // computed to be the new glue for the segment K_1 (as the internal glue of
-    // K_1 in state B was 0). Because the internal glue for the segment K_2 in
-    // state B includes the distance by which K was pushed to the right, then if
-    // glue_adj < K_1's internal_glue, the call to kv_adjust_sgmt_glue() will not
-    // notice that K_1 stops being the supporting segment. This incorrectly sets
-    // K's user glue to glue_adj, when it should have been set to K_2's original
-    // internal glue (the one it had in state A).
+    // The call to kv_adjust_sgmt_glue() should adjust the glue by glue_adj as
+    // shown in state C, because in State B, the total glue for the segment K_1
+    // was 0.  Normally kv_adjust_sgmt_glue() assumes the key whose glue is
+    // being adjusted will remain static, but K should move to the position it
+    // had in state A, before actually adjusting the glue.  The internal glue
+    // for the segment K_2 in state B includes the distance by which K was
+    // pushed to the right, then if glue_adj is less than K_2's internal_glue at
+    // state B, the call to kv_adjust_sgmt_glue() will not notice that K_1 stops
+    // being the supporting segment. This incorrectly sets K's user glue to
+    // glue_adj, when it should have been set to K_2's original internal glue
+    // (the one it had in state A).
     //
-    // To handle this case we specifically detect it and do the width change in
-    // two stages. One that puts K into it's original position but leaves the X
-    // edge coliding with K, followed by an internal glue recomputation. And a
-    // second stage that actually resizes the segment to its intended size.
-    // Then, when kv_adjust_sgmt_glue() is called, K_2's internal glue will be
-    // correct, and supporting segment changes will be correctly handled.
+    // To handle this case segment resizing may happen in two stages. One that
+    // puts K into it's original position, followed by an internal glue
+    // recomputation. Then a second stage of a segment resize and glue
+    // adjustment for the remainig value of the total change.
 
-    if (sgmt->width > original_glue_plus_w && sgmt->width + delta_w < original_glue_plus_w) {
-        float delta_without_adjust = original_glue_plus_w - sgmt->width;
-        kv_resize_sgmt (kv, prev_multirow, sgmt, delta_without_adjust, edit_right_edge);
+    // Optional resize step. We enter this if the segment being resized already
+    // pushed some key.
+    float step_dw = bnd_delta_update_inv (sgmt->width, sgmt->width + delta_w, original_glue_plus_w);
+    if (delta_w < 0 && step_dw != 0) {
+        kv_resize_sgmt (kv, prev_multirow, sgmt, step_dw, is_right_edge);
         kv_compute_glue (kv);
-        kv_resize_sgmt (kv, prev_multirow, sgmt, delta_w - delta_without_adjust, edit_right_edge);
-
-    } else {
-        kv_resize_sgmt (kv, prev_multirow, sgmt, delta_w, edit_right_edge);
+        delta_w -= step_dw;
     }
 
-    // Find the segment whose glue should be updated.
+    // Maybe adjust left edge if the edited edge goes beyond the left margin
     bool adjusted_left_edge = false;
-    struct key_t *glue_key = get_glue_key (edit_right_edge, sgmt);
-    if (!edit_right_edge) {
-        // Maybe adjust left edge if the edited edge goes beyond the left margin
-        float adj = bnd_delta_update_inv (sgmt->width - delta_w, sgmt->width, original_glue_plus_w);
+    if (!is_right_edge) {
         if (row->first_key == sgmt) {
-            kv_adjust_left_edge (kv, sgmt, adj);
+            kv_adjust_left_edge (kv, sgmt, step_dw);
             adjusted_left_edge = true;
         }
     }
 
-    // Adjust the glue
-    if (glue_adj != 0 && !adjusted_left_edge) {
-        kv_adjust_sgmt_glue (kv, glue_key, -glue_adj);
+    // Handle the remaining delta_w.
+    if (delta_w != 0) {
+        kv_resize_sgmt (kv, prev_multirow, sgmt, delta_w, is_right_edge);
+
+        if (!adjusted_left_edge) {
+            kv_adjust_sgmt_glue (kv, get_glue_key (is_right_edge, sgmt), -delta_w);
+        }
     }
 }
 
@@ -3916,9 +3915,9 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool, GtkWidget *window)
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
 
 #if 1
-    //multirow_test_geometry (kv);
+    multirow_test_geometry (kv);
     //non_rectangular_edge_resize_test_geometry (kv);
-    adjust_left_edge_test_geometry (kv);
+    //adjust_left_edge_test_geometry (kv);
     //adjust_edge_glue_test_geometry (kv);
 #else
     keyboard_view_build_default_geometry (kv);

@@ -1399,7 +1399,7 @@ void multirow_test_geometry (struct keyboard_view_t *kv)
     kv_compute_glue (kv);
 }
 
-void non_rectangular_edge_resize_test_geometry (struct keyboard_view_t *kv)
+void edge_resize_test_geometry (struct keyboard_view_t *kv)
 {
     kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
     kv_new_row_h (kv, 1);
@@ -2449,8 +2449,8 @@ void kv_locate_edge (struct keyboard_view_t *kv,
 }
 
 struct multirow_glue_info_t {
+    struct key_t *key;
     float min_glue;
-    int num_sgmts;
 };
 
 templ_sort (mg_sort, struct multirow_glue_info_t*, (*a)->min_glue > (*b)->min_glue)
@@ -2471,44 +2471,49 @@ save_edge_glue (mem_pool_t *pool,
         } while (curr_key != edge_end_sgmt);
     }
     struct multirow_glue_info_t info_l[len];
+    int num_info = 0;
 
-    int idx = 0;
-    struct key_t *curr_key = edge_start;
-    struct key_t *prev_glue_key = NULL;
+    struct key_t *curr_sgmt = edge_start;
     do {
-        struct key_t *new_glue_key = get_glue_key (is_right_edge, curr_key);
+        struct key_t *new_glue_key = get_glue_key (is_right_edge, curr_sgmt);
         if (new_glue_key) {
-            if (!prev_glue_key || prev_glue_key->next_multirow != new_glue_key) {
-                info_l[idx].min_glue = get_sgmt_total_glue(new_glue_key);
-                info_l[idx].num_sgmts = 1;
-                idx++;
+            struct key_t*parent = kv_get_multirow_parent (new_glue_key);
+
+            int i;
+            for (i=0; i<num_info; i++) {
+                if (info_l[i].key == parent) break;
+            }
+
+            if (i == num_info) {
+                info_l[num_info].key = parent;
+                info_l[num_info].min_glue = get_sgmt_total_glue(new_glue_key);
+                num_info++;
 
             } else {
-                info_l[idx-1].min_glue = MIN (info_l[idx-1].min_glue, get_sgmt_total_glue(new_glue_key));
-                info_l[idx-1].num_sgmts++;
+                float total_glue = get_sgmt_total_glue(new_glue_key);
+                if (total_glue < info_l[i].min_glue) {
+                    info_l[i].min_glue = total_glue;
+                }
             }
-            prev_glue_key = new_glue_key;
-
-        } else {
-            info_l[idx].min_glue = 0;
-            info_l[idx].num_sgmts = 1;
-            idx++;
-            prev_glue_key = NULL;
         }
 
-        curr_key = curr_key->next_multirow;
-    } while (curr_key != edge_end_sgmt);
+        curr_sgmt = curr_sgmt->next_multirow;
+    } while (curr_sgmt != edge_end_sgmt);
 
     // Check if at least one glue information is non zero
     bool non_zero_glue = false;
-    for (int i=0; i<idx && !non_zero_glue; i++) {
+    for (int i=0; i<num_info && !non_zero_glue; i++) {
         if (info_l[i].min_glue != 0) non_zero_glue = true;
     }
 
     if (non_zero_glue) {
-        *info_len = idx;
-        *info = mem_pool_push_array (pool, idx, struct multirow_glue_info_t);
-        for (int i=0; i<idx; i++) (*info)[i] = info_l[i];
+        struct multirow_glue_info_t *sorted[num_info];
+        for (int i=0; i < num_info; i++) sorted[i] = &info_l[i];
+        mg_sort (sorted, num_info);
+
+        *info_len = num_info;
+        *info = mem_pool_push_array (pool, num_info, struct multirow_glue_info_t);
+        for (int i=0; i<num_info; i++) (*info)[i] = *(sorted[i]);
     } else {
         // Returning no glue information if all segments have zero min glue
         // creates the behavior of not adding glue if there was none before.
@@ -2621,36 +2626,54 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
 
     // When shrinking a key that pushed some keys then leave them at their
     // original positions.
-    if (glue_info && delta_w < 0 && /*total change*/ edge_start->width - original_w > 0) {
-        int idx;
-        struct multirow_glue_info_t *sorted[glue_info_len];
-        for (idx=0; idx < glue_info_len; idx++) sorted[idx] = &glue_info[idx];
-        mg_sort (sorted, glue_info_len);
+    if (glue_info && delta_w < 0 && edge_start->width > original_w) {
+        int i = 0;
+        // Ignore glue_info entries if the haven't been pushed yet.
+        while (i < glue_info_len && kv->edge_start->width < original_w + glue_info[i].min_glue) i++;
 
-        int step;
-        for (step=0; step < glue_info_len; step++) {
-            float step_dw = MAX (delta_w, original_w + sorted[step]->min_glue - edge_start->width);
-            if (step_dw < 0) {
-                kv_resize_edge (edge_prev_sgmt, edge_start, edge_end_sgmt, step_dw);
+        // This iterates each glue_info entry and resizes the edge and adjusts
+        // the glue to leave each key in its original position.
+        while (i < glue_info_len &&
+               new_width <= original_w + glue_info[i].min_glue) {
+            float step = original_w + glue_info[i].min_glue - kv->edge_start->width;
+            if (step != 0) {
+                kv_resize_edge (edge_prev_sgmt, edge_start, edge_end_sgmt, step);
+                kv_adjust_edge_glue (kv, edge_start, edge_end_sgmt, is_right_edge, -step);
+                delta_w -= step;
 
-                idx = 0;
-                struct key_t *curr_key = edge_start;
-                do {
-                    if (edge_start->width - original_w - step_dw <= glue_info[idx].min_glue) {
-                        struct key_t *glue_key = get_glue_key (is_right_edge, curr_key);
-                        if (glue_key) kv_adjust_sgmt_glue (kv, glue_key, -step_dw);
-                    }
-
-                    curr_key = curr_key->next_multirow;
-                    idx++;
-                } while (curr_key != edge_end_sgmt);
-                delta_w -= step_dw;
+                // The previous kv_adjust_edge_glue() leaves everything fixed in
+                // place, this resets the user glue to 0 of keys that should be
+                // still being pushed by the edge.
+                int undo_i = i;
+                while (undo_i < glue_info_len) {
+                    glue_info[undo_i].key->user_glue = 0;
+                    undo_i++;
+                }
+                kv_compute_glue (kv);
             }
+            i++;
+        }
+
+        // If new_width > original_w this step sets the edge's width to
+        // new_width, otherwise, it sets it to original_w so that
+        // @main_edge_width_change handles what's left in delta_w.
+        float step = MAX (new_width, original_w) - kv->edge_start->width;
+        if (step != 0) {
+            kv_resize_edge (edge_prev_sgmt, edge_start, edge_end_sgmt, step);
+            kv_adjust_edge_glue (kv, edge_start, edge_end_sgmt, is_right_edge, -step);
+            delta_w -= step;
+
+            while (i < glue_info_len) {
+                glue_info[i].key->user_glue = 0;
+                i++;
+            }
+            kv_compute_glue (kv);
         }
     }
 
-    // This is the normal case. If we entered the case above, then this handles
-    // the remaining delta_w.
+    // This will handle the case for growing edges (delta_w > 0), and what is
+    // left of delta_w when shrinking edges (delta_w < 0) and new_width is less
+    // than original_w. @main_edge_width_change
     if (delta_w != 0) {
         kv_resize_edge (edge_prev_sgmt, edge_start, edge_end_sgmt, delta_w);
 
@@ -3915,8 +3938,8 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool, GtkWidget *window)
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
 
 #if 1
-    multirow_test_geometry (kv);
-    //non_rectangular_edge_resize_test_geometry (kv);
+    //multirow_test_geometry (kv);
+    edge_resize_test_geometry (kv);
     //adjust_left_edge_test_geometry (kv);
     //adjust_edge_glue_test_geometry (kv);
 #else

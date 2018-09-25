@@ -2424,6 +2424,17 @@ void kv_locate_edge (struct keyboard_view_t *kv,
 #endif
 }
 
+int kv_get_edge_len (struct key_t *edge_start, struct key_t *edge_end_sgmt)
+{
+    int len = 0;
+    struct key_t *curr_key = edge_start;
+    do {
+        len ++;
+        curr_key = curr_key->next_multirow;
+    } while (curr_key != edge_end_sgmt);
+    return len;
+}
+
 struct multirow_glue_info_t {
     struct key_t *key;
     float min_glue;
@@ -2438,14 +2449,7 @@ save_edge_glue (mem_pool_t *pool,
 {
     assert (info != NULL && info_len != NULL);
 
-    int len = 0;
-    {
-        struct key_t *curr_key = edge_start;
-        do {
-            len ++;
-            curr_key = curr_key->next_multirow;
-        } while (curr_key != edge_end_sgmt);
-    }
+    int len = kv_get_edge_len (edge_start, edge_end_sgmt);
     struct multirow_glue_info_t info_l[len];
     int num_info = 0;
 
@@ -2610,6 +2614,38 @@ bool kv_is_edge_left_visible (struct keyboard_view_t *kv,
     return true;
 }
 
+// This function computes how much a change in an edge will make the left edge
+// change. The reason it is not so straightforward is that if the edge is
+// touching the left margin (it has internal glue == 0), then the point at which
+// the change should stop happening must be computed from the minimum total glue
+// of the other segments that are the first in a row.
+// NOTE: This function assumes all edge segment are visible from the left edge,
+// this is ensured by the function kv_is_edge_left_visible().
+// TODO: Is there a simpler way to detect the left edge boundary?
+float kv_compute_left_edge_change (struct keyboard_view_t *kv,
+                                   struct key_t *edge_start, struct key_t *edge_end_sgmt,
+                                   float old_width, float new_width)
+{
+    float g = INFINITY;
+    struct row_t *row = kv->first_row;
+    struct key_t *edge_sgmt = edge_start;
+    int edge_len = kv_get_edge_len (edge_start, edge_end_sgmt);
+    int edge_idx = 0;
+    while (row != NULL) {
+        if (row->first_key == edge_sgmt && edge_idx < edge_len) {
+            edge_sgmt = edge_sgmt->next_multirow;
+            edge_idx++;
+        } else {
+            g = MIN (g, get_sgmt_total_glue (row->first_key));
+        }
+        row = row->next_row;
+    }
+
+    float left_edge_bnd = g==INFINITY ?
+        0 : edge_start->width + get_sgmt_total_glue(edge_start) - g;
+    return bnd_delta_update_inv (old_width, new_width, left_edge_bnd);
+}
+
 // Function called by the resize edge tool. Just like the resize segment tool we
 // want the edge resize tool to be reversible.
 //
@@ -2624,6 +2660,7 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
                            float original_w, float new_width)
 {
     float delta_w = new_width - kv->edge_start->width;
+    float old_width = edge_start->width;
 
     // When shrinking a key that pushed some keys then leave them at their
     // original positions.
@@ -2676,8 +2713,12 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
     bool adjusted_left_edge = false;
     if (!is_right_edge) {
         if (kv_is_edge_left_visible (kv, edge_start, edge_end_sgmt)) {
-            kv_adjust_left_edge (kv, edge_start, delta_w);
-            adjusted_left_edge = true;
+            float adj =
+                kv_compute_left_edge_change (kv, edge_start, edge_end_sgmt, old_width, new_width);
+            if (adj != 0) {
+                kv_adjust_left_edge (kv, edge_start, adj);
+                adjusted_left_edge = true;
+            }
         }
     }
 
@@ -2760,6 +2801,7 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multir
                            float new_width, bool is_right_edge)
 {
     float delta_w = new_width - sgmt->width;
+    float old_width = sgmt->width;
 
     // It would seem like the straight forward implementation of both cases
     // described above would be a call to kv_resize_sgmt() followed by a
@@ -2796,10 +2838,9 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multir
     // recomputation. Then a second stage of a segment resize and glue
     // adjustment for the remainig value of the total change.
 
-    float step_dw = bnd_delta_update_inv (sgmt->width, sgmt->width + delta_w, original_glue_plus_w);
-
     // Optional resize step. We enter this if the segment being resized pushed a
     // key.
+    float step_dw = bnd_delta_update_inv (sgmt->width, sgmt->width + delta_w, original_glue_plus_w);
     if (delta_w < 0 && step_dw != 0) {
         kv_resize_sgmt (kv, prev_multirow, sgmt, step_dw, is_right_edge);
         kv_compute_glue (kv);
@@ -2809,9 +2850,13 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multir
     // Maybe adjust left edge if the edited edge goes beyond the left margin
     bool adjusted_left_edge = false;
     if (!is_right_edge) {
-        if (row->first_key == sgmt) {
-            kv_adjust_left_edge (kv, sgmt, step_dw);
-            adjusted_left_edge = true;
+        if (row->first_key == sgmt) { // Ensure sgmt is left-visible
+            float adj =
+                kv_compute_left_edge_change (kv, sgmt, sgmt->next_multirow, old_width, new_width);
+            if (adj != 0) {
+                kv_adjust_left_edge (kv, sgmt, adj);
+                adjusted_left_edge = true;
+            }
         }
     }
 

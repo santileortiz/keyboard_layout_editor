@@ -2617,6 +2617,31 @@ void kv_resize_edge (struct key_t *edge_prev_sgmt, struct key_t *edge_start, str
     }
 }
 
+// Detects if an edge is left-visible, which means all of its segments are the
+// first segment in a row.
+bool kv_is_edge_left_visible (struct keyboard_view_t *kv,
+                              struct key_t *edge_start, struct key_t *edge_end_sgmt)
+{
+    struct row_t *row = kv_get_row (kv, edge_start);
+    struct key_t *curr_sgmt = edge_start;
+    do {
+        if (row->first_key != curr_sgmt) {
+            return false;
+        }
+        row = row->next_row;
+        curr_sgmt = curr_sgmt->next_multirow;
+    } while (curr_sgmt != edge_end_sgmt);
+    return true;
+}
+
+// Function called by the resize edge tool. Just like the resize segment tool we
+// want the edge resize tool to be reversible.
+//
+// The implementation can be seen as a generalization of kv_change_sgmt_width().
+// Where kv_change_sgmt_width() may do one extra step, this function may do
+// glue_info_len steps. For an explanation of why multiple steps are required
+// see the explanation in the comments of kv_change_sgmt_width() for why one
+// extra step is required there.
 void kv_change_edge_width (struct keyboard_view_t *kv,
                            struct key_t *edge_prev_sgmt, struct key_t *edge_start, struct key_t *edge_end_sgmt,
                            bool is_right_edge, struct multirow_glue_info_t *glue_info, int glue_info_len,
@@ -2671,13 +2696,22 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
         }
     }
 
-    // This will handle the case for growing edges (delta_w > 0), and what is
-    // left of delta_w when shrinking edges (delta_w < 0) and new_width is less
-    // than original_w. @main_edge_width_change
+    // Maybe adjust left edge if the edited edge goes beyond the left margin
+    bool adjusted_left_edge = false;
+    if (!is_right_edge) {
+        if (kv_is_edge_left_visible (kv, edge_start, edge_end_sgmt)) {
+            kv_adjust_left_edge (kv, edge_start, delta_w);
+            adjusted_left_edge = true;
+        }
+    }
+
+    // Handle the case for growing edges (delta_w > 0), and what is left of
+    // delta_w when shrinking edges (delta_w < 0) and new_width is less than
+    // original_w. @main_edge_width_change
     if (delta_w != 0) {
         kv_resize_edge (edge_prev_sgmt, edge_start, edge_end_sgmt, delta_w);
 
-        if (glue_info) {
+        if (glue_info && !adjusted_left_edge) {
             kv_adjust_edge_glue (kv, edge_start, edge_end_sgmt, is_right_edge, -delta_w);
         }
     }
@@ -2717,7 +2751,8 @@ void kv_resize_sgmt (struct keyboard_view_t *kv, struct key_t *prev_multirow,
 
 // This is the function called by the resize segment tool. A property we want to
 // keep for tools is that while a modification is being made, the user should be
-// able to get back to the original state. Consider the following case:
+// able to get back to the original state. We call this property reversibility.
+// Consider the following case:
 //
 //                 STATE A                         STATE B
 //              +---+   +---+     SIMPLE      +-----------+---+
@@ -2785,9 +2820,10 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multir
     // recomputation. Then a second stage of a segment resize and glue
     // adjustment for the remainig value of the total change.
 
-    // Optional resize step. We enter this if the segment being resized already
-    // pushed some key.
     float step_dw = bnd_delta_update_inv (sgmt->width, sgmt->width + delta_w, original_glue_plus_w);
+
+    // Optional resize step. We enter this if the segment being resized pushed a
+    // key.
     if (delta_w < 0 && step_dw != 0) {
         kv_resize_sgmt (kv, prev_multirow, sgmt, step_dw, is_right_edge);
         kv_compute_glue (kv);
@@ -2803,7 +2839,9 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multir
         }
     }
 
-    // Handle the remaining delta_w.
+    // Handle the case for growing edges (delta_w > 0), and what is left of
+    // delta_w when shrinking edges (delta_w < 0) and new_width is less than
+    // the original width.
     if (delta_w != 0) {
         kv_resize_sgmt (kv, prev_multirow, sgmt, delta_w, is_right_edge);
 

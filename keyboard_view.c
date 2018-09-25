@@ -234,25 +234,6 @@ struct key_t* kv_get_multirow_parent (struct key_t *key)
     return key;
 }
 
-bool is_key_first (struct key_t *key, struct row_t *row)
-{
-    if (!is_multirow_key (key)) {
-        if (key != row->first_key) {
-            return false;
-        }
-    } else {
-        key = kv_get_multirow_parent (key);
-        do {
-            if (row->first_key != key) {
-                return false;
-            }
-            row = row->next_row;
-            key = key->next_multirow;
-        } while (!is_multirow_parent (key));
-    }
-    return true;
-}
-
 static inline
 float get_sgmt_user_glue (struct key_t *sgmt)
 {
@@ -1359,13 +1340,8 @@ void kv_equalize_left_edge (struct keyboard_view_t *kv)
         idx++;
     }
 
-    curr_row = kv->first_row;
-    while (curr_row != NULL) {
-        struct key_t *curr_key = curr_row->first_key;
-        if (is_multirow_parent(curr_key) && is_key_first(curr_key, curr_row)) {
-            curr_key->user_glue = MAX (0, curr_key->user_glue - extra_glue);
-        }
-        curr_row = curr_row->next_row;
+    if (extra_glue != 0) {
+        kv_adjust_left_edge (kv, NULL, -extra_glue);
     }
 }
 

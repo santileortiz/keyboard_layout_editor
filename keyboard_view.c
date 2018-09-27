@@ -967,6 +967,8 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
                           struct key_t *edge_start, struct key_t *edge_end_sgmt, bool is_right_edge,
                           float delta_glue)
 {
+    if (delta_glue == 0) return;
+
     int num_rows = kv_get_num_rows (kv);
 
     struct adjust_edge_glue_info_t info[num_rows];
@@ -2480,13 +2482,13 @@ save_edge_glue (mem_pool_t *pool,
         curr_sgmt = curr_sgmt->next_multirow;
     } while (curr_sgmt != edge_end_sgmt);
 
-    // Check if at least one glue information is non zero
-    bool non_zero_glue = false;
-    for (int i=0; i<num_info && !non_zero_glue; i++) {
-        if (info_l[i].min_glue != 0) non_zero_glue = true;
-    }
+    //// Check if at least one glue information is non zero
+    //bool non_zero_glue = false;
+    //for (int i=0; i<num_info && !non_zero_glue; i++) {
+    //    if (info_l[i].min_glue != 0) non_zero_glue = true;
+    //}
 
-    if (non_zero_glue) {
+    //if (non_zero_glue) {
         struct multirow_glue_info_t *sorted[num_info];
         for (int i=0; i < num_info; i++) sorted[i] = &info_l[i];
         mg_sort (sorted, num_info);
@@ -2494,12 +2496,12 @@ save_edge_glue (mem_pool_t *pool,
         *info_len = num_info;
         *info = mem_pool_push_array (pool, num_info, struct multirow_glue_info_t);
         for (int i=0; i<num_info; i++) (*info)[i] = *(sorted[i]);
-    } else {
-        // Returning no glue information if all segments have zero min glue
-        // creates the behavior of not adding glue if there was none before.
-        *info_len = 0;
-        *info = NULL;
-    }
+    //} else {
+    //    // Returning no glue information if all segments have zero min glue
+    //    // creates the behavior of not adding glue if there was none before.
+    //    *info_len = 0;
+    //    *info = NULL;
+    //}
 }
 
 void kv_resize_cleanup (struct keyboard_view_t *kv)
@@ -2622,10 +2624,13 @@ bool kv_is_edge_left_visible (struct keyboard_view_t *kv,
 // NOTE: This function assumes all edge segment are visible from the left edge,
 // this is ensured by the function kv_is_edge_left_visible().
 // TODO: Is there a simpler way to detect the left edge boundary?
-float kv_compute_left_edge_change (struct keyboard_view_t *kv,
-                                   struct key_t *edge_start, struct key_t *edge_end_sgmt,
-                                   float old_width, float new_width)
+void kv_compute_left_edge_change (struct keyboard_view_t *kv,
+                                  struct key_t *edge_start, struct key_t *edge_end_sgmt,
+                                  float old_width, float new_width,
+                                  float *left_edge_adjust, float *glue_adjust)
 {
+    assert (left_edge_adjust != NULL && glue_adjust != NULL);
+
     float g = INFINITY;
     struct row_t *row = kv->first_row;
     struct key_t *edge_sgmt = edge_start;
@@ -2643,7 +2648,24 @@ float kv_compute_left_edge_change (struct keyboard_view_t *kv,
 
     float left_edge_bnd = g==INFINITY ?
         0 : edge_start->width + get_sgmt_total_glue(edge_start) - g;
-    return bnd_delta_update_inv (old_width, new_width, left_edge_bnd);
+    printf ("BND: %f, ", left_edge_bnd);
+    *left_edge_adjust = bnd_delta_update_inv (old_width, new_width, left_edge_bnd);
+    *glue_adjust = old_width - new_width + *left_edge_adjust;
+}
+
+bool kv_key_has_glue (struct keyboard_view_t *kv,
+                       bool is_right_edge, struct key_t *sgmt)
+{
+    struct key_t *curr_sgmt = sgmt;
+    do {
+        struct key_t *glue_sgmt = get_glue_key (is_right_edge, curr_sgmt);
+        if (get_sgmt_total_glue (glue_sgmt) != 0) {
+            return true;
+        }
+        curr_sgmt = curr_sgmt->next_multirow;
+    } while (curr_sgmt != sgmt);
+
+    return false;
 }
 
 // Function called by the resize edge tool. Just like the resize segment tool we
@@ -2660,11 +2682,31 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
                            float original_w, float new_width)
 {
     float delta_w = new_width - kv->edge_start->width;
-    float old_width = edge_start->width;
+    float glue_adjust = -delta_w;
+
+    bool do_glue_adj = kv_key_has_glue (kv, is_right_edge, edge_start);
+
+    bool left_edge_adjusted = false;
+    // Maybe adjust left edge if the edited edge goes beyond the left margin
+    printf ("original_w: %f, ", edge_start->width);
+    printf ("w_left: %f, delta w: %f, ", edge_start->width, delta_w);
+    if (!is_right_edge) {
+        if (kv_is_edge_left_visible (kv, edge_start, edge_end_sgmt)) {
+            float left_edge_adjust;
+            kv_compute_left_edge_change (kv, edge_start, edge_end_sgmt,
+                                         edge_start->width, new_width,
+                                         &left_edge_adjust, &glue_adjust);
+            if (left_edge_adjust != 0) {
+                printf ("left edge adj: %f, ", left_edge_adjust);
+                kv_adjust_left_edge (kv, edge_start, left_edge_adjust);
+                left_edge_adjusted = true;
+            }
+        }
+    }
 
     // When shrinking a key that pushed some keys then leave them at their
     // original positions.
-    if (glue_info && delta_w < 0 && edge_start->width > original_w) {
+    if (!left_edge_adjusted && do_glue_adj && delta_w < 0 && edge_start->width > original_w) {
         int i = 0;
         // Ignore glue_info entries if the haven't been pushed yet.
         while (i < glue_info_len && kv->edge_start->width < original_w + glue_info[i].min_glue) i++;
@@ -2707,19 +2749,8 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
             }
             kv_compute_glue (kv);
         }
-    }
 
-    // Maybe adjust left edge if the edited edge goes beyond the left margin
-    bool adjusted_left_edge = false;
-    if (!is_right_edge) {
-        if (kv_is_edge_left_visible (kv, edge_start, edge_end_sgmt)) {
-            float adj =
-                kv_compute_left_edge_change (kv, edge_start, edge_end_sgmt, old_width, new_width);
-            if (adj != 0) {
-                kv_adjust_left_edge (kv, edge_start, adj);
-                adjusted_left_edge = true;
-            }
-        }
+        glue_adjust = -delta_w;
     }
 
     // Handle the case for growing edges (delta_w > 0), and what is left of
@@ -2728,9 +2759,14 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
     if (delta_w != 0) {
         kv_resize_edge (edge_prev_sgmt, edge_start, edge_end_sgmt, delta_w);
 
-        if (glue_info && !adjusted_left_edge) {
-            kv_adjust_edge_glue (kv, edge_start, edge_end_sgmt, is_right_edge, -delta_w);
+        if (glue_adjust != 0) {
+            printf ("glue adj: %f\n", glue_adjust);
+            kv_adjust_edge_glue (kv, edge_start, edge_end_sgmt, is_right_edge, glue_adjust);
+        } else {
+            printf ("\n");
         }
+    } else {
+        printf ("\n");
     }
 }
 
@@ -2849,16 +2885,16 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multir
 
     // Maybe adjust left edge if the edited edge goes beyond the left margin
     bool adjusted_left_edge = false;
-    if (!is_right_edge) {
-        if (row->first_key == sgmt) { // Ensure sgmt is left-visible
-            float adj =
-                kv_compute_left_edge_change (kv, sgmt, sgmt->next_multirow, old_width, new_width);
-            if (adj != 0) {
-                kv_adjust_left_edge (kv, sgmt, adj);
-                adjusted_left_edge = true;
-            }
-        }
-    }
+    //if (!is_right_edge) {
+    //    if (row->first_key == sgmt) { // Ensure sgmt is left-visible
+    //        float adj =
+    //            kv_compute_left_edge_change (kv, sgmt, sgmt->next_multirow, old_width, new_width);
+    //        if (adj != 0) {
+    //            kv_adjust_left_edge (kv, sgmt, adj);
+    //            adjusted_left_edge = true;
+    //        }
+    //    }
+    //}
 
     // Handle the case for growing edges (delta_w > 0), and what is left of
     // delta_w when shrinking edges (delta_w < 0) and new_width is less than
@@ -3342,6 +3378,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                         kv->edge_start = button_event_key;
                     }
 
+                    kv->edge_prev_sgmt = NULL;
                     kv->edge_end_sgmt = button_event_key;
                     kv->min_width = kv_get_min_key_width(kv);
 
@@ -3998,9 +4035,9 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool, GtkWidget *window)
 
 #if 1
     //multirow_test_geometry (kv);
-    edge_resize_test_geometry (kv);
+    //edge_resize_test_geometry (kv);
     //adjust_left_edge_test_geometry (kv);
-    //adjust_edge_glue_test_geometry (kv);
+    adjust_edge_glue_test_geometry (kv);
 #else
     keyboard_view_build_default_geometry (kv);
 #endif

@@ -176,6 +176,7 @@ struct keyboard_view_t {
 
     // KEY_ADD state
     GdkRectangle to_add_rect;
+    bool to_add_rect_hidden;
     float added_key_user_glue;
     struct key_t **added_key_ptr;
     struct row_t *added_key_row;
@@ -1813,7 +1814,7 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
         curr_row = curr_row->next_row;
     }
 
-    if (kv->active_tool == KV_TOOL_ADD_KEY) {
+    if (kv->active_tool == KV_TOOL_ADD_KEY && !kv->to_add_rect_hidden) {
         cairo_rectangle (cr, kv->to_add_rect.x, kv->to_add_rect.y, kv->to_add_rect.width, kv->to_add_rect.height);
         cairo_set_source_rgba (cr, 0, 0, 1, 0.5);
         cairo_fill (cr);
@@ -3181,6 +3182,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
     } else if (e->type == GDK_MOTION_NOTIFY) {
         GdkEventMotion *btn_e = (GdkEventMotion*)e;
+
         button_event_key = keyboard_view_get_key (kv, btn_e->x, btn_e->y,
                                                   &button_event_key_rect,
                                                   &button_event_key_is_rectangular,
@@ -3596,6 +3598,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                        e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
                 kv_set_add_key_state (kv, event->x, event->y);
+
+                // Hide the add key rectangle if the pointer is in the toolbar
+                kv->to_add_rect_hidden = event->y < KV_TOOLBAR_HEIGHT;
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_BUTTON_RELEASE) {

@@ -1042,13 +1042,9 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
         // there are any.
         if (info_sgmt != info[i].key) {
             do {
-                struct key_t *glue_key = is_right_edge ? info_sgmt->next_key : info_sgmt;
-                if (glue_key) {
-                    info[i].has_blocked_support =
-                        info[i].has_blocked_support || is_supporting_sgmt (glue_key);
-                    info[i].min_glue_blocked = MIN (info[i].min_glue_blocked, glue_key->internal_glue);
-                }
-
+                info[i].has_blocked_support =
+                    info[i].has_blocked_support || is_supporting_sgmt (info_sgmt);
+                info[i].min_glue_blocked = MIN (info[i].min_glue_blocked, info_sgmt->internal_glue);
                 info_sgmt = info_sgmt->next_multirow;
             } while (info_sgmt != info[i].key);
         }

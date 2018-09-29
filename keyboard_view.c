@@ -3068,7 +3068,7 @@ BUILD_GEOMETRY_FUNC(multirow_test_geometry)
     kv_compute_glue (kv);
 }
 
-BUILD_GEOMETRY_FUNC(edge_resize_leave_original_pos)
+BUILD_GEOMETRY_FUNC(edge_resize_leave_original_pos_1)
 {
     kv_new_row_h (kv, 1);
     struct key_t *m = kv_add_key_w (kv, KEY_A, 3);
@@ -3087,6 +3087,23 @@ BUILD_GEOMETRY_FUNC(edge_resize_leave_original_pos)
 
     kv_new_row_h (kv, 1);
     kv_add_key_multirow_sized (kv, m, 3, MULTIROW_ALIGN_LEFT);
+
+    kv_compute_glue (kv);
+}
+
+BUILD_GEOMETRY_FUNC(edge_resize_leave_original_pos_2)
+{
+    kv_new_row_h (kv, 1);
+    struct key_t *m1 = kv_add_key (kv, KEY_1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m1);
+    kv_add_key_full (kv, KEY_A, 1, 1);
+    kv_add_key_full (kv, KEY_B, 1, 1);
+    kv_add_key_full (kv, KEY_C, 1, 1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m1);
 
     kv_compute_glue (kv);
 }
@@ -3146,6 +3163,43 @@ BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_2)
     kv_compute_glue (kv);
 }
 
+BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_3)
+{
+    kv_new_row_h (kv, 1);
+    struct key_t *e = kv_add_key (kv, KEY_1);
+    struct key_t *k1 = kv_add_key_full (kv, KEY_A, 3, 2);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow_sized (kv, e, 3, MULTIROW_ALIGN_LEFT);
+    kv_add_key_multirow_sized (kv, k1, 1, MULTIROW_ALIGN_RIGHT);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, e);
+    kv_add_key_multirow_sized (kv, k1, 2, MULTIROW_ALIGN_RIGHT);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, e);
+    kv_add_key_multirow (kv, k1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, e);
+    struct key_t *k2 = kv_add_key_full (kv, KEY_B, 1, 2);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, e);
+    kv_add_key_multirow_sized (kv, k2, 2, MULTIROW_ALIGN_RIGHT);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, e);
+    kv_add_key_multirow (kv, k2);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow_sized (kv, e, 1, MULTIROW_ALIGN_LEFT);
+    kv_add_key_multirow_sized (kv, k2, 3, MULTIROW_ALIGN_RIGHT);
+
+    kv_compute_glue (kv);
+}
+
 BUILD_GEOMETRY_FUNC(adjust_left_edge_test_geometry)
 {
     kv_new_row_h (kv, 1);
@@ -3168,9 +3222,11 @@ BUILD_GEOMETRY_FUNC(adjust_left_edge_test_geometry)
 set_geometry_func_t* kv_geometries[] = {
         kv_build_default_geometry, // Default
         multirow_test_geometry,
-        edge_resize_leave_original_pos,
+        edge_resize_leave_original_pos_1,
+        edge_resize_leave_original_pos_2,
         edge_resize_test_geometry_1,
         edge_resize_test_geometry_2,
+        edge_resize_test_geometry_3,
         adjust_left_edge_test_geometry,
     };
 

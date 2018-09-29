@@ -4074,6 +4074,9 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
 
 void keyboard_view_destroy (struct keyboard_view_t *kv)
 {
+    mem_pool_destroy (&kv->keyboard_pool);
+    mem_pool_destroy (&kv->tooltips_pool);
+    mem_pool_destroy (&kv->resize_pool);
     mem_pool_destroy (kv->pool);
 }
 

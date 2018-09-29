@@ -2442,7 +2442,7 @@ bool kv_key_has_glue (struct keyboard_view_t *kv,
     struct key_t *curr_sgmt = sgmt;
     do {
         struct key_t *glue_sgmt = get_glue_key (is_right_edge, curr_sgmt);
-        if (get_sgmt_total_glue (glue_sgmt) != 0) {
+        if (glue_sgmt && get_sgmt_total_glue (glue_sgmt) != 0) {
             return true;
         }
         curr_sgmt = curr_sgmt->next_multirow;

@@ -123,6 +123,11 @@ enum locate_sgmt_status_t {
 struct keyboard_view_t {
     mem_pool_t *pool;
 
+    // Pool where all key_t and row_t structures will be allocated
+    mem_pool_t keyboard_pool;
+
+    int geometry_idx;
+
     // Array of key_t pointers indexed by keycode. Provides fast access to keys
     // from a keycode. It's about 6KB in memory, maybe too much?
     struct key_t *keys_by_kc[KEY_MAX];
@@ -249,10 +254,22 @@ float get_sgmt_total_glue (struct key_t *sgmt)
     return get_sgmt_user_glue(sgmt) + sgmt->internal_glue;
 }
 
+void kv_clear (struct keyboard_view_t *kv)
+{
+    mem_pool_destroy (&kv->keyboard_pool);
+    kv->keyboard_pool = ZERO_INIT(mem_pool_t);
+
+    memset(kv->keys_by_kc, 0, sizeof(kv->keys_by_kc));
+    kv->spare_keys = NULL;
+    kv->spare_rows = NULL;
+    kv->first_row = NULL;
+    kv->last_row = NULL;
+}
+
 #define kv_new_row(kbd) kv_new_row_h(kbd,1)
 void kv_new_row_h (struct keyboard_view_t *kv, float height)
 {
-    struct row_t *new_row = (struct row_t*)pom_push_struct (kv->pool, struct row_t);
+    struct row_t *new_row = (struct row_t*)pom_push_struct (&kv->keyboard_pool, struct row_t);
     *new_row = (struct row_t){0};
     new_row->height = height;
 
@@ -439,7 +456,7 @@ struct row_t* kv_allocate_row (struct keyboard_view_t *kv)
 {
     struct row_t *new_row;
     if (kv->spare_rows == NULL) {
-        new_row = (struct row_t*)pom_push_struct (kv->pool, struct row_t);
+        new_row = (struct row_t*)pom_push_struct (&kv->keyboard_pool, struct row_t);
     } else {
         new_row = kv->spare_rows;
         kv->spare_rows = new_row->next_row;
@@ -454,7 +471,7 @@ struct key_t* kv_allocate_key (struct keyboard_view_t *kv)
 {
     struct key_t *new_key;
     if (kv->spare_keys == NULL) {
-        new_key = (struct key_t*)pom_push_struct (kv->pool, struct key_t);
+        new_key = (struct key_t*)pom_push_struct (&kv->keyboard_pool, struct key_t);
     } else {
         new_key = kv->spare_keys;
         kv->spare_keys = new_key->next_key;
@@ -673,108 +690,6 @@ void kv_print (struct keyboard_view_t *kv)
         row = row->next_row;
     }
     printf ("\n");
-}
-
-// Simple default keyboard geometry.
-// NOTE: Keycodes are used as defined in the linux kernel. To translate them
-// into X11 keycodes offset them by 8 (x11_kc = kc+8).
-void keyboard_view_build_default_geometry (struct keyboard_view_t *kv)
-{
-    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
-    kv_new_row (kv);
-    kv_add_key (kv, KEY_ESC);
-    kv_add_key (kv, KEY_F1);
-    kv_add_key (kv, KEY_F2);
-    kv_add_key (kv, KEY_F3);
-    kv_add_key (kv, KEY_F4);
-    kv_add_key (kv, KEY_F5);
-    kv_add_key (kv, KEY_F6);
-    kv_add_key (kv, KEY_F7);
-    kv_add_key (kv, KEY_F8);
-    kv_add_key (kv, KEY_F9);
-    kv_add_key (kv, KEY_F10);
-    kv_add_key (kv, KEY_F11);
-    kv_add_key (kv, KEY_F12);
-    kv_add_key (kv, KEY_NUMLOCK);
-    kv_add_key (kv, KEY_SCROLLLOCK);
-    kv_add_key (kv, KEY_INSERT);
-
-    kv_new_row (kv);
-    kv_add_key (kv, KEY_GRAVE);
-    kv_add_key (kv, KEY_1);
-    kv_add_key (kv, KEY_2);
-    kv_add_key (kv, KEY_3);
-    kv_add_key (kv, KEY_4);
-    kv_add_key (kv, KEY_5);
-    kv_add_key (kv, KEY_6);
-    kv_add_key (kv, KEY_7);
-    kv_add_key (kv, KEY_8);
-    kv_add_key (kv, KEY_9);
-    kv_add_key (kv, KEY_0);
-    kv_add_key (kv, KEY_MINUS);
-    kv_add_key (kv, KEY_EQUAL);
-    kv_add_key_w (kv, KEY_BACKSPACE, 2);
-    kv_add_key (kv, KEY_HOME);
-
-    kv_new_row (kv);
-    kv_add_key_w (kv, KEY_TAB, 1.5);
-    kv_add_key (kv, KEY_Q);
-    kv_add_key (kv, KEY_W);
-    kv_add_key (kv, KEY_E);
-    kv_add_key (kv, KEY_R);
-    kv_add_key (kv, KEY_T);
-    kv_add_key (kv, KEY_Y);
-    kv_add_key (kv, KEY_U);
-    kv_add_key (kv, KEY_I);
-    kv_add_key (kv, KEY_O);
-    kv_add_key (kv, KEY_P);
-    kv_add_key (kv, KEY_LEFTBRACE);
-    kv_add_key (kv, KEY_RIGHTBRACE);
-    kv_add_key_w (kv, KEY_BACKSLASH, 1.5);
-    kv_add_key (kv, KEY_PAGEUP);
-
-    kv_new_row (kv);
-    kv_add_key_w (kv, KEY_CAPSLOCK, 1.75);
-    kv_add_key (kv, KEY_A);
-    kv_add_key (kv, KEY_S);
-    kv_add_key (kv, KEY_D);
-    kv_add_key (kv, KEY_F);
-    kv_add_key (kv, KEY_G);
-    kv_add_key (kv, KEY_H);
-    kv_add_key (kv, KEY_J);
-    kv_add_key (kv, KEY_K);
-    kv_add_key (kv, KEY_L);
-    kv_add_key (kv, KEY_SEMICOLON);
-    kv_add_key (kv, KEY_APOSTROPHE);
-    kv_add_key_w (kv, KEY_ENTER, 2.25);
-    kv_add_key (kv, KEY_PAGEDOWN);
-
-    kv_new_row (kv);
-    kv_add_key_w (kv, KEY_LEFTSHIFT, 2.25);
-    kv_add_key (kv, KEY_Z);
-    kv_add_key (kv, KEY_X);
-    kv_add_key (kv, KEY_C);
-    kv_add_key (kv, KEY_V);
-    kv_add_key (kv, KEY_B);
-    kv_add_key (kv, KEY_N);
-    kv_add_key (kv, KEY_M);
-    kv_add_key (kv, KEY_COMMA);
-    kv_add_key (kv, KEY_DOT);
-    kv_add_key (kv, KEY_SLASH);
-    kv_add_key_w (kv, KEY_RIGHTSHIFT, 1.75);
-    kv_add_key (kv, KEY_UP);
-    kv_add_key (kv, KEY_END);
-
-    kv_new_row (kv);
-    kv_add_key_w (kv, KEY_LEFTCTRL, 1.5);
-    kv_add_key_w (kv, KEY_LEFTMETA, 1.5);
-    kv_add_key_w (kv, KEY_LEFTALT, 1.5);
-    kv_add_key_w (kv, KEY_SPACE, 5.5);
-    kv_add_key_w (kv, KEY_RIGHTALT, 1.5);
-    kv_add_key_w (kv, KEY_RIGHTCTRL, 1.5);
-    kv_add_key (kv, KEY_LEFT);
-    kv_add_key (kv, KEY_DOWN);
-    kv_add_key (kv, KEY_RIGHT);
 }
 
 struct key_t* kv_add_key_multirow (struct keyboard_view_t *kv, struct key_t *key)
@@ -1343,135 +1258,6 @@ void kv_equalize_left_edge (struct keyboard_view_t *kv)
     if (extra_glue != 0) {
         kv_adjust_left_edge (kv, NULL, -extra_glue);
     }
-}
-
-void multirow_test_geometry (struct keyboard_view_t *kv)
-{
-    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
-    kv_new_row_h (kv, 1.5);
-    struct key_t *multi1 = kv_add_key (kv, KEY_A);
-    kv_add_key (kv, KEY_1);
-    //kv_add_key (kv, KEY_2);
-    struct key_t *multi4 = kv_add_key_w (kv, KEY_D, 2);
-
-    kv_new_row_h (kv, 1.25);
-    struct key_t *multi2 = kv_add_key (kv, KEY_B);
-    kv_add_key_multirow (kv, multi1);
-    kv_add_key_full (kv, KEY_3, 1, 1);
-    kv_add_key_multirow_sized (kv, multi4, 1, MULTIROW_ALIGN_LEFT);
-
-    kv_new_row_h (kv, 1);
-    kv_add_key (kv, KEY_4);
-    kv_add_key_multirow (kv, multi2);
-    struct key_t *multi3 = kv_add_key (kv, KEY_C);
-    multi4 = kv_add_key_multirow (kv, multi4);
-
-    kv_new_row_h (kv, 0.75);
-    kv_add_key (kv, KEY_5);
-    kv_add_key (kv, KEY_6);
-    kv_add_key_multirow (kv, multi3);
-    kv_add_key_multirow_sized (kv, multi4, 3, MULTIROW_ALIGN_RIGHT);
-
-    kv_compute_glue (kv);
-}
-
-void edge_resize_test_geometry (struct keyboard_view_t *kv)
-{
-    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
-    kv_new_row_h (kv, 1);
-    struct key_t *m = kv_add_key_w (kv, KEY_A, 3);
-
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow_sized (kv, m, 2, MULTIROW_ALIGN_LEFT);
-    kv_add_key (kv, KEY_1);
-
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow_sized (kv, m, 3, MULTIROW_ALIGN_RIGHT);
-    kv_add_key_full (kv, KEY_2, 1, 1);
-
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow_sized (kv, m, 4, MULTIROW_ALIGN_RIGHT);
-    kv_add_key_full (kv, KEY_3, 1, 2);
-
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow_sized (kv, m, 3, MULTIROW_ALIGN_LEFT);
-
-    kv_compute_glue (kv);
-}
-
-void adjust_left_edge_test_geometry (struct keyboard_view_t *kv)
-{
-    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
-    kv_new_row_h (kv, 1);
-    struct key_t *m1 = kv_add_key_full (kv, KEY_1, 1, 0);
-
-    kv_new_row_h (kv, 1);
-    struct key_t *m2 = kv_add_key_full (kv, KEY_2, 1, 1);
-    kv_add_key_multirow (kv, m1);
-
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m2);
-    kv_add_key_multirow (kv, m1);
-
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow_sized (kv, m1, 4, MULTIROW_ALIGN_RIGHT);
-
-    kv_compute_glue (kv);
-}
-
-void adjust_edge_glue_test_geometry (struct keyboard_view_t *kv)
-{
-#if 1
-    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
-    kv_new_row_h (kv, 1);
-    struct key_t *l = kv_add_key_full (kv, KEY_L, 1, 0);
-    struct key_t *m1 = kv_add_key_full (kv, KEY_1, 1, 1);
-
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, l);
-    struct key_t *m2 = kv_add_key_full (kv, KEY_2, 1, 2.5);
-    kv_add_key_multirow (kv, m1);
-
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, l);
-    kv_add_key_multirow (kv, m2);
-    kv_add_key_multirow (kv, m1);
-
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, l);
-    kv_add_key_multirow_sized (kv, m1, 4, MULTIROW_ALIGN_RIGHT);
-
-#else
-    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
-    kv_new_row_h (kv, 1);
-    struct key_t *m1 = kv_add_key_full (kv, KEY_1, 1, 1);
-
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m1);
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m1);
-
-    kv_new_row_h (kv, 1);
-    struct key_t *m2 = kv_add_key_full (kv, KEY_2, 1, 0);
-    kv_add_key_multirow (kv, m1);
-
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m2);
-    kv_add_key_multirow (kv, m1);
-
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m2);
-    kv_add_key_multirow (kv, m1);
-
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m1);
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m1);
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m1);
-
-#endif
-    kv_compute_glue (kv);
 }
 
 void cr_render_key_label (cairo_t *cr, const char *label, double x, double y, double width, double height)
@@ -3148,6 +2934,248 @@ struct key_t* kv_insert_new_sgmt (struct keyboard_view_t *kv,
     return new_key;
 }
 
+#define BUILD_GEOMETRY_FUNC(name) \
+    void name(struct keyboard_view_t *kv)
+typedef BUILD_GEOMETRY_FUNC(set_geometry_func_t);
+
+// Simple default keyboard geometry.
+// NOTE: Keycodes are used as defined in the linux kernel. To translate them
+// into X11 keycodes offset them by 8 (x11_kc = kc+8).
+BUILD_GEOMETRY_FUNC(kv_build_default_geometry)
+{
+    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
+    kv_new_row (kv);
+    kv_add_key (kv, KEY_ESC);
+    kv_add_key (kv, KEY_F1);
+    kv_add_key (kv, KEY_F2);
+    kv_add_key (kv, KEY_F3);
+    kv_add_key (kv, KEY_F4);
+    kv_add_key (kv, KEY_F5);
+    kv_add_key (kv, KEY_F6);
+    kv_add_key (kv, KEY_F7);
+    kv_add_key (kv, KEY_F8);
+    kv_add_key (kv, KEY_F9);
+    kv_add_key (kv, KEY_F10);
+    kv_add_key (kv, KEY_F11);
+    kv_add_key (kv, KEY_F12);
+    kv_add_key (kv, KEY_NUMLOCK);
+    kv_add_key (kv, KEY_SCROLLLOCK);
+    kv_add_key (kv, KEY_INSERT);
+
+    kv_new_row (kv);
+    kv_add_key (kv, KEY_GRAVE);
+    kv_add_key (kv, KEY_1);
+    kv_add_key (kv, KEY_2);
+    kv_add_key (kv, KEY_3);
+    kv_add_key (kv, KEY_4);
+    kv_add_key (kv, KEY_5);
+    kv_add_key (kv, KEY_6);
+    kv_add_key (kv, KEY_7);
+    kv_add_key (kv, KEY_8);
+    kv_add_key (kv, KEY_9);
+    kv_add_key (kv, KEY_0);
+    kv_add_key (kv, KEY_MINUS);
+    kv_add_key (kv, KEY_EQUAL);
+    kv_add_key_w (kv, KEY_BACKSPACE, 2);
+    kv_add_key (kv, KEY_HOME);
+
+    kv_new_row (kv);
+    kv_add_key_w (kv, KEY_TAB, 1.5);
+    kv_add_key (kv, KEY_Q);
+    kv_add_key (kv, KEY_W);
+    kv_add_key (kv, KEY_E);
+    kv_add_key (kv, KEY_R);
+    kv_add_key (kv, KEY_T);
+    kv_add_key (kv, KEY_Y);
+    kv_add_key (kv, KEY_U);
+    kv_add_key (kv, KEY_I);
+    kv_add_key (kv, KEY_O);
+    kv_add_key (kv, KEY_P);
+    kv_add_key (kv, KEY_LEFTBRACE);
+    kv_add_key (kv, KEY_RIGHTBRACE);
+    kv_add_key_w (kv, KEY_BACKSLASH, 1.5);
+    kv_add_key (kv, KEY_PAGEUP);
+
+    kv_new_row (kv);
+    kv_add_key_w (kv, KEY_CAPSLOCK, 1.75);
+    kv_add_key (kv, KEY_A);
+    kv_add_key (kv, KEY_S);
+    kv_add_key (kv, KEY_D);
+    kv_add_key (kv, KEY_F);
+    kv_add_key (kv, KEY_G);
+    kv_add_key (kv, KEY_H);
+    kv_add_key (kv, KEY_J);
+    kv_add_key (kv, KEY_K);
+    kv_add_key (kv, KEY_L);
+    kv_add_key (kv, KEY_SEMICOLON);
+    kv_add_key (kv, KEY_APOSTROPHE);
+    kv_add_key_w (kv, KEY_ENTER, 2.25);
+    kv_add_key (kv, KEY_PAGEDOWN);
+
+    kv_new_row (kv);
+    kv_add_key_w (kv, KEY_LEFTSHIFT, 2.25);
+    kv_add_key (kv, KEY_Z);
+    kv_add_key (kv, KEY_X);
+    kv_add_key (kv, KEY_C);
+    kv_add_key (kv, KEY_V);
+    kv_add_key (kv, KEY_B);
+    kv_add_key (kv, KEY_N);
+    kv_add_key (kv, KEY_M);
+    kv_add_key (kv, KEY_COMMA);
+    kv_add_key (kv, KEY_DOT);
+    kv_add_key (kv, KEY_SLASH);
+    kv_add_key_w (kv, KEY_RIGHTSHIFT, 1.75);
+    kv_add_key (kv, KEY_UP);
+    kv_add_key (kv, KEY_END);
+
+    kv_new_row (kv);
+    kv_add_key_w (kv, KEY_LEFTCTRL, 1.5);
+    kv_add_key_w (kv, KEY_LEFTMETA, 1.5);
+    kv_add_key_w (kv, KEY_LEFTALT, 1.5);
+    kv_add_key_w (kv, KEY_SPACE, 5.5);
+    kv_add_key_w (kv, KEY_RIGHTALT, 1.5);
+    kv_add_key_w (kv, KEY_RIGHTCTRL, 1.5);
+    kv_add_key (kv, KEY_LEFT);
+    kv_add_key (kv, KEY_DOWN);
+    kv_add_key (kv, KEY_RIGHT);
+}
+
+BUILD_GEOMETRY_FUNC(multirow_test_geometry)
+{
+    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
+    kv_new_row_h (kv, 1.5);
+    struct key_t *multi1 = kv_add_key (kv, KEY_A);
+    kv_add_key (kv, KEY_1);
+    //kv_add_key (kv, KEY_2);
+    struct key_t *multi4 = kv_add_key_w (kv, KEY_D, 2);
+
+    kv_new_row_h (kv, 1.25);
+    struct key_t *multi2 = kv_add_key (kv, KEY_B);
+    kv_add_key_multirow (kv, multi1);
+    kv_add_key_full (kv, KEY_3, 1, 1);
+    kv_add_key_multirow_sized (kv, multi4, 1, MULTIROW_ALIGN_LEFT);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key (kv, KEY_4);
+    kv_add_key_multirow (kv, multi2);
+    struct key_t *multi3 = kv_add_key (kv, KEY_C);
+    multi4 = kv_add_key_multirow (kv, multi4);
+
+    kv_new_row_h (kv, 0.75);
+    kv_add_key (kv, KEY_5);
+    kv_add_key (kv, KEY_6);
+    kv_add_key_multirow (kv, multi3);
+    kv_add_key_multirow_sized (kv, multi4, 3, MULTIROW_ALIGN_RIGHT);
+
+    kv_compute_glue (kv);
+}
+
+BUILD_GEOMETRY_FUNC(edge_resize_test_geometry)
+{
+    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
+    kv_new_row_h (kv, 1);
+    struct key_t *m = kv_add_key_w (kv, KEY_A, 3);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow_sized (kv, m, 2, MULTIROW_ALIGN_LEFT);
+    kv_add_key (kv, KEY_1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow_sized (kv, m, 3, MULTIROW_ALIGN_RIGHT);
+    kv_add_key_full (kv, KEY_2, 1, 1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow_sized (kv, m, 4, MULTIROW_ALIGN_RIGHT);
+    kv_add_key_full (kv, KEY_3, 1, 2);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow_sized (kv, m, 3, MULTIROW_ALIGN_LEFT);
+
+    kv_compute_glue (kv);
+}
+
+BUILD_GEOMETRY_FUNC(adjust_left_edge_test_geometry)
+{
+    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
+    kv_new_row_h (kv, 1);
+    struct key_t *m1 = kv_add_key_full (kv, KEY_1, 1, 0);
+
+    kv_new_row_h (kv, 1);
+    struct key_t *m2 = kv_add_key_full (kv, KEY_2, 1, 1);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m2);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow_sized (kv, m1, 4, MULTIROW_ALIGN_RIGHT);
+
+    kv_compute_glue (kv);
+}
+
+BUILD_GEOMETRY_FUNC(adjust_edge_glue_test_geometry)
+{
+#if 1
+    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
+    kv_new_row_h (kv, 1);
+    struct key_t *l = kv_add_key_full (kv, KEY_L, 1, 0);
+    struct key_t *m1 = kv_add_key_full (kv, KEY_1, 1, 1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, l);
+    struct key_t *m2 = kv_add_key_full (kv, KEY_2, 1, 2.5);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, l);
+    kv_add_key_multirow (kv, m2);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, l);
+    kv_add_key_multirow_sized (kv, m1, 4, MULTIROW_ALIGN_RIGHT);
+
+#else
+    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
+    kv_new_row_h (kv, 1);
+    struct key_t *m1 = kv_add_key_full (kv, KEY_1, 1, 1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    struct key_t *m2 = kv_add_key_full (kv, KEY_2, 1, 0);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m2);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m2);
+    kv_add_key_multirow (kv, m1);
+
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (kv, 1);
+    kv_add_key_multirow (kv, m1);
+
+#endif
+    kv_compute_glue (kv);
+}
+
+set_geometry_func_t* kv_geometries[] = {
+        kv_build_default_geometry, // Default
+        edge_resize_test_geometry,
+        adjust_left_edge_test_geometry,
+        multirow_test_geometry
+    };
+
 // FIXME: I was unable to easily find the height of the toolbar to ignore clicks
 // when setting the tool. The grid widget kv->toolbar is the size of the full
 // keyboard view, the size of the tool buttons in kv_set_full_toolbar() is 1px
@@ -3231,6 +3259,16 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             break;
 
         case KV_EDIT:
+            // Cycle to next geometry if Ctrl+T was pressed
+            if (e->type == GDK_KEY_PRESS) {
+                GdkEventKey *event = (GdkEventKey*)e;
+                if (event->state & GDK_CONTROL_MASK && event->hardware_keycode - 8 == KEY_T) {
+                    kv_clear (kv);
+                    kv->geometry_idx = (kv->geometry_idx+1) % ARRAY_SIZE(kv_geometries);
+                    kv_geometries[kv->geometry_idx](kv);
+                }
+            }
+
             if (cmd == KV_CMD_SET_MODE_PREVIEW) {
                 // FIXME: @broken_tooltips_in_overlay
                 kv_clear_manual_tooltips (kv);
@@ -3965,14 +4003,12 @@ void keyboard_view_set_keymap (struct keyboard_view_t *kv, const char *keymap_na
     mem_pool_destroy (&pool);
 }
 
-// I'm experimenting with some ownership patterns here. The idea is that when
-// creating a new keyboard_view_t the caller can pass a mem_pool_t, in which
-// case everything will be freed when that pool is freed. If instead NULL is
-// passed, then we bootstrap a mem_pool_t and store everything there, in this
-// case keyboard_view_destroy() must be called when it is no longer needed.
-struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool, GtkWidget *window)
+// NOTE: The caller of keyboard_view_new() is responsible of calling
+// keyboard_view_destroy() when the view is no longer needed.
+struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
 {
-    if (pool == NULL) {
+    mem_pool_t *pool;
+    {
         mem_pool_t bootstrap_pool = {0};
         pool = mem_pool_push_size (&bootstrap_pool, sizeof(mem_pool_t));
         *pool = bootstrap_pool;
@@ -4027,14 +4063,7 @@ struct keyboard_view_t* keyboard_view_new (mem_pool_t *pool, GtkWidget *window)
     kv_set_simple_toolbar (&kv->toolbar);
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
 
-#if 1
-    //multirow_test_geometry (kv);
-    //edge_resize_test_geometry (kv);
-    //adjust_left_edge_test_geometry (kv);
-    adjust_edge_glue_test_geometry (kv);
-#else
-    keyboard_view_build_default_geometry (kv);
-#endif
+    kv_geometries[1](kv);
 
     kv->pool = pool;
     kv->state = KV_PREVIEW;

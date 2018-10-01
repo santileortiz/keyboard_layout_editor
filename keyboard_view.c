@@ -2,6 +2,91 @@
  * Copiright (C) 2018 Santiago León O.
  */
 
+// This is the main data structure for the keyboard, is is used to store the
+// geometry and the state of the keyboard. It also implements several tools to
+// be ablo to edit the geometry and make the keyboard look like the user's
+// physical keyboard.
+//
+// Because keyboards are so different, I think that instead of providing a big
+// list of possible keyboard geometries, it's better to design a small toolset
+// that allows the user to move, reshape keys and assign keycodes. Several
+// tradeoffs were made between flexibility and ease of use, for instance, curved
+// keyboards can't be represented by this data structure as doing so would
+// transform the toolset pretty much into a general vector editor, and that is
+// way out of the scope of the application in terms of complexity both at in
+// implementation and ease of use.
+//
+// The main data structure is a liked list of rows (row_t), each of which
+// contains a linked list of key segments (key_t). The key segments of a key
+// that extends across multiple rows are called "multirow keys" and are grouped
+// with the pointers next_multirow forming a cyclic linked list. In multirow
+// keys the top segment is called the "key parent" and is the segment that
+// represents the full key, here is where the keycode will be stored.
+//
+// Multirow keys are rigid, so the position of a segment in a row restricts the
+// position of the other segments, this means there may be some blank space
+// before some of the segments of a multirow key. This distance is called
+// internal glue, it's stored for each segment in the keyboard, and computed by
+// kv_compute_glue(). Note that a multirow key will always have at least one
+// segment (and maybe more) with internal glue equal to 0, we call such segments
+// supporting segments.
+//
+//                              S_1's Internal
+//                                    glue
+//                                   /---/+---+
+//                                        |S_1|
+//                                   +---+|   |
+//                                   |   ||S_2|  S's Supporting segment
+//                                   +---++---+
+//                                          S
+//
+// Sometimes the user may want to force there being some glue, for example to
+// separate a keypad from the rest of the keyboard. To represent this, there is
+// a second value called user glue. This one is stored per key, so in a multirow
+// key it is located in the multirow parent. The user glue is added on top of
+// the computed internal glue, which means it is defined to be the glue of the
+// supporting segment.
+//
+// The toolset provided to edit the keyboard geometries was chosen to be small and
+// simple, but with enough tools to be able to describe most geometries a user may
+// find. Some tools work in stages, for example resize consists of a start, a
+// drag and the end, on these kinds of tools an important property we ensure is
+// reversibility. A tool is reversible if doing the same action in reverse, gets
+// the user back to the starting position. This means that when resizing an edge
+// by moving the mouse to the left, then moving the mouse to the right (without
+// having ended the resize) should alow the user to get back to the initial
+// state.
+//
+// Even though the implementation is usable, a list of things I would like to
+// see implemented in the future are:
+//
+// - Feedback on the sizes while editing things. I would like to gieve feedback
+//   about the value that is being changed, be it the glue, width, height, etc.
+//
+// - Make possible to change the pointer, so we can give feedback about when a
+//   the left or the right, bottom or top edge is being resized. This could also
+//   be used to notify about invalid segment edge resizes (@arbitrary_align).
+//
+// - Create a keyboard geometry file format. Something like what kv_print() does
+//   but better thought out so it can also be parsed.
+//
+// - A tool that allows to search the names for keycodes, to be able to create
+//   geometries for keyboards we don't actually have.
+//
+// - Full implementation of push for edge/segment resize. Currently pushing keys
+//   to the right is implemented implicitly by how kv_compute_glue() works.
+//   Still more work needs to be done to make it feel more intuitive. For once,
+//   we only adjust glue one step beyond where the push happens, see the test
+//   case edge_resize_leave_original_pos_2() for example. A full implementation
+//   would have to use a better adjust_edge_glue_info_t that stores information
+//   about keys beyond a single step of visibility. Also, pushing to the left
+//   is not implemented, although we have the tools to edit the glue, and the
+//   left edge (kv_adjust_edge_glue(), kv_adjust_left_edge()) we are not using
+//   them to fake things being pushed to the left, we need to design an
+//   algorithm that detects the value and the position of changes that would
+//   fake things being pushed to the left.
+//
+
 enum keyboard_view_state_t {
     KV_PREVIEW,
     KV_EDIT,

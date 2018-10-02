@@ -1103,6 +1103,7 @@ void kv_compute_glue (struct keyboard_view_t *kv)
     int done_rows = 0;
     row_idx = 0;
     while (done_rows < num_rows) {
+        assert (row_idx < num_rows);
         struct sgmt_t *curr_key = rows_state[row_idx].curr_key;
         while (curr_key && !is_multirow_key(curr_key)) {
             rows_state[row_idx].width += curr_key->width + curr_key->user_glue;
@@ -3822,11 +3823,15 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                         prev_multirow->user_glue += prev_multirow->internal_glue;
                         prev_multirow->internal_glue = 0;
                     }
+
+                } else {
+                    kv->keys_by_kc[sgmt->kc] = NULL;
                 }
 
                 kv_remove_key_sgmt (kv, kv_get_sgmt_ptr (row, sgmt), row, NULL);
                 kv_remove_empty_rows (kv);
                 kv_compute_glue (kv);
+                kv_equalize_left_edge (kv);
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_MOTION_NOTIFY) {

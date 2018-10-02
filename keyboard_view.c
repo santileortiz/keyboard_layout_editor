@@ -185,11 +185,6 @@ struct row_t {
     struct row_t *next_row;
 
     struct key_t *first_key;
-    // TODO: Is this pointer really necessary? The only place it's read is in
-    // kv_add_key_full(). Maybe we should have a keyboard generator context
-    // with this state.
-    // @row_last_key_unnecessary
-    struct key_t *last_key;
 };
 
 struct manual_tooltip_t {
@@ -222,7 +217,6 @@ struct keyboard_view_t {
     // For now we represent the geometry of the keyboard by having a linked list
     // of rows, each of which is a linked list of keys.
     struct row_t *first_row;
-    struct row_t *last_row;
 
     // xkbcommon state
     struct xkb_keymap *xkb_keymap;
@@ -348,24 +342,6 @@ void kv_clear (struct keyboard_view_t *kv)
     kv->spare_keys = NULL;
     kv->spare_rows = NULL;
     kv->first_row = NULL;
-    kv->last_row = NULL;
-}
-
-#define kv_new_row(kbd) kv_new_row_h(kbd,1)
-void kv_new_row_h (struct keyboard_view_t *kv, float height)
-{
-    struct row_t *new_row = (struct row_t*)pom_push_struct (&kv->keyboard_pool, struct row_t);
-    *new_row = (struct row_t){0};
-    new_row->height = height;
-
-    if (kv->last_row != NULL) {
-        kv->last_row->next_row = new_row;
-        kv->last_row = new_row;
-
-    } else {
-        kv->first_row = new_row;
-        kv->last_row = new_row;
-    }
 }
 
 // TODO: Consider removing this function and instead adding a pointer in
@@ -435,18 +411,6 @@ void kv_remove_key_sgmt (struct keyboard_view_t *kv, struct key_t **sgmt_ptr,
                          struct row_t *row, struct key_t *prev_sgmt) // Optional
 {
     assert (sgmt_ptr != NULL);
-
-    // If the segment being deleted is at the end of a row, then we must update
-    // row->last_key.
-    // NOTE: If row is not provided then this operation may traverse
-    // the full keyboard. Then if prev_sgmt is not provided we may traverse the
-    // full row again.
-    if ((*sgmt_ptr)->next_key == NULL) {
-        if (row == NULL) { row = kv_get_row (kv, *sgmt_ptr); }
-        if (prev_sgmt == NULL) { prev_sgmt = kv_get_prev_sgmt (row, *sgmt_ptr); }
-
-        row->last_key = prev_sgmt;
-    }
 
     // NOTE: This does not reset to 0 the content of the segment because
     // multirow deletion needs the next_multirow pointers. Clearing is done
@@ -564,38 +528,6 @@ struct key_t* kv_allocate_key (struct keyboard_view_t *kv)
 
     *new_key = (struct key_t){0};
     new_key->next_multirow = new_key; // This one is not NULL initialized!
-    return new_key;
-}
-
-#define kv_add_key(kbd,keycode)     kv_add_key_full(kbd,keycode,1,0)
-#define kv_add_key_w(kbd,keycode,w) kv_add_key_full(kbd,keycode,w,0)
-struct key_t* kv_add_key_full (struct keyboard_view_t *kv, int keycode,
-                               float width, float glue)
-{
-    struct key_t *new_key = kv_allocate_key (kv);
-    new_key->width = width;
-    new_key->user_glue = glue;
-
-    if (0 < keycode && keycode < KEY_CNT) {
-        kv->keys_by_kc[keycode] = new_key;
-    } else {
-        new_key->type = KEY_UNASSIGNED;
-        keycode = 0;
-    }
-    new_key->kc = keycode;
-
-    struct row_t *curr_row = kv->last_row;
-    assert (curr_row != NULL && "Must create a row before adding a key.");
-
-    if (curr_row->last_key != NULL) {
-        curr_row->last_key->next_key = new_key;
-        curr_row->last_key = new_key;
-
-    } else {
-        curr_row->first_key = new_key;
-        curr_row->last_key = new_key;
-    }
-
     return new_key;
 }
 
@@ -775,38 +707,6 @@ void kv_print (struct keyboard_view_t *kv)
         row = row->next_row;
     }
     printf ("\n");
-}
-
-struct key_t* kv_add_key_multirow (struct keyboard_view_t *kv, struct key_t *key)
-{
-    struct key_t *new_key = kv_add_key_w (kv, -1, key->width);
-    new_key->type = KEY_MULTIROW_SEGMENT;
-
-    // look for the last multirow segment so new_key is added after it.
-    while (!is_multirow_parent (key->next_multirow)) {
-        key = key->next_multirow;
-    }
-
-    new_key->next_multirow = key->next_multirow;
-    key->next_multirow = new_key;
-    return new_key;
-}
-
-struct key_t* kv_add_key_multirow_sized (struct keyboard_view_t *kv, struct key_t *key,
-                                float width, enum multirow_key_align_t align)
-{
-    struct key_t *new_key = kv_add_key_w (kv, -1, width);
-    new_key->type = KEY_MULTIROW_SEGMENT_SIZED;
-    new_key->align = align;
-
-    // look for the last multirow segment so new_key is added after it.
-    while (!is_multirow_parent (key->next_multirow)) {
-        key = key->next_multirow;
-    }
-
-    new_key->next_multirow = key->next_multirow;
-    key->next_multirow = new_key;
-    return new_key;
 }
 
 static inline
@@ -2989,9 +2889,14 @@ struct key_t* kv_insert_new_sgmt (struct keyboard_view_t *kv,
             kv->first_row = new_row;
 
         } else if (location == LOCATE_OUTSIDE_BOTTOM) {
-            kv->last_row->next_row = new_row;
-            kv->last_row = new_row;
+            // Get last row
+            struct row_t *last_row = kv->first_row;
+            while (last_row->next_row != NULL) last_row = last_row->next_row;
+
+            last_row->next_row = new_row;
+            last_row = new_row;
         }
+
         sgmt_ptr = &new_row->first_key;
     }
 
@@ -3004,19 +2909,119 @@ struct key_t* kv_insert_new_sgmt (struct keyboard_view_t *kv,
     new_key->next_key = *sgmt_ptr;
     *(sgmt_ptr) = new_key;
 
-    // If a new row was created, set the last_key pointer
-    //
-    // FIXME: If *sgmt_ptr == NULL then we are at the end of the row, and in
-    // this case we are not updating the last_key pointer from that row.
-    // Currently the only code that reads this pointer is kv_add_key_full(), so
-    // it isn't a problem because this function is never used after the initial
-    // keyboard is created.
-    // @row_last_key_unnecessary
-    if (new_row != NULL) {
-        new_row->last_key = new_key;
+    return new_key;
+}
+
+struct geometry_edit_ctx_t {
+    struct key_t *last_key;
+    struct row_t *last_row;
+    struct keyboard_view_t *kv;
+};
+
+void kv_geometry_ctx_init_append (struct keyboard_view_t *kv, struct geometry_edit_ctx_t *ctx)
+{
+    *ctx = ZERO_INIT (struct geometry_edit_ctx_t);
+    struct row_t *last_row = NULL;
+    if (kv->first_row != NULL) {
+        last_row = kv->first_row;
+        while (last_row->next_row != NULL) {
+            last_row = last_row->next_row;
+        }
     }
 
+    struct key_t *last_key = NULL;
+    if (last_row && last_row->first_key) {
+        last_key = last_row->first_key;
+        while (last_key->next_key != NULL) {
+            last_key = last_key->next_key;
+        }
+    }
+
+    ctx->last_key = last_key;
+    ctx->last_row = last_row;
+    ctx->kv = kv;
+}
+
+void kv_end_geometry (struct geometry_edit_ctx_t *ctx)
+{
+    kv_compute_glue (ctx->kv);
+}
+
+#define kv_new_row(kbd) kv_new_row_h(kbd,1)
+void kv_new_row_h (struct geometry_edit_ctx_t *ctx, float height)
+{
+    struct keyboard_view_t *kv = ctx->kv;
+
+    struct row_t *new_row = kv_allocate_row (kv);
+    *new_row = (struct row_t){0};
+    new_row->height = height;
+
+    if (kv->first_row != NULL) {
+        ctx->last_row->next_row = new_row;
+    } else {
+        kv->first_row = new_row;
+    }
+
+    ctx->last_row = new_row;
+    ctx->last_key = NULL;
+}
+
+#define kv_add_key(ctx,keycode)     kv_add_key_full(ctx,keycode,1,0)
+#define kv_add_key_w(ctx,keycode,w) kv_add_key_full(ctx,keycode,w,0)
+struct key_t* kv_add_key_full (struct geometry_edit_ctx_t *ctx,
+                               int keycode, float width, float glue)
+{
+    struct keyboard_view_t *kv = ctx->kv;
+
+    struct key_t *new_key = kv_allocate_key (kv);
+    new_key->width = width;
+    new_key->user_glue = glue;
+
+    if (0 < keycode && keycode < KEY_CNT) {
+        kv->keys_by_kc[keycode] = new_key;
+    } else {
+        new_key->type = KEY_UNASSIGNED;
+        keycode = 0;
+    }
+    new_key->kc = keycode;
+
+    struct row_t *curr_row = ctx->last_row;
+    assert (curr_row != NULL && "Must create a row before adding a key.");
+
+    if (ctx->last_key != NULL) {
+        ctx->last_key->next_key = new_key;
+    } else {
+        curr_row->first_key = new_key;
+    }
+
+    ctx->last_key = new_key;
+
     return new_key;
+}
+
+#define kv_add_multirow_sgmt(ctx,key) kv_add_multirow_sized_sgmt(ctx,key,0,0)
+void kv_add_multirow_sized_sgmt (struct geometry_edit_ctx_t *ctx,
+                                 struct key_t *key,
+                                 float width, enum multirow_key_align_t align)
+{
+    // look for the last multirow segment so new_key is added after it.
+    while (!is_multirow_parent (key->next_multirow)) {
+        key = key->next_multirow;
+    }
+
+    struct key_t *new_key;
+    if (width == 0 || width == get_sgmt_width (key)) {
+        new_key = kv_add_key_w (ctx, -1, 0);
+        new_key->type = KEY_MULTIROW_SEGMENT;
+
+    } else {
+        new_key = kv_add_key_w (ctx, -1, width);
+        new_key->type = KEY_MULTIROW_SEGMENT_SIZED;
+        new_key->align = align;
+    }
+
+    new_key->next_multirow = key->next_multirow;
+    key->next_multirow = new_key;
 }
 
 #define BUILD_GEOMETRY_FUNC(name) \
@@ -3028,280 +3033,306 @@ typedef BUILD_GEOMETRY_FUNC(set_geometry_func_t);
 // into X11 keycodes offset them by 8 (x11_kc = kc+8).
 BUILD_GEOMETRY_FUNC(kv_build_default_geometry)
 {
-    kv_new_row (kv);
-    kv_add_key (kv, KEY_ESC);
-    kv_add_key (kv, KEY_F1);
-    kv_add_key (kv, KEY_F2);
-    kv_add_key (kv, KEY_F3);
-    kv_add_key (kv, KEY_F4);
-    kv_add_key (kv, KEY_F5);
-    kv_add_key (kv, KEY_F6);
-    kv_add_key (kv, KEY_F7);
-    kv_add_key (kv, KEY_F8);
-    kv_add_key (kv, KEY_F9);
-    kv_add_key (kv, KEY_F10);
-    kv_add_key (kv, KEY_F11);
-    kv_add_key (kv, KEY_F12);
-    kv_add_key (kv, KEY_NUMLOCK);
-    kv_add_key (kv, KEY_SCROLLLOCK);
-    kv_add_key (kv, KEY_INSERT);
+    struct geometry_edit_ctx_t ctx;
+    kv_geometry_ctx_init_append (kv, &ctx);
 
-    kv_new_row (kv);
-    kv_add_key (kv, KEY_GRAVE);
-    kv_add_key (kv, KEY_1);
-    kv_add_key (kv, KEY_2);
-    kv_add_key (kv, KEY_3);
-    kv_add_key (kv, KEY_4);
-    kv_add_key (kv, KEY_5);
-    kv_add_key (kv, KEY_6);
-    kv_add_key (kv, KEY_7);
-    kv_add_key (kv, KEY_8);
-    kv_add_key (kv, KEY_9);
-    kv_add_key (kv, KEY_0);
-    kv_add_key (kv, KEY_MINUS);
-    kv_add_key (kv, KEY_EQUAL);
-    kv_add_key_w (kv, KEY_BACKSPACE, 2);
-    kv_add_key (kv, KEY_HOME);
+    kv_new_row (&ctx);
+    kv_add_key (&ctx, KEY_ESC);
+    kv_add_key (&ctx, KEY_F1);
+    kv_add_key (&ctx, KEY_F2);
+    kv_add_key (&ctx, KEY_F3);
+    kv_add_key (&ctx, KEY_F4);
+    kv_add_key (&ctx, KEY_F5);
+    kv_add_key (&ctx, KEY_F6);
+    kv_add_key (&ctx, KEY_F7);
+    kv_add_key (&ctx, KEY_F8);
+    kv_add_key (&ctx, KEY_F9);
+    kv_add_key (&ctx, KEY_F10);
+    kv_add_key (&ctx, KEY_F11);
+    kv_add_key (&ctx, KEY_F12);
+    kv_add_key (&ctx, KEY_NUMLOCK);
+    kv_add_key (&ctx, KEY_SCROLLLOCK);
+    kv_add_key (&ctx, KEY_INSERT);
 
-    kv_new_row (kv);
-    kv_add_key_w (kv, KEY_TAB, 1.5);
-    kv_add_key (kv, KEY_Q);
-    kv_add_key (kv, KEY_W);
-    kv_add_key (kv, KEY_E);
-    kv_add_key (kv, KEY_R);
-    kv_add_key (kv, KEY_T);
-    kv_add_key (kv, KEY_Y);
-    kv_add_key (kv, KEY_U);
-    kv_add_key (kv, KEY_I);
-    kv_add_key (kv, KEY_O);
-    kv_add_key (kv, KEY_P);
-    kv_add_key (kv, KEY_LEFTBRACE);
-    kv_add_key (kv, KEY_RIGHTBRACE);
-    kv_add_key_w (kv, KEY_BACKSLASH, 1.5);
-    kv_add_key (kv, KEY_PAGEUP);
+    kv_new_row (&ctx);
+    kv_add_key (&ctx, KEY_GRAVE);
+    kv_add_key (&ctx, KEY_1);
+    kv_add_key (&ctx, KEY_2);
+    kv_add_key (&ctx, KEY_3);
+    kv_add_key (&ctx, KEY_4);
+    kv_add_key (&ctx, KEY_5);
+    kv_add_key (&ctx, KEY_6);
+    kv_add_key (&ctx, KEY_7);
+    kv_add_key (&ctx, KEY_8);
+    kv_add_key (&ctx, KEY_9);
+    kv_add_key (&ctx, KEY_0);
+    kv_add_key (&ctx, KEY_MINUS);
+    kv_add_key (&ctx, KEY_EQUAL);
+    kv_add_key_w (&ctx, KEY_BACKSPACE, 2);
+    kv_add_key (&ctx, KEY_HOME);
 
-    kv_new_row (kv);
-    kv_add_key_w (kv, KEY_CAPSLOCK, 1.75);
-    kv_add_key (kv, KEY_A);
-    kv_add_key (kv, KEY_S);
-    kv_add_key (kv, KEY_D);
-    kv_add_key (kv, KEY_F);
-    kv_add_key (kv, KEY_G);
-    kv_add_key (kv, KEY_H);
-    kv_add_key (kv, KEY_J);
-    kv_add_key (kv, KEY_K);
-    kv_add_key (kv, KEY_L);
-    kv_add_key (kv, KEY_SEMICOLON);
-    kv_add_key (kv, KEY_APOSTROPHE);
-    kv_add_key_w (kv, KEY_ENTER, 2.25);
-    kv_add_key (kv, KEY_PAGEDOWN);
+    kv_new_row (&ctx);
+    kv_add_key_w (&ctx, KEY_TAB, 1.5);
+    kv_add_key (&ctx, KEY_Q);
+    kv_add_key (&ctx, KEY_W);
+    kv_add_key (&ctx, KEY_E);
+    kv_add_key (&ctx, KEY_R);
+    kv_add_key (&ctx, KEY_T);
+    kv_add_key (&ctx, KEY_Y);
+    kv_add_key (&ctx, KEY_U);
+    kv_add_key (&ctx, KEY_I);
+    kv_add_key (&ctx, KEY_O);
+    kv_add_key (&ctx, KEY_P);
+    kv_add_key (&ctx, KEY_LEFTBRACE);
+    kv_add_key (&ctx, KEY_RIGHTBRACE);
+    kv_add_key_w (&ctx, KEY_BACKSLASH, 1.5);
+    kv_add_key (&ctx, KEY_PAGEUP);
 
-    kv_new_row (kv);
-    kv_add_key_w (kv, KEY_LEFTSHIFT, 2.25);
-    kv_add_key (kv, KEY_Z);
-    kv_add_key (kv, KEY_X);
-    kv_add_key (kv, KEY_C);
-    kv_add_key (kv, KEY_V);
-    kv_add_key (kv, KEY_B);
-    kv_add_key (kv, KEY_N);
-    kv_add_key (kv, KEY_M);
-    kv_add_key (kv, KEY_COMMA);
-    kv_add_key (kv, KEY_DOT);
-    kv_add_key (kv, KEY_SLASH);
-    kv_add_key_w (kv, KEY_RIGHTSHIFT, 1.75);
-    kv_add_key (kv, KEY_UP);
-    kv_add_key (kv, KEY_END);
+    kv_new_row (&ctx);
+    kv_add_key_w (&ctx, KEY_CAPSLOCK, 1.75);
+    kv_add_key (&ctx, KEY_A);
+    kv_add_key (&ctx, KEY_S);
+    kv_add_key (&ctx, KEY_D);
+    kv_add_key (&ctx, KEY_F);
+    kv_add_key (&ctx, KEY_G);
+    kv_add_key (&ctx, KEY_H);
+    kv_add_key (&ctx, KEY_J);
+    kv_add_key (&ctx, KEY_K);
+    kv_add_key (&ctx, KEY_L);
+    kv_add_key (&ctx, KEY_SEMICOLON);
+    kv_add_key (&ctx, KEY_APOSTROPHE);
+    kv_add_key_w (&ctx, KEY_ENTER, 2.25);
+    kv_add_key (&ctx, KEY_PAGEDOWN);
 
-    kv_new_row (kv);
-    kv_add_key_w (kv, KEY_LEFTCTRL, 1.5);
-    kv_add_key_w (kv, KEY_LEFTMETA, 1.5);
-    kv_add_key_w (kv, KEY_LEFTALT, 1.5);
-    kv_add_key_w (kv, KEY_SPACE, 5.5);
-    kv_add_key_w (kv, KEY_RIGHTALT, 1.5);
-    kv_add_key_w (kv, KEY_RIGHTCTRL, 1.5);
-    kv_add_key (kv, KEY_LEFT);
-    kv_add_key (kv, KEY_DOWN);
-    kv_add_key (kv, KEY_RIGHT);
+    kv_new_row (&ctx);
+    kv_add_key_w (&ctx, KEY_LEFTSHIFT, 2.25);
+    kv_add_key (&ctx, KEY_Z);
+    kv_add_key (&ctx, KEY_X);
+    kv_add_key (&ctx, KEY_C);
+    kv_add_key (&ctx, KEY_V);
+    kv_add_key (&ctx, KEY_B);
+    kv_add_key (&ctx, KEY_N);
+    kv_add_key (&ctx, KEY_M);
+    kv_add_key (&ctx, KEY_COMMA);
+    kv_add_key (&ctx, KEY_DOT);
+    kv_add_key (&ctx, KEY_SLASH);
+    kv_add_key_w (&ctx, KEY_RIGHTSHIFT, 1.75);
+    kv_add_key (&ctx, KEY_UP);
+    kv_add_key (&ctx, KEY_END);
+
+    kv_new_row (&ctx);
+    kv_add_key_w (&ctx, KEY_LEFTCTRL, 1.5);
+    kv_add_key_w (&ctx, KEY_LEFTMETA, 1.5);
+    kv_add_key_w (&ctx, KEY_LEFTALT, 1.5);
+    kv_add_key_w (&ctx, KEY_SPACE, 5.5);
+    kv_add_key_w (&ctx, KEY_RIGHTALT, 1.5);
+    kv_add_key_w (&ctx, KEY_RIGHTCTRL, 1.5);
+    kv_add_key (&ctx, KEY_LEFT);
+    kv_add_key (&ctx, KEY_DOWN);
+    kv_add_key (&ctx, KEY_RIGHT);
+
+    kv_end_geometry (&ctx);
 }
 
 BUILD_GEOMETRY_FUNC(multirow_test_geometry)
 {
-    kv_new_row_h (kv, 1.5);
-    struct key_t *multi1 = kv_add_key (kv, KEY_A);
-    kv_add_key (kv, KEY_1);
-    //kv_add_key (kv, KEY_2);
-    struct key_t *multi4 = kv_add_key_w (kv, KEY_D, 2);
+    struct geometry_edit_ctx_t ctx;
+    kv_geometry_ctx_init_append (kv, &ctx);
 
-    kv_new_row_h (kv, 1.25);
-    struct key_t *multi2 = kv_add_key (kv, KEY_B);
-    kv_add_key_multirow (kv, multi1);
-    kv_add_key_full (kv, KEY_3, 1, 1);
-    kv_add_key_multirow_sized (kv, multi4, 1, MULTIROW_ALIGN_LEFT);
+    kv_new_row_h (&ctx, 1.5);
+    struct key_t *multi1 = kv_add_key (&ctx, KEY_A);
+    kv_add_key (&ctx, KEY_1);
+    //kv_add_key (&ctx, KEY_2);
+    struct key_t *multi4 = kv_add_key_w (&ctx, KEY_D, 2);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key (kv, KEY_4);
-    kv_add_key_multirow (kv, multi2);
-    struct key_t *multi3 = kv_add_key (kv, KEY_C);
-    multi4 = kv_add_key_multirow (kv, multi4);
+    kv_new_row_h (&ctx, 1.25);
+    struct key_t *multi2 = kv_add_key (&ctx, KEY_B);
+    kv_add_multirow_sgmt (&ctx, multi1);
+    kv_add_key_full (&ctx, KEY_3, 1, 1);
+    kv_add_multirow_sized_sgmt (&ctx, multi4, 1, MULTIROW_ALIGN_LEFT);
 
-    kv_new_row_h (kv, 0.75);
-    kv_add_key (kv, KEY_5);
-    kv_add_key (kv, KEY_6);
-    kv_add_key_multirow (kv, multi3);
-    kv_add_key_multirow_sized (kv, multi4, 3, MULTIROW_ALIGN_RIGHT);
+    kv_new_row_h (&ctx, 1);
+    kv_add_key (&ctx, KEY_4);
+    kv_add_multirow_sgmt (&ctx, multi2);
+    struct key_t *multi3 = kv_add_key (&ctx, KEY_C);
+    kv_add_multirow_sgmt (&ctx, multi4);
 
-    kv_compute_glue (kv);
+    kv_new_row_h (&ctx, 0.75);
+    kv_add_key (&ctx, KEY_5);
+    kv_add_key (&ctx, KEY_6);
+    kv_add_multirow_sgmt (&ctx, multi3);
+    kv_add_multirow_sized_sgmt (&ctx, multi4, 3, MULTIROW_ALIGN_RIGHT);
+
+    kv_end_geometry (&ctx);
 }
 
 BUILD_GEOMETRY_FUNC(edge_resize_leave_original_pos_1)
 {
-    kv_new_row_h (kv, 1);
-    struct key_t *m = kv_add_key_w (kv, KEY_A, 3);
+    struct geometry_edit_ctx_t ctx;
+    kv_geometry_ctx_init_append (kv, &ctx);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow_sized (kv, m, 2, MULTIROW_ALIGN_LEFT);
-    kv_add_key (kv, KEY_1);
+    kv_new_row_h (&ctx, 1);
+    struct key_t *m = kv_add_key_w (&ctx, KEY_A, 3);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow_sized (kv, m, 3, MULTIROW_ALIGN_RIGHT);
-    kv_add_key_full (kv, KEY_2, 1, 1);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sized_sgmt (&ctx, m, 2, MULTIROW_ALIGN_LEFT);
+    kv_add_key (&ctx, KEY_1);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow_sized (kv, m, 4, MULTIROW_ALIGN_RIGHT);
-    kv_add_key_full (kv, KEY_3, 1, 2);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sized_sgmt (&ctx, m, 3, MULTIROW_ALIGN_RIGHT);
+    kv_add_key_full (&ctx, KEY_2, 1, 1);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow_sized (kv, m, 3, MULTIROW_ALIGN_LEFT);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sized_sgmt (&ctx, m, 4, MULTIROW_ALIGN_RIGHT);
+    kv_add_key_full (&ctx, KEY_3, 1, 2);
 
-    kv_compute_glue (kv);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sized_sgmt (&ctx, m, 3, MULTIROW_ALIGN_LEFT);
+
+    kv_end_geometry (&ctx);
 }
 
 BUILD_GEOMETRY_FUNC(edge_resize_leave_original_pos_2)
 {
-    kv_new_row_h (kv, 1);
-    struct key_t *m1 = kv_add_key (kv, KEY_1);
+    struct geometry_edit_ctx_t ctx;
+    kv_geometry_ctx_init_append (kv, &ctx);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m1);
-    kv_add_key_full (kv, KEY_A, 1, 1);
-    kv_add_key_full (kv, KEY_B, 1, 1);
-    kv_add_key_full (kv, KEY_C, 1, 1);
+    kv_new_row_h (&ctx, 1);
+    struct key_t *m1 = kv_add_key (&ctx, KEY_1);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, m1);
+    kv_add_key_full (&ctx, KEY_A, 1, 1);
+    kv_add_key_full (&ctx, KEY_B, 1, 1);
+    kv_add_key_full (&ctx, KEY_C, 1, 1);
 
-    kv_compute_glue (kv);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, m1);
+
+    kv_end_geometry (&ctx);
 }
 
 BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_1)
 {
-    kv_new_row_h (kv, 1);
-    struct key_t *l = kv_add_key_full (kv, KEY_L, 1, 0);
-    struct key_t *m1 = kv_add_key_full (kv, KEY_1, 1, 1);
+    struct geometry_edit_ctx_t ctx;
+    kv_geometry_ctx_init_append (kv, &ctx);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, l);
-    struct key_t *m2 = kv_add_key_full (kv, KEY_2, 1, 2.5);
-    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (&ctx, 1);
+    struct key_t *l = kv_add_key_full (&ctx, KEY_L, 1, 0);
+    struct key_t *m1 = kv_add_key_full (&ctx, KEY_1, 1, 1);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, l);
-    kv_add_key_multirow (kv, m2);
-    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, l);
+    struct key_t *m2 = kv_add_key_full (&ctx, KEY_2, 1, 2.5);
+    kv_add_multirow_sgmt (&ctx, m1);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, l);
-    kv_add_key_multirow_sized (kv, m1, 4, MULTIROW_ALIGN_RIGHT);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, l);
+    kv_add_multirow_sgmt (&ctx, m2);
+    kv_add_multirow_sgmt (&ctx, m1);
 
-    kv_compute_glue (kv);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, l);
+    kv_add_multirow_sized_sgmt (&ctx, m1, 4, MULTIROW_ALIGN_RIGHT);
+
+    kv_end_geometry (&ctx);
 }
 
 BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_2)
 {
-    kv_new_row_h (kv, 1);
-    struct key_t *m1 = kv_add_key_full (kv, KEY_1, 1, 1);
+    struct geometry_edit_ctx_t ctx;
+    kv_geometry_ctx_init_append (kv, &ctx);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m1);
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (&ctx, 1);
+    struct key_t *m1 = kv_add_key_full (&ctx, KEY_1, 1, 1);
 
-    kv_new_row_h (kv, 1);
-    struct key_t *m2 = kv_add_key_full (kv, KEY_2, 1, 0);
-    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, m1);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, m1);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m2);
-    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (&ctx, 1);
+    struct key_t *m2 = kv_add_key_full (&ctx, KEY_2, 1, 0);
+    kv_add_multirow_sgmt (&ctx, m1);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m2);
-    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, m2);
+    kv_add_multirow_sgmt (&ctx, m1);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m1);
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m1);
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, m2);
+    kv_add_multirow_sgmt (&ctx, m1);
 
-    kv_compute_glue (kv);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, m1);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, m1);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, m1);
+
+    kv_end_geometry (&ctx);
 }
 
 BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_3)
 {
-    kv_new_row_h (kv, 1);
-    struct key_t *e = kv_add_key (kv, KEY_1);
-    struct key_t *k1 = kv_add_key_full (kv, KEY_A, 3, 2);
+    struct geometry_edit_ctx_t ctx;
+    kv_geometry_ctx_init_append (kv, &ctx);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow_sized (kv, e, 3, MULTIROW_ALIGN_LEFT);
-    kv_add_key_multirow_sized (kv, k1, 1, MULTIROW_ALIGN_RIGHT);
+    kv_new_row_h (&ctx, 1);
+    struct key_t *e = kv_add_key (&ctx, KEY_1);
+    struct key_t *k1 = kv_add_key_full (&ctx, KEY_A, 3, 2);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, e);
-    kv_add_key_multirow_sized (kv, k1, 2, MULTIROW_ALIGN_RIGHT);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sized_sgmt (&ctx, e, 3, MULTIROW_ALIGN_LEFT);
+    kv_add_multirow_sized_sgmt (&ctx, k1, 1, MULTIROW_ALIGN_RIGHT);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, e);
-    kv_add_key_multirow (kv, k1);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, e);
+    kv_add_multirow_sized_sgmt (&ctx, k1, 2, MULTIROW_ALIGN_RIGHT);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, e);
-    struct key_t *k2 = kv_add_key_full (kv, KEY_B, 1, 2);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, e);
+    kv_add_multirow_sgmt (&ctx, k1);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, e);
-    kv_add_key_multirow_sized (kv, k2, 2, MULTIROW_ALIGN_RIGHT);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, e);
+    struct key_t *k2 = kv_add_key_full (&ctx, KEY_B, 1, 2);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, e);
-    kv_add_key_multirow (kv, k2);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, e);
+    kv_add_multirow_sized_sgmt (&ctx, k2, 2, MULTIROW_ALIGN_RIGHT);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow_sized (kv, e, 1, MULTIROW_ALIGN_LEFT);
-    kv_add_key_multirow_sized (kv, k2, 3, MULTIROW_ALIGN_RIGHT);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, e);
+    kv_add_multirow_sgmt (&ctx, k2);
 
-    kv_compute_glue (kv);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sized_sgmt (&ctx, e, 1, MULTIROW_ALIGN_LEFT);
+    kv_add_multirow_sized_sgmt (&ctx, k2, 3, MULTIROW_ALIGN_RIGHT);
+
+    kv_end_geometry (&ctx);
 }
 
 BUILD_GEOMETRY_FUNC(adjust_left_edge_test_geometry)
 {
-    kv_new_row_h (kv, 1);
-    struct key_t *m1 = kv_add_key_full (kv, KEY_1, 1, 0);
+    struct geometry_edit_ctx_t ctx;
+    kv_geometry_ctx_init_append (kv, &ctx);
 
-    kv_new_row_h (kv, 1);
-    struct key_t *m2 = kv_add_key_full (kv, KEY_2, 1, 1);
-    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (&ctx, 1);
+    struct key_t *m1 = kv_add_key_full (&ctx, KEY_1, 1, 0);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow (kv, m2);
-    kv_add_key_multirow (kv, m1);
+    kv_new_row_h (&ctx, 1);
+    struct key_t *m2 = kv_add_key_full (&ctx, KEY_2, 1, 1);
+    kv_add_multirow_sgmt (&ctx, m1);
 
-    kv_new_row_h (kv, 1);
-    kv_add_key_multirow_sized (kv, m1, 4, MULTIROW_ALIGN_RIGHT);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sgmt (&ctx, m2);
+    kv_add_multirow_sgmt (&ctx, m1);
 
-    kv_compute_glue (kv);
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sized_sgmt (&ctx, m1, 4, MULTIROW_ALIGN_RIGHT);
+
+    kv_end_geometry (&ctx);
 }
 
 set_geometry_func_t* kv_geometries[] = {
@@ -4203,7 +4234,8 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
 
     kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
-    kv_geometries[1](kv);
+    kv->geometry_idx = 1;
+    kv_geometries[kv->geometry_idx](kv);
 
     kv->pool = pool;
     kv->state = KV_PREVIEW;

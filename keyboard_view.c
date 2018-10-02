@@ -17,7 +17,7 @@
 // implementation and ease of use.
 //
 // The main data structure is a liked list of rows (row_t), each of which
-// contains a linked list of key segments (key_t). The key segments of a key
+// contains a linked list of key segments (sgmt_t). The key segments of a key
 // that extends across multiple rows are called "multirow keys" and are grouped
 // with the pointers next_multirow forming a cyclic linked list. In multirow
 // keys the top segment is called the "key parent" and is the segment that
@@ -168,13 +168,13 @@ enum multirow_key_align_t {
     MULTIROW_ALIGN_RIGHT
 };
 
-struct key_t {
+struct sgmt_t {
     int kc; //keycode
     float width, user_glue; // normalized to default_key_size
     float internal_glue;
     enum key_render_type_t type;
-    struct key_t *next_key;
-    struct key_t *next_multirow;
+    struct sgmt_t *next_key;
+    struct sgmt_t *next_multirow;
 
     // Fields specific to KEY_MULTIROW_SEGMENT_SIZED
     enum multirow_key_align_t align;
@@ -184,7 +184,7 @@ struct row_t {
     float height; // normalized to default_key_size
     struct row_t *next_row;
 
-    struct key_t *first_key;
+    struct sgmt_t *first_key;
 };
 
 struct manual_tooltip_t {
@@ -203,15 +203,15 @@ enum locate_sgmt_status_t {
 struct keyboard_view_t {
     mem_pool_t *pool;
 
-    // Pool where all key_t and row_t structures will be allocated
+    // Pool where all sgmt_t and row_t structures will be allocated
     mem_pool_t keyboard_pool;
 
     int geometry_idx;
 
-    // Array of key_t pointers indexed by keycode. Provides fast access to keys
+    // Array of sgmt_t pointers indexed by keycode. Provides fast access to keys
     // from a keycode. It's about 6KB in memory, maybe too much?
-    struct key_t *keys_by_kc[KEY_MAX];
-    struct key_t *spare_keys;
+    struct sgmt_t *keys_by_kc[KEY_MAX];
+    struct sgmt_t *spare_keys;
     struct row_t *spare_rows;
 
     // For now we represent the geometry of the keyboard by having a linked list
@@ -223,9 +223,9 @@ struct keyboard_view_t {
     struct xkb_state *xkb_state;
 
     // KEY_SPLIT state
-    struct key_t *new_key;
-    struct key_t **new_key_ptr;
-    struct key_t *split_key;
+    struct sgmt_t *new_key;
+    struct sgmt_t **new_key_ptr;
+    struct sgmt_t *split_key;
     float left_min_width, right_min_width;
     float split_rect_x;
     float split_full_width;
@@ -236,8 +236,8 @@ struct keyboard_view_t {
     float original_size;
 
     // KEY_RESIZE state
-    struct key_t *edge_start;
-    struct key_t *edge_prev_sgmt, *edge_end_sgmt;
+    struct sgmt_t *edge_start;
+    struct sgmt_t *edge_prev_sgmt, *edge_end_sgmt;
     float original_user_glue;
     float min_width;
     bool edit_right_edge;
@@ -247,9 +247,9 @@ struct keyboard_view_t {
     int edge_glue_len;
 
     // KEY_RESIZE_SEGMENT state
-    struct key_t *resized_segment;
+    struct sgmt_t *resized_segment;
     struct row_t *resized_segment_row;
-    struct key_t *resized_segment_prev;
+    struct sgmt_t *resized_segment_prev;
     float resized_segment_glue_plus_w;
     float resized_segment_original_user_glue;
     float resized_segment_original_glue;
@@ -262,12 +262,12 @@ struct keyboard_view_t {
     GdkRectangle to_add_rect;
     bool to_add_rect_hidden;
     float added_key_user_glue;
-    struct key_t **added_key_ptr;
+    struct sgmt_t **added_key_ptr;
     struct row_t *added_key_row;
     enum locate_sgmt_status_t locate_stat;
 
     // PUSH_RIGHT state
-    struct key_t *push_right_key;
+    struct sgmt_t *push_right_key;
 
     // Manual tooltips list
     mem_pool_t tooltips_pool;
@@ -279,7 +279,7 @@ struct keyboard_view_t {
     GtkWidget *toolbar;
     float default_key_size; // In pixels
     int clicked_kc;
-    struct key_t *selected_key;
+    struct sgmt_t *selected_key;
     enum keyboard_view_state_t state;
     enum keyboard_view_label_mode_t label_mode;
     enum keyboard_view_tools_t active_tool;
@@ -294,14 +294,14 @@ bool kv_is_view_empty (struct keyboard_view_t *kv)
 }
 
 static inline
-bool is_multirow_key (struct key_t *key)
+bool is_multirow_key (struct sgmt_t *key)
 {
     return key->next_multirow != key;
 }
 
 // NOTE: Assumes is_multirow(key) == true.
 static inline
-bool is_multirow_parent (struct key_t *key)
+bool is_multirow_parent (struct sgmt_t *key)
 {
     return key->type != KEY_MULTIROW_SEGMENT && key->type != KEY_MULTIROW_SEGMENT_SIZED;
 }
@@ -318,7 +318,7 @@ int kv_get_num_rows (struct keyboard_view_t *kv)
     return num_rows;
 }
 
-struct key_t* kv_get_multirow_parent (struct key_t *key)
+struct sgmt_t* kv_get_multirow_parent (struct sgmt_t *key)
 {
     while (!is_multirow_parent (key)) {
         key = key->next_multirow;
@@ -327,14 +327,14 @@ struct key_t* kv_get_multirow_parent (struct key_t *key)
 }
 
 static inline
-float get_sgmt_user_glue (struct key_t *sgmt)
+float get_sgmt_user_glue (struct sgmt_t *sgmt)
 {
-    struct key_t *parent = kv_get_multirow_parent (sgmt);
+    struct sgmt_t *parent = kv_get_multirow_parent (sgmt);
     return parent->user_glue;
 }
 
 static inline
-float get_sgmt_total_glue (struct key_t *sgmt)
+float get_sgmt_total_glue (struct sgmt_t *sgmt)
 {
     return get_sgmt_user_glue(sgmt) + sgmt->internal_glue;
 }
@@ -351,17 +351,17 @@ void kv_clear (struct keyboard_view_t *kv)
 }
 
 // TODO: Consider removing this function and instead adding a pointer in
-// key_t to the respective row. Because the move key tool does not seem likely
-// to be implemented, this pointer only needs to be set at key_t allocation.
+// sgmt_t to the respective row. Because the move key tool does not seem likely
+// to be implemented, this pointer only needs to be set at sgmt_t allocation.
 // This would reduce the time complexity of every place this function is called,
 // from linear in the number of segments to O(1).
 //
 // Returns the row where sgmt is located
-struct row_t* kv_get_row (struct keyboard_view_t *kv, struct key_t *sgmt)
+struct row_t* kv_get_row (struct keyboard_view_t *kv, struct sgmt_t *sgmt)
 {
     struct row_t *curr_row = kv->first_row;
     while (curr_row != NULL) {
-        struct key_t *curr_sgmt = curr_row->first_key;
+        struct sgmt_t *curr_sgmt = curr_row->first_key;
         while (curr_sgmt != NULL) {
             if (curr_sgmt == sgmt) {
                 break;
@@ -378,9 +378,9 @@ struct row_t* kv_get_row (struct keyboard_view_t *kv, struct key_t *sgmt)
 }
 
 static inline
-struct key_t* kv_get_prev_sgmt (struct row_t *row, struct key_t *sgmt)
+struct sgmt_t* kv_get_prev_sgmt (struct row_t *row, struct sgmt_t *sgmt)
 {
-    struct key_t *prev = NULL, *curr = row->first_key;
+    struct sgmt_t *prev = NULL, *curr = row->first_key;
     while (curr != sgmt) {
         prev = curr;
         curr = curr->next_key;
@@ -389,8 +389,8 @@ struct key_t* kv_get_prev_sgmt (struct row_t *row, struct key_t *sgmt)
 }
 
 static inline
-struct key_t* kv_get_prev_multirow (struct key_t *sgmt) {
-    struct key_t *curr_key = sgmt;
+struct sgmt_t* kv_get_prev_multirow (struct sgmt_t *sgmt) {
+    struct sgmt_t *curr_key = sgmt;
     while (curr_key->next_multirow != sgmt) {
         curr_key = curr_key->next_multirow;
     }
@@ -415,15 +415,15 @@ struct row_t* kv_get_prev_row (struct keyboard_view_t *kv, struct row_t *row)
 // become O(n^2) in the length of the key. Althought multirow keys are not big,
 // I prefer to not add quadratic costs in unexpected places. To unlink a segment
 // from the multirow circular linked list use kv_unlink_multirow_sgmt().
-void kv_remove_key_sgmt (struct keyboard_view_t *kv, struct key_t **sgmt_ptr,
-                         struct row_t *row, struct key_t *prev_sgmt) // Optional
+void kv_remove_key_sgmt (struct keyboard_view_t *kv, struct sgmt_t **sgmt_ptr,
+                         struct row_t *row, struct sgmt_t *prev_sgmt) // Optional
 {
     assert (sgmt_ptr != NULL);
 
     // NOTE: This does not reset to 0 the content of the segment because
     // multirow deletion needs the next_multirow pointers. Clearing is done
     // at kv_allocate_key().
-    struct key_t *tmp = (*sgmt_ptr)->next_key;
+    struct sgmt_t *tmp = (*sgmt_ptr)->next_key;
     (*sgmt_ptr)->next_key = kv->spare_keys;
     kv->spare_keys = *sgmt_ptr;
     *sgmt_ptr = tmp;
@@ -433,7 +433,7 @@ void kv_remove_key_sgmt (struct keyboard_view_t *kv, struct key_t **sgmt_ptr,
 // argument prev_multirow is the previous segment in the circular linked list,
 // it can be NULL in which case the multirow key is iterated.
 static inline
-struct key_t* kv_unlink_multirow_sgmt (struct key_t *sgmt, struct key_t *prev_multirow)
+struct sgmt_t* kv_unlink_multirow_sgmt (struct sgmt_t *sgmt, struct sgmt_t *prev_multirow)
 {
     if (prev_multirow == NULL) {
         prev_multirow = sgmt;
@@ -452,11 +452,11 @@ struct key_t* kv_unlink_multirow_sgmt (struct key_t *sgmt, struct key_t *prev_mu
 // kv_remove_empty_rows(). This is not done unconditionally at the end of
 // kv_remove_key() because for example when cancelling a split we know the
 // removed key can't be the last one in a row.
-void kv_remove_key (struct keyboard_view_t *kv, struct key_t **key_ptr)
+void kv_remove_key (struct keyboard_view_t *kv, struct sgmt_t **key_ptr)
 {
     assert (key_ptr != NULL);
 
-    struct key_t *multirow_parent = kv_get_multirow_parent(*key_ptr);
+    struct sgmt_t *multirow_parent = kv_get_multirow_parent(*key_ptr);
     // Remove the pointer to *key_ptr from the lookup table
     kv->keys_by_kc[multirow_parent->kc] = NULL;
 
@@ -470,10 +470,10 @@ void kv_remove_key (struct keyboard_view_t *kv, struct key_t **key_ptr)
         struct row_t *curr_row = kv_get_row (kv, multirow_parent);
 
         // Find the parent pointer to each segment and delete it.
-        struct key_t *sgmt = multirow_parent;
-        struct key_t *prev_sgmt = NULL;
+        struct sgmt_t *sgmt = multirow_parent;
+        struct sgmt_t *prev_sgmt = NULL;
         do {
-            struct key_t **to_delete = &curr_row->first_key;
+            struct sgmt_t **to_delete = &curr_row->first_key;
             while (*to_delete != sgmt) {
                 to_delete = &(*to_delete)->next_key;
             }
@@ -524,25 +524,25 @@ struct row_t* kv_allocate_row (struct keyboard_view_t *kv)
     return new_row;
 }
 
-struct key_t* kv_allocate_key (struct keyboard_view_t *kv)
+struct sgmt_t* kv_allocate_key (struct keyboard_view_t *kv)
 {
-    struct key_t *new_key;
+    struct sgmt_t *new_key;
     if (kv->spare_keys == NULL) {
-        new_key = (struct key_t*)pom_push_struct (&kv->keyboard_pool, struct key_t);
+        new_key = (struct sgmt_t*)pom_push_struct (&kv->keyboard_pool, struct sgmt_t);
     } else {
         new_key = kv->spare_keys;
         kv->spare_keys = new_key->next_key;
     }
 
-    *new_key = (struct key_t){0};
+    *new_key = (struct sgmt_t){0};
     new_key->next_multirow = new_key; // This one is not NULL initialized!
     return new_key;
 }
 
-float get_sgmt_width (struct key_t *sgmt) {
+float get_sgmt_width (struct sgmt_t *sgmt) {
     float width;
     if (sgmt->type == KEY_MULTIROW_SEGMENT) {
-        struct key_t *curr_key = sgmt->next_multirow;
+        struct sgmt_t *curr_key = sgmt->next_multirow;
         do {
             if (curr_key->type != KEY_MULTIROW_SEGMENT) {
                 width = curr_key->width;
@@ -568,7 +568,7 @@ void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
         h += curr_row->height*kv->default_key_size;
 
         double row_w = 0;
-        struct key_t *curr_key = curr_row->first_key;
+        struct sgmt_t *curr_key = curr_row->first_key;
         while (curr_key != NULL) {
             row_w += curr_key->internal_glue + get_sgmt_user_glue(curr_key) + get_sgmt_width(curr_key);
             curr_key = curr_key->next_key;
@@ -603,7 +603,7 @@ void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
 // _multirow_y_offset_ is set to the distance in pixels from the top left of the
 // multirow parent and the top left of _key_.
 #define compute_key_size(kv,key,row,w,h) compute_key_size_full(kv,key,row,w,h,NULL)
-bool compute_key_size_full (struct keyboard_view_t *kv, struct key_t *key, struct row_t *row,
+bool compute_key_size_full (struct keyboard_view_t *kv, struct sgmt_t *key, struct row_t *row,
                             float *width, float *height, float *multirow_y_offset)
 {
     assert (!kv_is_view_empty(kv));
@@ -634,7 +634,7 @@ bool compute_key_size_full (struct keyboard_view_t *kv, struct key_t *key, struc
         // NOTE: Start from key->next_multirow because _key_ must be the last
         // element in the iteration. This handles the case for key_offset where
         // _key_ is the parent.
-        struct key_t *curr_key = key->next_multirow;
+        struct sgmt_t *curr_key = key->next_multirow;
         do {
             if (curr_key->type == KEY_MULTIROW_SEGMENT_SIZED) {
                 is_rectangular = false;
@@ -698,7 +698,7 @@ void kv_print (struct keyboard_view_t *kv)
 {
     struct row_t *row = kv->first_row;
     while (row != NULL) {
-        struct key_t *sgmt = row->first_key;
+        struct sgmt_t *sgmt = row->first_key;
         while (sgmt != NULL) {
             if (!is_multirow_key (sgmt)) {
                 printf ("(KC: %i, W: %.3f, UG %.3f) ",
@@ -719,7 +719,7 @@ void kv_print (struct keyboard_view_t *kv)
 }
 
 static inline
-bool is_supporting_sgmt (struct key_t *sgmt)
+bool is_supporting_sgmt (struct sgmt_t *sgmt)
 {
     return sgmt->internal_glue == 0;
 }
@@ -788,17 +788,17 @@ float bnd_delta_update (float old_val, float new_val, float boundary)
 // stays fixed in place. It is used when the glue of sgmt changes for some
 // reason. The delta_glue argument represents the difference between the new
 // total glue to the old total glue (total glue := internal_glue + user_glue).
-void kv_adjust_sgmt_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float delta_glue)
+void kv_adjust_sgmt_glue (struct keyboard_view_t *kv, struct sgmt_t *sgmt, float delta_glue)
 {
     if (sgmt != NULL && delta_glue != 0) {
-        struct key_t *parent = kv_get_multirow_parent (sgmt);
+        struct sgmt_t *parent = kv_get_multirow_parent (sgmt);
 
         if (!is_multirow_key(sgmt)) {
             parent->user_glue = MAX (0, parent->user_glue + delta_glue);
 
         } else {
             float next_min_glue = INFINITY;
-            struct key_t *curr_sgmt = sgmt->next_multirow;
+            struct sgmt_t *curr_sgmt = sgmt->next_multirow;
             while (curr_sgmt != sgmt) {
                 next_min_glue = MIN (next_min_glue, curr_sgmt->internal_glue);
                 curr_sgmt = curr_sgmt->next_multirow;
@@ -866,16 +866,16 @@ void kv_adjust_sgmt_glue (struct keyboard_view_t *kv, struct key_t *sgmt, float 
 //  marked with @user_glue_computation.
 
 struct adjust_edge_glue_info_t {
-    struct key_t *key;
-    struct key_t *first_visible_edge;
-    struct key_t *first_visible_sgmt;
+    struct sgmt_t *key;
+    struct sgmt_t *first_visible_edge;
+    struct sgmt_t *first_visible_sgmt;
     float min_glue_visible;
     float min_glue_blocked;
     bool has_blocked_support;
 };
 
 void kv_adjust_edge_glue (struct keyboard_view_t *kv,
-                          struct key_t *edge_start, struct key_t *edge_end_sgmt, bool is_right_edge,
+                          struct sgmt_t *edge_start, struct sgmt_t *edge_end_sgmt, bool is_right_edge,
                           float delta_glue)
 {
     if (delta_glue == 0) return;
@@ -887,11 +887,11 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
 
     // Find all visible keys and create one info entry for each one, avoiding
     // duplicates.
-    struct key_t *curr_sgmt = edge_start;
+    struct sgmt_t *curr_sgmt = edge_start;
     do {
-        struct key_t *glue_key = is_right_edge ? curr_sgmt->next_key : curr_sgmt;
+        struct sgmt_t *glue_key = is_right_edge ? curr_sgmt->next_key : curr_sgmt;
         if (glue_key) {
-            struct key_t *parent = kv_get_multirow_parent (glue_key);
+            struct sgmt_t *parent = kv_get_multirow_parent (glue_key);
 
             int i;
             for (i=0; i<num_info; i++) {
@@ -918,7 +918,7 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
         // We iterate each key that has an info entry in 3 stages: 
         //
         // 1) Traverse leading non visible segments in info key.
-        struct key_t *info_sgmt = info[i].key;
+        struct sgmt_t *info_sgmt = info[i].key;
         while (info_sgmt != info[i].first_visible_sgmt) {
             info[i].has_blocked_support =
                 info[i].has_blocked_support || is_supporting_sgmt (info_sgmt);
@@ -928,9 +928,9 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
 
         // 2) Traverse edge and info key simultaneously. Handling all info key
         // segments, either as blocked or visible.
-        struct key_t *edge_sgmt = info[i].first_visible_edge;
+        struct sgmt_t *edge_sgmt = info[i].first_visible_edge;
         do {
-            struct key_t *glue_key = get_glue_key(is_right_edge,edge_sgmt);
+            struct sgmt_t *glue_key = get_glue_key(is_right_edge,edge_sgmt);
             // Because keys (info key, in particular) are continous vertically
             // and keys can't cross each other (in particular edge key and info
             // key) this must be true:
@@ -988,7 +988,7 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
     }
 
     if (debug_info) {
-        struct key_t *curr_sgmt = edge_start;
+        struct sgmt_t *curr_sgmt = edge_start;
         printf ("Edge: ");
         do {
             printf ("%p, ", curr_sgmt);
@@ -1007,7 +1007,7 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
         for (int i=0; i<num_info; i++) {
             printf ("Info[%i]\n", i);
             printf ("  Segments: ");
-            struct key_t *curr_sgmt = info[i].key;
+            struct sgmt_t *curr_sgmt = info[i].key;
             do {
                 printf ("%p, ", curr_sgmt);
                 curr_sgmt = curr_sgmt->next_multirow;
@@ -1031,16 +1031,16 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
 // argument, will be reverted. For exampe the sgmt argument is used in the
 // resize segment tool, to avoid pushing the key containing a segment being
 // resized beyond the left edge.
-void kv_adjust_left_edge (struct keyboard_view_t *kv, struct key_t *sgmt, float change)
+void kv_adjust_left_edge (struct keyboard_view_t *kv, struct sgmt_t *sgmt, float change)
 {
     int num_rows = kv_get_num_rows (kv);
     if (num_rows == 0) return;
 
-    struct key_t fake_edge[num_rows];
+    struct sgmt_t fake_edge[num_rows];
     struct row_t *curr_row = kv->first_row;
 
     for (int i=0; i<num_rows; i++) {
-        fake_edge[i] = ZERO_INIT(struct key_t);
+        fake_edge[i] = ZERO_INIT(struct sgmt_t);
         fake_edge[i].type = KEY_MULTIROW_SEGMENT;
         fake_edge[i].next_key = curr_row->first_key;
         fake_edge[i].next_multirow = &fake_edge[(i+1) % num_rows];
@@ -1049,7 +1049,7 @@ void kv_adjust_left_edge (struct keyboard_view_t *kv, struct key_t *sgmt, float 
     fake_edge[0].type = KEY_DEFAULT;
 
     if (sgmt) {
-        struct key_t *parent = kv_get_multirow_parent (sgmt);
+        struct sgmt_t *parent = kv_get_multirow_parent (sgmt);
         float old_sgmt_glue = parent->user_glue;
 
         kv_adjust_edge_glue (kv, fake_edge, fake_edge, true, change);
@@ -1065,12 +1065,12 @@ struct key_state_t {
     int count;
     float parent_left; // left border of the multirow parent
     float left, right; // left and right borders of the current multirow segment
-    struct key_t *parent;
+    struct sgmt_t *parent;
     int parent_idx;
 };
 
 struct row_state_t {
-    struct key_t *curr_key;
+    struct sgmt_t *curr_key;
     float width;
 };
 
@@ -1103,7 +1103,7 @@ void kv_compute_glue (struct keyboard_view_t *kv)
     int done_rows = 0;
     row_idx = 0;
     while (done_rows < num_rows) {
-        struct key_t *curr_key = rows_state[row_idx].curr_key;
+        struct sgmt_t *curr_key = rows_state[row_idx].curr_key;
         while (curr_key && !is_multirow_key(curr_key)) {
             rows_state[row_idx].width += curr_key->width + curr_key->user_glue;
             curr_key = curr_key->next_key;
@@ -1134,7 +1134,7 @@ void kv_compute_glue (struct keyboard_view_t *kv)
 
             int len = 0;
             {
-                struct key_t *tmp_key = curr_key;
+                struct sgmt_t *tmp_key = curr_key;
                 do {
                     len++;
                     tmp_key = tmp_key->next_multirow;
@@ -1155,7 +1155,7 @@ void kv_compute_glue (struct keyboard_view_t *kv)
                 // Is there a way to find key_state in constant time?, In
                 // practice I don't think this will be a problem as keyboards
                 // don't tend to have a lot of multirow keys.
-                struct key_t *parent = kv_get_multirow_parent(curr_key);
+                struct sgmt_t *parent = kv_get_multirow_parent(curr_key);
                 int i;
                 for (i=0; i<num_rows; i++) {
                     if (keys_state[i].parent == parent) {
@@ -1209,7 +1209,7 @@ void kv_compute_glue (struct keyboard_view_t *kv)
                     // Based on the computed key_state->parent_left compute the
                     // glue for all segments and update the row width.
                     int r_i = key_state->parent_idx;
-                    struct key_t *sgmt = key_state->parent;
+                    struct sgmt_t *sgmt = key_state->parent;
                     float left = key_state->parent_left + key_state->parent->user_glue;
                     float right = left + sgmt->width;
                     do {
@@ -1340,7 +1340,7 @@ void cr_render_key (cairo_t *cr, double x, double y, double width, double height
 }
 
 void cr_non_rectangular_key_path (cairo_t *cr, double x, double y, double margin,
-                                  struct keyboard_view_t *kv, struct row_t *row, struct key_t *key)
+                                  struct keyboard_view_t *kv, struct row_t *row, struct sgmt_t *key)
 {
     double r = KEY_CORNER_RADIUS;
     double left = x + margin + 0.5;
@@ -1356,7 +1356,7 @@ void cr_non_rectangular_key_path (cairo_t *cr, double x, double y, double margin
 
     // Line sweep from top to bottom that both draws the right vertical path and
     // adds points for the left vertical path into a buffer to be drawn later.
-    struct key_t *next_segment = key->next_multirow;
+    struct sgmt_t *next_segment = key->next_multirow;
     double next_left, next_right;
     while (!is_multirow_parent (next_segment)) {
         y += row->height*kv->default_key_size;
@@ -1414,7 +1414,7 @@ void cr_non_rectangular_key_path (cairo_t *cr, double x, double y, double margin
 }
 
 void cr_render_multirow_key (cairo_t *cr, double x, double y, struct keyboard_view_t *kv,
-                             struct row_t *row, struct key_t *key, char *label, dvec4 color)
+                             struct row_t *row, struct sgmt_t *key, char *label, dvec4 color)
 {
     assert (is_multirow_key(key) && is_multirow_parent (key));
     cr_non_rectangular_key_path (cr, x, y, 0, kv, row, key);
@@ -1505,7 +1505,7 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
     double y_pos = top_margin;
     struct row_t *curr_row = kv->first_row;
     while (curr_row != NULL) {
-        struct key_t *curr_key = curr_row->first_key;
+        struct sgmt_t *curr_key = curr_row->first_key;
         double x_pos = left_margin;
         while (curr_key != NULL) {
 
@@ -1616,12 +1616,12 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
 // located in row, otherwise an assert is triggered.
 //
 // This pointer to a pointer is useful because it can be located either inside a
-// row_t or a key_t. The equivalent approach of returning the parent structure
+// row_t or a sgmt_t. The equivalent approach of returning the parent structure
 // to key would require sometimes returning a row_t, when key is the first in
-// the row, and a key_t in the rest of the cases.
-struct key_t** kv_get_sgmt_ptr (struct row_t *row, struct key_t *sgmt)
+// the row, and a sgmt_t in the rest of the cases.
+struct sgmt_t** kv_get_sgmt_ptr (struct row_t *row, struct sgmt_t *sgmt)
 {
-    struct key_t **key_ptr = &row->first_key;
+    struct sgmt_t **key_ptr = &row->first_key;
     while (*key_ptr != sgmt) {
         key_ptr = &(*key_ptr)->next_key;
         assert (*key_ptr != NULL);
@@ -1631,8 +1631,8 @@ struct key_t** kv_get_sgmt_ptr (struct row_t *row, struct key_t *sgmt)
 
 enum locate_sgmt_status_t
 kv_locate_sgmt (struct keyboard_view_t *kv, double x, double y,
-                struct key_t **sgmt, struct row_t **row,
-                struct key_t ***sgmt_ptr,
+                struct sgmt_t **sgmt, struct row_t **row,
+                struct sgmt_t ***sgmt_ptr,
                 double *x_pos, double *y_pos,
                 double *left_margin, double *top_margin)
 {
@@ -1677,7 +1677,7 @@ kv_locate_sgmt (struct keyboard_view_t *kv, double x, double y,
         return LOCATE_OUTSIDE_BOTTOM;
     }
 
-    struct key_t *curr_key = NULL, *prev_key = NULL;
+    struct sgmt_t *curr_key = NULL, *prev_key = NULL;
     if (curr_row != NULL) {
         curr_key = curr_row->first_key;
         while (curr_key != NULL) {
@@ -1740,12 +1740,12 @@ kv_locate_sgmt (struct keyboard_view_t *kv, double x, double y,
     return status;
 }
 
-struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, double y,
+struct sgmt_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, double y,
                                      GdkRectangle *rect, bool *is_rectangular,
-                                     struct key_t **clicked_sgmt, struct key_t ***parent_ptr)
+                                     struct sgmt_t **clicked_sgmt, struct sgmt_t ***parent_ptr)
 {
     double kbd_x, kbd_y;
-    struct key_t *curr_key, **curr_key_ptr;
+    struct sgmt_t *curr_key, **curr_key_ptr;
     struct row_t *curr_row;
     enum locate_sgmt_status_t status =
         kv_locate_sgmt (kv, x, y, &curr_key, &curr_row, &curr_key_ptr, &kbd_x, &kbd_y, NULL, NULL);
@@ -1806,7 +1806,7 @@ struct key_t* keyboard_view_get_key (struct keyboard_view_t *kv, double x, doubl
     return curr_key;
 }
 
-float kv_get_sgmt_x_pos (struct keyboard_view_t *kv, struct key_t *sgmt)
+float kv_get_sgmt_x_pos (struct keyboard_view_t *kv, struct sgmt_t *sgmt)
 {
     double kbd_x, kbd_y;
     keyboard_view_get_margins (kv, &kbd_x, &kbd_y);
@@ -1814,7 +1814,7 @@ float kv_get_sgmt_x_pos (struct keyboard_view_t *kv, struct key_t *sgmt)
     float x;
     struct row_t *curr_row = kv->first_row;
     while (curr_row != NULL) {
-        struct key_t *curr_key = curr_row->first_key;
+        struct sgmt_t *curr_key = curr_row->first_key;
         x = kbd_x;
         while (curr_key != NULL) {
             x += (curr_key->internal_glue + get_sgmt_user_glue(curr_key))*kv->default_key_size;
@@ -2136,8 +2136,8 @@ float kv_get_min_key_width (struct keyboard_view_t *kv)
 //       ++-----+
 //
 void kv_locate_edge (struct keyboard_view_t *kv,
-                     struct key_t *multirow_parent, struct key_t *key_sgmt, bool is_right_edge,
-                     struct key_t **edge_start, struct key_t **edge_prev_sgmt, struct key_t **edge_end_sgmt,
+                     struct sgmt_t *multirow_parent, struct sgmt_t *key_sgmt, bool is_right_edge,
+                     struct sgmt_t **edge_start, struct sgmt_t **edge_prev_sgmt, struct sgmt_t **edge_end_sgmt,
                      float *min_width)
 {
     assert (edge_start != NULL && edge_prev_sgmt != NULL && edge_end_sgmt != NULL && min_width != NULL);
@@ -2149,8 +2149,8 @@ void kv_locate_edge (struct keyboard_view_t *kv,
     *edge_prev_sgmt = NULL;
     *edge_start = multirow_parent;
     if (key_sgmt != multirow_parent) {
-        struct key_t *curr_key = multirow_parent;
-        struct key_t *prev_sized = NULL;
+        struct sgmt_t *curr_key = multirow_parent;
+        struct sgmt_t *prev_sized = NULL;
         do {
             if (curr_key->type == KEY_MULTIROW_SEGMENT_SIZED && curr_key->align == alignment) {
                 *edge_prev_sgmt = prev_sized;
@@ -2166,7 +2166,7 @@ void kv_locate_edge (struct keyboard_view_t *kv,
 
     *edge_end_sgmt = multirow_parent;
     {
-        struct key_t *curr_key = key_sgmt->next_multirow;
+        struct sgmt_t *curr_key = key_sgmt->next_multirow;
         while (!is_multirow_parent (curr_key)) {
             if (curr_key->type == KEY_MULTIROW_SEGMENT_SIZED &&
                 curr_key->align == alignment) {
@@ -2179,7 +2179,7 @@ void kv_locate_edge (struct keyboard_view_t *kv,
 
     float min_w = (*edge_start)->width;
     {
-        struct key_t *curr_key = *edge_start;
+        struct sgmt_t *curr_key = *edge_start;
         do {
             if (curr_key->type != KEY_MULTIROW_SEGMENT) {
                 min_w = MIN (min_w, curr_key->width);
@@ -2192,7 +2192,7 @@ void kv_locate_edge (struct keyboard_view_t *kv,
 #if 0
     // Debug code
     {
-        struct key_t *curr_key = multirow_parent;
+        struct sgmt_t *curr_key = multirow_parent;
         do {
             printf ("%p ", curr_key);
             curr_key = curr_key->next_multirow;
@@ -2206,10 +2206,10 @@ void kv_locate_edge (struct keyboard_view_t *kv,
 #endif
 }
 
-int kv_get_edge_len (struct key_t *edge_start, struct key_t *edge_end_sgmt)
+int kv_get_edge_len (struct sgmt_t *edge_start, struct sgmt_t *edge_end_sgmt)
 {
     int len = 0;
-    struct key_t *curr_key = edge_start;
+    struct sgmt_t *curr_key = edge_start;
     do {
         len ++;
         curr_key = curr_key->next_multirow;
@@ -2218,7 +2218,7 @@ int kv_get_edge_len (struct key_t *edge_start, struct key_t *edge_end_sgmt)
 }
 
 struct multirow_glue_info_t {
-    struct key_t *key;
+    struct sgmt_t *key;
     float min_glue;
 };
 
@@ -2226,7 +2226,7 @@ templ_sort (mg_sort, struct multirow_glue_info_t*, (*a)->min_glue > (*b)->min_gl
 
 void
 save_edge_glue (mem_pool_t *pool,
-                struct key_t *edge_start, struct key_t *edge_end_sgmt, bool is_right_edge,
+                struct sgmt_t *edge_start, struct sgmt_t *edge_end_sgmt, bool is_right_edge,
                 struct multirow_glue_info_t** info, int *info_len)
 {
     assert (info != NULL && info_len != NULL);
@@ -2235,11 +2235,11 @@ save_edge_glue (mem_pool_t *pool,
     struct multirow_glue_info_t info_l[len];
     int num_info = 0;
 
-    struct key_t *curr_sgmt = edge_start;
+    struct sgmt_t *curr_sgmt = edge_start;
     do {
-        struct key_t *new_glue_key = get_glue_key (is_right_edge, curr_sgmt);
+        struct sgmt_t *new_glue_key = get_glue_key (is_right_edge, curr_sgmt);
         if (new_glue_key) {
-            struct key_t*parent = kv_get_multirow_parent (new_glue_key);
+            struct sgmt_t*parent = kv_get_multirow_parent (new_glue_key);
 
             int i;
             for (i=0; i<num_info; i++) {
@@ -2296,8 +2296,8 @@ void kv_resize_cleanup (struct keyboard_view_t *kv)
 }
 
 void kv_locate_vedge (struct keyboard_view_t *kv,
-                      struct key_t *clicked_sgmt, struct row_t *clicked_row, double ptr_y, double sgmt_y,
-                      struct key_t **sgmt, struct key_t **prev_multirow, struct row_t **row, bool *is_top)
+                      struct sgmt_t *clicked_sgmt, struct row_t *clicked_row, double ptr_y, double sgmt_y,
+                      struct sgmt_t **sgmt, struct sgmt_t **prev_multirow, struct row_t **row, bool *is_top)
 {
     *is_top = false;
     *sgmt = clicked_sgmt;
@@ -2313,7 +2313,7 @@ void kv_locate_vedge (struct keyboard_view_t *kv,
     }
 
     int idx = 0;
-    struct key_t *curr_sgmt = (*sgmt)->next_multirow;
+    struct sgmt_t *curr_sgmt = (*sgmt)->next_multirow;
     while (curr_sgmt != clicked_sgmt) {
         *prev_multirow = curr_sgmt;
         curr_sgmt = curr_sgmt->next_multirow;
@@ -2347,7 +2347,7 @@ void kv_locate_vedge (struct keyboard_view_t *kv,
 // NOTE: This does not modify the glue in any way, for this take a look at
 // kv_change_edge_width().
 static inline
-void kv_resize_edge (struct key_t *edge_prev_sgmt, struct key_t *edge_start, struct key_t *edge_end_sgmt,
+void kv_resize_edge (struct sgmt_t *edge_prev_sgmt, struct sgmt_t *edge_start, struct sgmt_t *edge_end_sgmt,
                      float delta_w)
 {
     edge_start->width += delta_w;
@@ -2361,7 +2361,7 @@ void kv_resize_edge (struct key_t *edge_prev_sgmt, struct key_t *edge_start, str
     }
 
     float last_width = edge_start->width;
-    struct key_t *curr_key = edge_start->next_multirow;
+    struct sgmt_t *curr_key = edge_start->next_multirow;
     while (curr_key != edge_end_sgmt) {
         if (curr_key->type != KEY_MULTIROW_SEGMENT) {
             curr_key->width += delta_w;
@@ -2382,10 +2382,10 @@ void kv_resize_edge (struct key_t *edge_prev_sgmt, struct key_t *edge_start, str
 // Detects if an edge is left-visible, which means all of its segments are the
 // first segment in a row.
 bool kv_is_edge_left_visible (struct keyboard_view_t *kv,
-                              struct key_t *edge_start, struct key_t *edge_end_sgmt)
+                              struct sgmt_t *edge_start, struct sgmt_t *edge_end_sgmt)
 {
     struct row_t *row = kv_get_row (kv, edge_start);
-    struct key_t *curr_sgmt = edge_start;
+    struct sgmt_t *curr_sgmt = edge_start;
     do {
         if (row->first_key != curr_sgmt) {
             return false;
@@ -2405,7 +2405,7 @@ bool kv_is_edge_left_visible (struct keyboard_view_t *kv,
 // this is ensured by the function kv_is_edge_left_visible().
 // TODO: Is there a simpler way to detect the left edge boundary?
 void kv_compute_left_edge_change (struct keyboard_view_t *kv,
-                                  struct key_t *edge_start, struct key_t *edge_end_sgmt,
+                                  struct sgmt_t *edge_start, struct sgmt_t *edge_end_sgmt,
                                   float old_width, float new_width,
                                   float *left_edge_adjust, float *glue_adjust)
 {
@@ -2413,7 +2413,7 @@ void kv_compute_left_edge_change (struct keyboard_view_t *kv,
 
     float g = INFINITY;
     struct row_t *row = kv->first_row;
-    struct key_t *edge_sgmt = edge_start;
+    struct sgmt_t *edge_sgmt = edge_start;
     int edge_len = kv_get_edge_len (edge_start, edge_end_sgmt);
     int edge_idx = 0;
     while (row != NULL) {
@@ -2433,11 +2433,11 @@ void kv_compute_left_edge_change (struct keyboard_view_t *kv,
 }
 
 bool kv_key_has_glue (struct keyboard_view_t *kv,
-                       bool is_right_edge, struct key_t *sgmt)
+                       bool is_right_edge, struct sgmt_t *sgmt)
 {
-    struct key_t *curr_sgmt = sgmt;
+    struct sgmt_t *curr_sgmt = sgmt;
     do {
-        struct key_t *glue_sgmt = get_glue_key (is_right_edge, curr_sgmt);
+        struct sgmt_t *glue_sgmt = get_glue_key (is_right_edge, curr_sgmt);
         if (glue_sgmt && get_sgmt_total_glue (glue_sgmt) != 0) {
             return true;
         }
@@ -2456,7 +2456,7 @@ bool kv_key_has_glue (struct keyboard_view_t *kv,
 // see the explanation in the comments of kv_change_sgmt_width() for why one
 // extra step is required there.
 void kv_change_edge_width (struct keyboard_view_t *kv,
-                           struct key_t *edge_prev_sgmt, struct key_t *edge_start, struct key_t *edge_end_sgmt,
+                           struct sgmt_t *edge_prev_sgmt, struct sgmt_t *edge_start, struct sgmt_t *edge_end_sgmt,
                            bool is_right_edge, bool do_glue_adjust,
                            struct multirow_glue_info_t *glue_info, int glue_info_len,
                            float original_w, float new_width)
@@ -2549,8 +2549,8 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
 // one before or with the one after.
 // NOTE: This does not modify any glue in any way, for this take a look at
 // kv_change_sgmt_width().
-void kv_resize_sgmt (struct keyboard_view_t *kv, struct key_t *prev_multirow,
-                     struct key_t *sgmt, float delta_w, bool edit_right_edge)
+void kv_resize_sgmt (struct keyboard_view_t *kv, struct sgmt_t *prev_multirow,
+                     struct sgmt_t *sgmt, float delta_w, bool edit_right_edge)
 {
     sgmt->width += delta_w;
 
@@ -2567,7 +2567,7 @@ void kv_resize_sgmt (struct keyboard_view_t *kv, struct key_t *prev_multirow,
     }
 
     if (is_multirow_key (sgmt) && !is_multirow_parent(sgmt->next_multirow)) {
-        struct key_t *end_sgmt = sgmt->next_multirow;
+        struct sgmt_t *end_sgmt = sgmt->next_multirow;
         if (sgmt->width == end_sgmt->width) {
             end_sgmt->type = KEY_MULTIROW_SEGMENT;
         } else {
@@ -2607,7 +2607,7 @@ void kv_resize_sgmt (struct keyboard_view_t *kv, struct key_t *prev_multirow,
 // to original_glue_plus_w). Beyond this value, the user glue should grow to
 // keep K fixed in place.
 
-void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multirow, struct key_t *sgmt,
+void kv_change_sgmt_width (struct keyboard_view_t *kv, struct sgmt_t *prev_multirow, struct sgmt_t *sgmt,
                            struct row_t *row, float original_glue_plus_w, float original_glue,
                            float new_width, bool is_right_edge)
 {
@@ -2685,18 +2685,18 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct key_t *prev_multir
     }
 }
 
-struct key_t* kv_create_multirow_split (struct keyboard_view_t *kv,
-                                        struct key_t *start_sgmt, struct key_t *end_sgmt,
-                                        struct key_t **start_sgmt_ptr,
+struct sgmt_t* kv_create_multirow_split (struct keyboard_view_t *kv,
+                                        struct sgmt_t *start_sgmt, struct sgmt_t *end_sgmt,
+                                        struct sgmt_t **start_sgmt_ptr,
                                         bool add_split_after,
-                                        struct key_t ***new_key_ptr)
+                                        struct sgmt_t ***new_key_ptr)
 {
-    struct key_t *new_key = kv_allocate_key (kv);
+    struct sgmt_t *new_key = kv_allocate_key (kv);
     new_key->type = KEY_UNASSIGNED;
 
     if (add_split_after) {
-        struct key_t *sgmt = start_sgmt;
-        struct key_t *new_sgmt = new_key;
+        struct sgmt_t *sgmt = start_sgmt;
+        struct sgmt_t *new_sgmt = new_key;
 
         do {
             new_sgmt->next_key = sgmt->next_key;
@@ -2704,7 +2704,7 @@ struct key_t* kv_create_multirow_split (struct keyboard_view_t *kv,
 
             sgmt = sgmt->next_multirow;
             if (sgmt != end_sgmt) {
-                struct key_t *tmp = kv_allocate_key (kv);
+                struct sgmt_t *tmp = kv_allocate_key (kv);
                 tmp->type = KEY_MULTIROW_SEGMENT;
                 tmp->next_multirow = new_sgmt->next_multirow;
                 new_sgmt->next_multirow = tmp;
@@ -2719,14 +2719,14 @@ struct key_t* kv_create_multirow_split (struct keyboard_view_t *kv,
         }
 
     } else {
-        struct key_t *sgmt = start_sgmt;
-        struct key_t *new_sgmt = new_key;
+        struct sgmt_t *sgmt = start_sgmt;
+        struct sgmt_t *new_sgmt = new_key;
         struct row_t *curr_row = kv_get_row (kv, start_sgmt);
 
         if (start_sgmt_ptr == NULL) {
             start_sgmt_ptr = kv_get_sgmt_ptr (curr_row, start_sgmt);
         }
-        struct key_t **sgmt_ptr = start_sgmt_ptr;
+        struct sgmt_t **sgmt_ptr = start_sgmt_ptr;
 
         do {
             *sgmt_ptr = new_sgmt;
@@ -2737,7 +2737,7 @@ struct key_t* kv_create_multirow_split (struct keyboard_view_t *kv,
                 curr_row = curr_row->next_row;
                 sgmt_ptr = kv_get_sgmt_ptr (curr_row, sgmt);
 
-                struct key_t *tmp = kv_allocate_key (kv);
+                struct sgmt_t *tmp = kv_allocate_key (kv);
                 tmp->type = KEY_MULTIROW_SEGMENT;
                 tmp->next_multirow = new_sgmt->next_multirow;
                 new_sgmt->next_multirow = tmp;
@@ -2798,7 +2798,7 @@ void kv_set_non_rectangular_split (struct keyboard_view_t *kv, float x)
 void kv_set_add_key_state (struct keyboard_view_t *kv, double event_x, double event_y)
 {
     double x, y, left_margin;
-    struct key_t *sgmt, **sgmt_ptr;
+    struct sgmt_t *sgmt, **sgmt_ptr;
     struct row_t *row;
     kv->locate_stat =
         kv_locate_sgmt (kv, event_x, event_y, &sgmt, &row, &sgmt_ptr, &x, &y, &left_margin, NULL);
@@ -2894,8 +2894,8 @@ void kv_set_add_key_state (struct keyboard_view_t *kv, double event_x, double ev
     }
 }
 
-struct key_t* kv_insert_new_sgmt (struct keyboard_view_t *kv,
-                                  enum locate_sgmt_status_t location, struct key_t **sgmt_ptr)
+struct sgmt_t* kv_insert_new_sgmt (struct keyboard_view_t *kv,
+                                  enum locate_sgmt_status_t location, struct sgmt_t **sgmt_ptr)
 {
     // Allocate a new row if necessary.
     struct row_t *new_row = NULL;
@@ -2918,7 +2918,7 @@ struct key_t* kv_insert_new_sgmt (struct keyboard_view_t *kv,
     }
 
     // Allocate the new key
-    struct key_t *new_key = kv_allocate_key (kv);
+    struct sgmt_t *new_key = kv_allocate_key (kv);
     new_key->type = KEY_UNASSIGNED;
     new_key->width = 1;
 
@@ -2930,7 +2930,7 @@ struct key_t* kv_insert_new_sgmt (struct keyboard_view_t *kv,
 }
 
 struct geometry_edit_ctx_t {
-    struct key_t *last_key;
+    struct sgmt_t *last_key;
     struct row_t *last_row;
     struct keyboard_view_t *kv;
 };
@@ -2946,7 +2946,7 @@ void kv_geometry_ctx_init_append (struct keyboard_view_t *kv, struct geometry_ed
         }
     }
 
-    struct key_t *last_key = NULL;
+    struct sgmt_t *last_key = NULL;
     if (last_row && last_row->first_key) {
         last_key = last_row->first_key;
         while (last_key->next_key != NULL) {
@@ -2985,12 +2985,12 @@ void kv_new_row_h (struct geometry_edit_ctx_t *ctx, float height)
 
 #define kv_add_key(ctx,keycode)     kv_add_key_full(ctx,keycode,1,0)
 #define kv_add_key_w(ctx,keycode,w) kv_add_key_full(ctx,keycode,w,0)
-struct key_t* kv_add_key_full (struct geometry_edit_ctx_t *ctx,
+struct sgmt_t* kv_add_key_full (struct geometry_edit_ctx_t *ctx,
                                int keycode, float width, float glue)
 {
     struct keyboard_view_t *kv = ctx->kv;
 
-    struct key_t *new_key = kv_allocate_key (kv);
+    struct sgmt_t *new_key = kv_allocate_key (kv);
     new_key->width = width;
     new_key->user_glue = glue;
 
@@ -3018,7 +3018,7 @@ struct key_t* kv_add_key_full (struct geometry_edit_ctx_t *ctx,
 
 #define kv_add_multirow_sgmt(ctx,key) kv_add_multirow_sized_sgmt(ctx,key,0,0)
 void kv_add_multirow_sized_sgmt (struct geometry_edit_ctx_t *ctx,
-                                 struct key_t *key,
+                                 struct sgmt_t *key,
                                  float width, enum multirow_key_align_t align)
 {
     // look for the last multirow segment so new_key is added after it.
@@ -3026,7 +3026,7 @@ void kv_add_multirow_sized_sgmt (struct geometry_edit_ctx_t *ctx,
         key = key->next_multirow;
     }
 
-    struct key_t *new_key;
+    struct sgmt_t *new_key;
     if (width == 0 || width == get_sgmt_width (key)) {
         new_key = kv_add_key_w (ctx, -1, 0);
         new_key->type = KEY_MULTIROW_SEGMENT;
@@ -3157,13 +3157,13 @@ BUILD_GEOMETRY_FUNC(multirow_test_geometry)
     kv_geometry_ctx_init_append (kv, &ctx);
 
     kv_new_row_h (&ctx, 1.5);
-    struct key_t *multi1 = kv_add_key (&ctx, KEY_A);
+    struct sgmt_t *multi1 = kv_add_key (&ctx, KEY_A);
     kv_add_key (&ctx, KEY_1);
     //kv_add_key (&ctx, KEY_2);
-    struct key_t *multi4 = kv_add_key_w (&ctx, KEY_D, 2);
+    struct sgmt_t *multi4 = kv_add_key_w (&ctx, KEY_D, 2);
 
     kv_new_row_h (&ctx, 1.25);
-    struct key_t *multi2 = kv_add_key (&ctx, KEY_B);
+    struct sgmt_t *multi2 = kv_add_key (&ctx, KEY_B);
     kv_add_multirow_sgmt (&ctx, multi1);
     kv_add_key_full (&ctx, KEY_3, 1, 1);
     kv_add_multirow_sized_sgmt (&ctx, multi4, 1, MULTIROW_ALIGN_LEFT);
@@ -3171,7 +3171,7 @@ BUILD_GEOMETRY_FUNC(multirow_test_geometry)
     kv_new_row_h (&ctx, 1);
     kv_add_key (&ctx, KEY_4);
     kv_add_multirow_sgmt (&ctx, multi2);
-    struct key_t *multi3 = kv_add_key (&ctx, KEY_C);
+    struct sgmt_t *multi3 = kv_add_key (&ctx, KEY_C);
     kv_add_multirow_sgmt (&ctx, multi4);
 
     kv_new_row_h (&ctx, 0.75);
@@ -3189,7 +3189,7 @@ BUILD_GEOMETRY_FUNC(edge_resize_leave_original_pos_1)
     kv_geometry_ctx_init_append (kv, &ctx);
 
     kv_new_row_h (&ctx, 1);
-    struct key_t *m = kv_add_key_w (&ctx, KEY_A, 3);
+    struct sgmt_t *m = kv_add_key_w (&ctx, KEY_A, 3);
 
     kv_new_row_h (&ctx, 1);
     kv_add_multirow_sized_sgmt (&ctx, m, 2, MULTIROW_ALIGN_LEFT);
@@ -3215,7 +3215,7 @@ BUILD_GEOMETRY_FUNC(edge_resize_leave_original_pos_2)
     kv_geometry_ctx_init_append (kv, &ctx);
 
     kv_new_row_h (&ctx, 1);
-    struct key_t *m1 = kv_add_key (&ctx, KEY_1);
+    struct sgmt_t *m1 = kv_add_key (&ctx, KEY_1);
 
     kv_new_row_h (&ctx, 1);
     kv_add_multirow_sgmt (&ctx, m1);
@@ -3235,12 +3235,12 @@ BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_1)
     kv_geometry_ctx_init_append (kv, &ctx);
 
     kv_new_row_h (&ctx, 1);
-    struct key_t *l = kv_add_key_full (&ctx, KEY_L, 1, 0);
-    struct key_t *m1 = kv_add_key_full (&ctx, KEY_1, 1, 1);
+    struct sgmt_t *l = kv_add_key_full (&ctx, KEY_L, 1, 0);
+    struct sgmt_t *m1 = kv_add_key_full (&ctx, KEY_1, 1, 1);
 
     kv_new_row_h (&ctx, 1);
     kv_add_multirow_sgmt (&ctx, l);
-    struct key_t *m2 = kv_add_key_full (&ctx, KEY_2, 1, 2.5);
+    struct sgmt_t *m2 = kv_add_key_full (&ctx, KEY_2, 1, 2.5);
     kv_add_multirow_sgmt (&ctx, m1);
 
     kv_new_row_h (&ctx, 1);
@@ -3261,7 +3261,7 @@ BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_2)
     kv_geometry_ctx_init_append (kv, &ctx);
 
     kv_new_row_h (&ctx, 1);
-    struct key_t *m1 = kv_add_key_full (&ctx, KEY_1, 1, 1);
+    struct sgmt_t *m1 = kv_add_key_full (&ctx, KEY_1, 1, 1);
 
     kv_new_row_h (&ctx, 1);
     kv_add_multirow_sgmt (&ctx, m1);
@@ -3269,7 +3269,7 @@ BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_2)
     kv_add_multirow_sgmt (&ctx, m1);
 
     kv_new_row_h (&ctx, 1);
-    struct key_t *m2 = kv_add_key_full (&ctx, KEY_2, 1, 0);
+    struct sgmt_t *m2 = kv_add_key_full (&ctx, KEY_2, 1, 0);
     kv_add_multirow_sgmt (&ctx, m1);
 
     kv_new_row_h (&ctx, 1);
@@ -3296,8 +3296,8 @@ BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_3)
     kv_geometry_ctx_init_append (kv, &ctx);
 
     kv_new_row_h (&ctx, 1);
-    struct key_t *e = kv_add_key (&ctx, KEY_1);
-    struct key_t *k1 = kv_add_key_full (&ctx, KEY_A, 3, 2);
+    struct sgmt_t *e = kv_add_key (&ctx, KEY_1);
+    struct sgmt_t *k1 = kv_add_key_full (&ctx, KEY_A, 3, 2);
 
     kv_new_row_h (&ctx, 1);
     kv_add_multirow_sized_sgmt (&ctx, e, 3, MULTIROW_ALIGN_LEFT);
@@ -3313,7 +3313,7 @@ BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_3)
 
     kv_new_row_h (&ctx, 1);
     kv_add_multirow_sgmt (&ctx, e);
-    struct key_t *k2 = kv_add_key_full (&ctx, KEY_B, 1, 2);
+    struct sgmt_t *k2 = kv_add_key_full (&ctx, KEY_B, 1, 2);
 
     kv_new_row_h (&ctx, 1);
     kv_add_multirow_sgmt (&ctx, e);
@@ -3336,10 +3336,10 @@ BUILD_GEOMETRY_FUNC(adjust_left_edge_test_geometry)
     kv_geometry_ctx_init_append (kv, &ctx);
 
     kv_new_row_h (&ctx, 1);
-    struct key_t *m1 = kv_add_key_full (&ctx, KEY_1, 1, 0);
+    struct sgmt_t *m1 = kv_add_key_full (&ctx, KEY_1, 1, 0);
 
     kv_new_row_h (&ctx, 1);
-    struct key_t *m2 = kv_add_key_full (&ctx, KEY_2, 1, 1);
+    struct sgmt_t *m2 = kv_add_key_full (&ctx, KEY_2, 1, 1);
     kv_add_multirow_sgmt (&ctx, m1);
 
     kv_new_row_h (&ctx, 1);
@@ -3379,7 +3379,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         e = &null_event;
     }
 
-    struct key_t *button_event_key = NULL, *button_event_key_clicked_sgmt = NULL,
+    struct sgmt_t *button_event_key = NULL, *button_event_key_clicked_sgmt = NULL,
                  **button_event_key_ptr = NULL;
     bool button_event_key_is_rectangular = false;
     GdkRectangle button_event_key_rect = {0};
@@ -3406,7 +3406,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
     }
 
     uint16_t key_event_kc = 0;
-    struct key_t *key_event_key = NULL;
+    struct sgmt_t *key_event_key = NULL;
     if (e->type == GDK_KEY_PRESS || e->type == GDK_KEY_RELEASE) {
         key_event_kc = ((GdkEventKey*)e)->hardware_keycode;
         key_event_key = kv->keys_by_kc[key_event_kc-8];
@@ -3621,7 +3621,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 GdkEventButton *event = (GdkEventButton*)e;
                 double x;
-                struct key_t *sgmt;
+                struct sgmt_t *sgmt;
                 kv_locate_sgmt (kv, event->x, event->y, &sgmt, NULL, NULL, &x, NULL, NULL, NULL);
                 if (event->x < x + get_sgmt_width (sgmt)*kv->default_key_size/2) {
                     kv->edit_right_edge = false;
@@ -3631,7 +3631,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 kv->resized_segment_prev = NULL;
                 {
-                    struct key_t *curr_key = button_event_key;
+                    struct sgmt_t *curr_key = button_event_key;
                     while (curr_key != button_event_key_clicked_sgmt) {
                         kv->resized_segment_prev = curr_key;
                         curr_key = curr_key->next_multirow;
@@ -3641,7 +3641,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->resized_segment = button_event_key_clicked_sgmt;
                 kv->original_size = get_sgmt_width (button_event_key_clicked_sgmt);
                 kv->resized_segment->width = kv->original_size;
-                struct key_t *end_sgmt = kv->resized_segment->next_multirow;
+                struct sgmt_t *end_sgmt = kv->resized_segment->next_multirow;
                 if (end_sgmt->type == KEY_MULTIROW_SEGMENT) {
                     end_sgmt->width = kv->original_size;
                 }
@@ -3677,7 +3677,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 // Store original user glue
                 {
-                    struct key_t *glue_key = get_glue_key (kv->edit_right_edge, kv->resized_segment);
+                    struct sgmt_t *glue_key = get_glue_key (kv->edit_right_edge, kv->resized_segment);
 
                     if (glue_key != NULL) {
                         kv->resized_segment_original_user_glue = get_sgmt_user_glue(glue_key);
@@ -3706,7 +3706,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             } else if (kv->active_tool == KV_TOOL_VERTICAL_EXTEND &&
                      e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 struct row_t *clicked_row;
-                struct key_t *clicked_sgmt;
+                struct sgmt_t *clicked_sgmt;
                 double left_margin, y;
                 GdkEventButton *event = (GdkEventButton*)e;
                 kv_locate_sgmt (kv, event->x, event->y, &clicked_sgmt, &clicked_row,
@@ -3714,7 +3714,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 bool top;
                 struct row_t *row;
-                struct key_t *sgmt, *prev_multirow;
+                struct sgmt_t *sgmt, *prev_multirow;
                 kv_locate_vedge (kv, clicked_sgmt, clicked_row, event->y, y, &sgmt, &prev_multirow, &row, &top);
 
                 // Set _row_ to the row that will contain the new segment.
@@ -3722,7 +3722,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 enum locate_sgmt_status_t new_sgmt_pos = top ? LOCATE_OUTSIDE_TOP : LOCATE_OUTSIDE_BOTTOM;
                 if (row != NULL) { new_sgmt_pos = LOCATE_HIT_KEY; }
 
-                struct key_t **new_sgmt_ptr = NULL;
+                struct sgmt_t **new_sgmt_ptr = NULL;
                 if (new_sgmt_pos == LOCATE_HIT_KEY) {
                     // Set new_sgmt_ptr to the location of the pointer such that
                     // *new_sgmt_ptr is the first segment in _row_ whose right
@@ -3745,7 +3745,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     // extends to the left of sgmt, we move new_sgmt_ptr to the
                     // next segment.
                     if (*new_sgmt_ptr && is_multirow_key(*new_sgmt_ptr)) {
-                        struct key_t *curr_key =
+                        struct sgmt_t *curr_key =
                             top ? (*new_sgmt_ptr)->next_multirow : kv_get_prev_multirow (*new_sgmt_ptr);
                         while (curr_key != NULL) {
                             if (curr_key == sgmt) {
@@ -3757,8 +3757,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     }
                 }
 
-                struct key_t *new_sgmt = kv_insert_new_sgmt (kv, new_sgmt_pos, new_sgmt_ptr);
-                struct key_t *new_sgmt_prev;
+                struct sgmt_t *new_sgmt = kv_insert_new_sgmt (kv, new_sgmt_pos, new_sgmt_ptr);
+                struct sgmt_t *new_sgmt_prev;
                 if (top) {
                     kv->keys_by_kc[sgmt->kc] = new_sgmt;
                     new_sgmt_prev = prev_multirow;
@@ -3779,14 +3779,14 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             } else if (kv->active_tool == KV_TOOL_VERTICAL_SHRINK &&
                      e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 double y;
-                struct key_t *clicked_sgmt;
+                struct sgmt_t *clicked_sgmt;
                 struct row_t *clicked_row;
                 GdkEventButton *event = (GdkEventButton*)e;
                 kv_locate_sgmt (kv, event->x, event->y, &clicked_sgmt, &clicked_row, NULL, NULL, &y, NULL, NULL);
 
                 bool top;
                 struct row_t *row;
-                struct key_t *sgmt, *prev_multirow;
+                struct sgmt_t *sgmt, *prev_multirow;
                 kv_locate_vedge (kv, clicked_sgmt, clicked_row, event->y, y, &sgmt, &prev_multirow, &row, &top);
 
                 if (top) {
@@ -3840,7 +3840,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     new_glue = kv->added_key_user_glue;
                 }
 
-                struct key_t *new_key =
+                struct sgmt_t *new_key =
                     kv_insert_new_sgmt (kv, kv->locate_stat, kv->added_key_ptr);
                 new_key->user_glue = new_glue;
                 kv_adjust_sgmt_glue (kv, new_key->next_key, glue_adj);
@@ -4114,7 +4114,7 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
 
     gboolean show_tooltip = FALSE;
     GdkRectangle rect = {0};
-    struct key_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect, NULL, NULL, NULL);
+    struct sgmt_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect, NULL, NULL, NULL);
     if (key != NULL) {
         // For non rectangular multirow keys keyboard_view_get_key() returns the
         // rectangle of the segment that was hovered. This has the (undesired?)

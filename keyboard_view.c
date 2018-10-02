@@ -60,7 +60,9 @@
 // Even though the implementation is usable, a list of things I would like to
 // see implemented in the future are:
 //
-// - Feedback on the sizes while editing things. I would like to gieve feedback
+// - Add an undo/redo system that can be used through Ctrl+Z/Y.
+//
+// - Feedback on the sizes while editing things. I would like to give feedback
 //   about the value that is being changed, be it the glue, width, height, etc.
 //
 // - Make possible to change the pointer, so we can give feedback about when the
@@ -69,6 +71,8 @@
 //
 // - Create a keyboard geometry file format. Something like what kv_print() does
 //   but better thought out so it can also be parsed.
+//
+// - Read keysym_representations from a file.
 //
 // - A tool that allows to search the names for keycodes, to be able to create
 //   geometries for keyboards we don't actually have.

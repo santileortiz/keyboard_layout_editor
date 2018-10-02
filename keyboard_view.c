@@ -63,9 +63,9 @@
 // - Feedback on the sizes while editing things. I would like to gieve feedback
 //   about the value that is being changed, be it the glue, width, height, etc.
 //
-// - Make possible to change the pointer, so we can give feedback about when a
-//   the left or the right, bottom or top edge is being resized. This could also
-//   be used to notify about invalid segment edge resizes (@arbitrary_align).
+// - Make possible to change the pointer, so we can give feedback about when the
+//   left or the right, bottom or top edge is being resized. This could also be
+//   used to notify about invalid segment edge resizes (@arbitrary_align).
 //
 // - Create a keyboard geometry file format. Something like what kv_print() does
 //   but better thought out so it can also be parsed.

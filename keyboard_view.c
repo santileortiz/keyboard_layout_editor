@@ -288,6 +288,12 @@ struct keyboard_view_t {
 };
 
 static inline
+bool kv_is_view_empty (struct keyboard_view_t *kv)
+{
+    return kv->first_row == NULL;
+}
+
+static inline
 bool is_multirow_key (struct key_t *key)
 {
     return key->next_multirow != key;
@@ -395,9 +401,11 @@ static inline
 struct row_t* kv_get_prev_row (struct keyboard_view_t *kv, struct row_t *row)
 {
     struct row_t *prev_row = NULL, *curr_row = kv->first_row;
-    while (curr_row != row) {
-        prev_row = curr_row;
-        curr_row = curr_row->next_row;
+    if (curr_row != NULL) {
+        while (curr_row != row) {
+            prev_row = curr_row;
+            curr_row = curr_row->next_row;
+        }
     }
     return prev_row;
 }
@@ -598,6 +606,7 @@ void kv_get_size (struct keyboard_view_t *kv, double *width, double *height)
 bool compute_key_size_full (struct keyboard_view_t *kv, struct key_t *key, struct row_t *row,
                             float *width, float *height, float *multirow_y_offset)
 {
+    assert (!kv_is_view_empty(kv));
     assert (width != NULL && height != NULL);
 
     float dummy;
@@ -1025,9 +1034,11 @@ void kv_adjust_edge_glue (struct keyboard_view_t *kv,
 void kv_adjust_left_edge (struct keyboard_view_t *kv, struct key_t *sgmt, float change)
 {
     int num_rows = kv_get_num_rows (kv);
+    if (num_rows == 0) return;
 
     struct key_t fake_edge[num_rows];
     struct row_t *curr_row = kv->first_row;
+
     for (int i=0; i<num_rows; i++) {
         fake_edge[i] = ZERO_INIT(struct key_t);
         fake_edge[i].type = KEY_MULTIROW_SEGMENT;
@@ -2862,16 +2873,23 @@ void kv_set_add_key_state (struct keyboard_view_t *kv, double event_x, double ev
         kv->to_add_rect.width = kv->default_key_size;
         kv->to_add_rect.height = kv->default_key_size;
 
-        float x_pos = bin_floor ((event_x - left_margin)/kv->default_key_size - 0.5, 3);
-        kv->to_add_rect.x = left_margin + x_pos*kv->default_key_size;
-        // NOTE: This glue is measured with respect to the left
-        // margin. It can be negative.
-        kv->added_key_user_glue = x_pos;
+        if (kv_is_view_empty (kv)) {
+            kv->added_key_user_glue = 0;
+            kv->to_add_rect.x = left_margin - kv->default_key_size/2;
+            kv->to_add_rect.y = y - kv->default_key_size/2;
 
-        if (kv->locate_stat == LOCATE_OUTSIDE_TOP) {
-            kv->to_add_rect.y = y - kv->default_key_size;
-        } else { // kv->locate_stat == LOCATE_OUTSIDE_BOTTOM
-            kv->to_add_rect.y = y;
+        } else {
+            float x_pos = bin_floor ((event_x - left_margin)/kv->default_key_size - 0.5, 3);
+            kv->to_add_rect.x = left_margin + x_pos*kv->default_key_size;
+            // NOTE: This glue is measured with respect to the left
+            // margin. It can be negative.
+            kv->added_key_user_glue = x_pos;
+
+            if (kv->locate_stat == LOCATE_OUTSIDE_TOP) {
+                kv->to_add_rect.y = y - kv->default_key_size;
+            } else { // kv->locate_stat == LOCATE_OUTSIDE_BOTTOM
+                kv->to_add_rect.y = y;
+            }
         }
     }
 }
@@ -2879,16 +2897,15 @@ void kv_set_add_key_state (struct keyboard_view_t *kv, double event_x, double ev
 struct key_t* kv_insert_new_sgmt (struct keyboard_view_t *kv,
                                   enum locate_sgmt_status_t location, struct key_t **sgmt_ptr)
 {
-    // Allocate a new row if necessary. If so, set kv->added_key_ptr
-    // appropriately.
+    // Allocate a new row if necessary.
     struct row_t *new_row = NULL;
-    if (location == LOCATE_OUTSIDE_TOP || location == LOCATE_OUTSIDE_BOTTOM) {
+    if (kv_is_view_empty (kv) || location == LOCATE_OUTSIDE_TOP || location == LOCATE_OUTSIDE_BOTTOM) {
         new_row = kv_allocate_row (kv);
-        if (location == LOCATE_OUTSIDE_TOP) {
+        if (kv_is_view_empty (kv) || location == LOCATE_OUTSIDE_TOP) {
             new_row->next_row = kv->first_row;
             kv->first_row = new_row;
 
-        } else if (location == LOCATE_OUTSIDE_BOTTOM) {
+        } else { // location == LOCATE_OUTSIDE_BOTTOM
             // Get last row
             struct row_t *last_row = kv->first_row;
             while (last_row->next_row != NULL) last_row = last_row->next_row;
@@ -2922,7 +2939,7 @@ void kv_geometry_ctx_init_append (struct keyboard_view_t *kv, struct geometry_ed
 {
     *ctx = ZERO_INIT (struct geometry_edit_ctx_t);
     struct row_t *last_row = NULL;
-    if (kv->first_row != NULL) {
+    if (!kv_is_view_empty (kv)) {
         last_row = kv->first_row;
         while (last_row->next_row != NULL) {
             last_row = last_row->next_row;
@@ -2953,10 +2970,10 @@ void kv_new_row_h (struct geometry_edit_ctx_t *ctx, float height)
     struct keyboard_view_t *kv = ctx->kv;
 
     struct row_t *new_row = kv_allocate_row (kv);
-    *new_row = (struct row_t){0};
+    *new_row = ZERO_INIT (struct row_t);
     new_row->height = height;
 
-    if (kv->first_row != NULL) {
+    if (!kv_is_view_empty (kv)) {
         ctx->last_row->next_row = new_row;
     } else {
         kv->first_row = new_row;

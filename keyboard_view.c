@@ -4060,6 +4060,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 if (kv->push_right_key->user_glue != new_glue) {
                     kv->push_right_key->user_glue = new_glue;
                     kv_compute_glue (kv);
+                    kv_equalize_left_edge (kv);
                 }
 
             } else if (e->type == GDK_BUTTON_RELEASE) {

@@ -2541,7 +2541,10 @@ void kv_change_edge_width (struct keyboard_view_t *kv,
     // @normal_sgmt_resize_case, because there can only be one pushed key.
     if (delta_w != 0) {
         kv_resize_edge (edge_prev_sgmt, edge_start, edge_end_sgmt, delta_w);
-        kv_adjust_edge_glue (kv, edge_start, edge_end_sgmt, is_right_edge, glue_adjust);
+
+        if (do_glue_adjust) {
+            kv_adjust_edge_glue (kv, edge_start, edge_end_sgmt, is_right_edge, glue_adjust);
+        }
     }
 }
 
@@ -2607,9 +2610,11 @@ void kv_resize_sgmt (struct keyboard_view_t *kv, struct sgmt_t *prev_multirow,
 // to original_glue_plus_w). Beyond this value, the user glue should grow to
 // keep K fixed in place.
 
-void kv_change_sgmt_width (struct keyboard_view_t *kv, struct sgmt_t *prev_multirow, struct sgmt_t *sgmt,
-                           struct row_t *row, float original_glue_plus_w, float original_glue,
-                           float new_width, bool is_right_edge)
+void kv_change_sgmt_width (struct keyboard_view_t *kv,
+                           struct sgmt_t *prev_multirow, struct sgmt_t *sgmt,
+                           bool is_right_edge, bool do_glue_adjust,
+                           struct row_t *row, float original_glue_plus_w,
+                           float original_glue, float new_width)
 {
     // It would seem like the straight forward implementation of both cases
     // described above would be a call to kv_resize_sgmt() followed by a
@@ -2667,7 +2672,7 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct sgmt_t *prev_multi
     // If the segment being resized pushed a key, then leave it at its original
     // position.
     float step_dw = bnd_delta_update_inv (sgmt->width, sgmt->width + delta_w, original_glue_plus_w);
-    if (!did_left_edge_adjust && delta_w < 0 && step_dw != 0) {
+    if (!did_left_edge_adjust && do_glue_adjust && delta_w < 0 && step_dw != 0) {
         kv_resize_sgmt (kv, prev_multirow, sgmt, step_dw, is_right_edge);
         kv_compute_glue (kv);
         delta_w -= step_dw;
@@ -2681,7 +2686,10 @@ void kv_change_sgmt_width (struct keyboard_view_t *kv, struct sgmt_t *prev_multi
     // original_glue_plus_w. @normal_sgmt_resize_case
     if (delta_w != 0) {
         kv_resize_sgmt (kv, prev_multirow, sgmt, delta_w, is_right_edge);
-        kv_adjust_sgmt_glue (kv, get_glue_key (is_right_edge, sgmt), glue_adjust);
+
+        if (do_glue_adjust) {
+            kv_adjust_sgmt_glue (kv, get_glue_key (is_right_edge, sgmt), glue_adjust);
+        }
     }
 }
 
@@ -3641,6 +3649,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->resized_segment = button_event_key_clicked_sgmt;
                 kv->original_size = get_sgmt_width (button_event_key_clicked_sgmt);
                 kv->resized_segment->width = kv->original_size;
+                kv->do_glue_adjust = kv_key_has_glue (kv, kv->edit_right_edge, kv->resized_segment);
                 struct sgmt_t *end_sgmt = kv->resized_segment->next_multirow;
                 if (end_sgmt->type == KEY_MULTIROW_SEGMENT) {
                     end_sgmt->width = kv->original_size;
@@ -3996,8 +4005,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 if (new_width != kv->resized_segment->width) {
                     kv_change_sgmt_width (kv, kv->resized_segment_prev, kv->resized_segment,
+                                          kv->edit_right_edge, kv->do_glue_adjust,
                                           kv->resized_segment_row, kv->resized_segment_glue_plus_w,
-                                          kv->resized_segment_original_glue, new_width, kv->edit_right_edge);
+                                          kv->resized_segment_original_glue, new_width);
                     kv_compute_glue (kv);
                 }
 
@@ -4007,9 +4017,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
                     kv_change_sgmt_width (kv, kv->resized_segment_prev, kv->resized_segment,
+                                          kv->edit_right_edge, kv->do_glue_adjust,
                                           kv->resized_segment_row, kv->resized_segment_glue_plus_w,
-                                          kv->resized_segment_original_glue, kv->original_size,
-                                          kv->edit_right_edge);
+                                          kv->resized_segment_original_glue, kv->original_size);
 
                     kv_compute_glue (kv);
                     kv->state = KV_EDIT;
@@ -4251,7 +4261,7 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
 
     kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
-    kv->geometry_idx = 1;
+    kv->geometry_idx = 0;
     kv_geometries[kv->geometry_idx](kv);
 
     kv->pool = pool;

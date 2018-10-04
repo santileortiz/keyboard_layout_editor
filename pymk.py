@@ -21,6 +21,12 @@ def default():
 def keyboard_layout_editor ():
     ex ('gcc {FLAGS} -o bin/keyboard-layout-editor keyboard_layout_editor.c -I/usr/include/libxml2 -lxml2 {GTK_FLAGS} -lm -lxkbcommon')
 
+def xkb_im ():
+    ex ('gcc -shared -fPIC {FLAGS} -o bin/im-kle-xkb.so im/kle_im_context.c im/kle_im_module.c {GTK_FLAGS} -lm -lxkbcommon')
+    ex ('chmod 644 bin/im-kle-xkb.so', echo=False)
+    ex ('sudo cp bin/im-kle-xkb.so /usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules')
+    ex ('sudo /usr/lib/x86_64-linux-gnu/libgtk-3-0/gtk-query-immodules-3.0 --update-cache')
+
 def generate_keycode_names ():
     def find_system_lib (library):
         """

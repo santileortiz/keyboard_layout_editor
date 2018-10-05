@@ -6,24 +6,24 @@
 
 #define CONTEXT_ID "kle_xkb_im"
 static const GtkIMContextInfo context_info =
-    {CONTEXT_ID, "XKB input method", CONTEXT_ID, "/usr/share/locale", "*"};
+    {CONTEXT_ID, "Minimal input method", CONTEXT_ID, "/usr/share/locale", "*"};
 static const GtkIMContextInfo* context_info_list[] = {&context_info};
 
 void im_module_init(GTypeModule *module)
 {
     g_assert  (module != NULL);
 
-    printf ("Initializing Module\n");
+    //printf ("Initializing Module\n");
     kle_im_context_register_type_external (module);
 }
 
 void im_module_exit(void) {
-    printf ("Closing Module\n");
+    //printf ("Closing Module\n");
 }
 
 void im_module_list(const GtkIMContextInfo ***contexts, int *n_contexts)
 {
-    printf ("Listing Contexts\n");
+    //printf ("Listing Contexts\n");
     *contexts = context_info_list;
     *n_contexts = 1;
 }
@@ -31,7 +31,7 @@ void im_module_list(const GtkIMContextInfo ***contexts, int *n_contexts)
 GtkIMContext* im_module_create(const gchar *context_id)
 {
     if (context_id != NULL && strcmp (context_id, CONTEXT_ID) == 0) {
-        printf ("Creating Context: %s\n", context_id);
+        //printf ("Creating Context: %s\n", context_id);
         return GTK_IM_CONTEXT(kle_im_context_new ());
     }
     return NULL;

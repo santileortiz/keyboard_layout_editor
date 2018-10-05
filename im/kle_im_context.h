@@ -9,7 +9,7 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE (KleIMContext, kle_im_context, KLE, IM_CONTEXT, GtkIMContext)
 
 KleIMContext* kle_im_context_new (void);
-void kle_im_context_register_type (GTypeModule *module);
+void kle_im_context_register_type_external (GTypeModule *type_module);
 
 G_END_DECLS
 

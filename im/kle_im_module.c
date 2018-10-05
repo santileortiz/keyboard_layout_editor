@@ -14,7 +14,7 @@ void im_module_init(GTypeModule *module)
     g_assert  (module != NULL);
 
     printf ("Initializing Module\n");
-    kle_im_context_register_type (module);
+    kle_im_context_register_type_external (module);
 }
 
 void im_module_exit(void) {

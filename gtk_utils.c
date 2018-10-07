@@ -52,7 +52,7 @@ void add_css_class (GtkWidget *widget, char *class)
     gtk_style_context_add_class (ctx, class);
 }
 
-void g_object_set_property_bool (GObject *object, const char *property_name, bool value)
+void g_object_set_property_bool (GObject *object, const char *property_name, gboolean value)
 {
     GValue val = G_VALUE_INIT;
     g_value_init (&val, G_TYPE_BOOLEAN);

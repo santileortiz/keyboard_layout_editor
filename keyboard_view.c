@@ -4243,7 +4243,7 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
         g_signal_connect (G_OBJECT (kv_widget), "button-press-event", G_CALLBACK (kv_button_press), NULL);
         g_signal_connect (G_OBJECT (kv_widget), "button-release-event", G_CALLBACK (kv_button_release), NULL);
         g_signal_connect (G_OBJECT (kv_widget), "motion-notify-event", G_CALLBACK (kv_motion_notify), NULL);
-        g_object_set_property_bool (G_OBJECT (kv_widget), "has-tooltip", true);
+        g_object_set_property_bool (G_OBJECT (kv_widget), "has-tooltip", TRUE);
 
         // FIXME: Tooltips for children of a GtkOverlay appear to be broken (or
         // I was unable set them up properly). Only one query-tooltip signal is
@@ -4254,6 +4254,12 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
         // To work around this, we manually add tooltips for buttons in the
         // toolbar. Then the correct tooltip is chosen in the handler for the
         // query-tooltip signal, for the overlay.
+        //
+        // NOTE: There was a bug in g_object_set_property_bool() and it's now
+        // fixed. I should remember to not mix my type bool with Gtk's gboolean.
+        // Maybe this fixes this issue? I don't know, and don't remember enough
+        // about the issue to test it right now, study again what the problem
+        // was and see if maybe that fixed it.
         // @broken_tooltips_in_overlay
         g_signal_connect (G_OBJECT (kv_widget), "query-tooltip", G_CALLBACK (kv_tooltip_handler), NULL);
         gtk_widget_show (kv_widget);

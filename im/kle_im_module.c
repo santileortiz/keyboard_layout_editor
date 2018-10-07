@@ -2,6 +2,7 @@
  * Copiright (C) 2018 Santiago León O.
  */
 #include <gtk/gtk.h>
+#include <gtk/gtkimmodule.h>
 #include "kle_im_context.h"
 
 #define CONTEXT_ID "kle_xkb_im"
@@ -13,7 +14,7 @@ void im_module_init(GTypeModule *module)
 {
     g_assert  (module != NULL);
 
-    //printf ("Initializing Module\n");
+    printf ("Initializing kle_xkb_im in GTK%d\n", GTK_MAJOR_VERSION);
     kle_im_context_register_type_external (module);
 }
 

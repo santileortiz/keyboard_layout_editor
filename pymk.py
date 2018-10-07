@@ -27,6 +27,11 @@ def xkb_im ():
     ex ('sudo cp bin/im-kle-xkb.so /usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules')
     ex ('sudo /usr/lib/x86_64-linux-gnu/libgtk-3-0/gtk-query-immodules-3.0 --update-cache')
 
+    ex ('gcc -shared -fPIC {FLAGS} -o bin/im-kle-xkb.so im/kle_im_context.c im/kle_im_module.c `pkg-config --cflags --libs gtk+-2.0` -lm -lxkbcommon')
+    ex ('chmod 644 bin/im-kle-xkb.so', echo=False)
+    ex ('sudo cp bin/im-kle-xkb.so /usr/lib/x86_64-linux-gnu/gtk-2.0/2.10.0/immodules')
+    ex ('sudo /usr/lib/x86_64-linux-gnu/libgtk2.0-0/gtk-query-immodules-2.0 --update-cache')
+
 def generate_keycode_names ():
     def find_system_lib (library):
         """

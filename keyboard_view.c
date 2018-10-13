@@ -3365,6 +3365,21 @@ BUILD_GEOMETRY_FUNC(adjust_left_edge_test_geometry)
     kv_end_geometry (&ctx);
 }
 
+BUILD_GEOMETRY_FUNC(vertical_extend_test_geometry)
+{
+    struct geometry_edit_ctx_t ctx;
+    kv_geometry_ctx_init_append (kv, &ctx);
+
+    kv_new_row_h (&ctx, 1);
+    struct sgmt_t *m = kv_add_key_full (&ctx, KEY_1, 1, 0);
+
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sized_sgmt (&ctx, m, 0.5, MULTIROW_ALIGN_LEFT);
+    kv_add_key_full (&ctx, KEY_2, 1, 1);
+
+    kv_end_geometry (&ctx);
+}
+
 set_geometry_func_t* kv_geometries[] = {
         kv_build_default_geometry, // Default
         multirow_test_geometry,
@@ -3374,6 +3389,7 @@ set_geometry_func_t* kv_geometries[] = {
         edge_resize_test_geometry_2,
         edge_resize_test_geometry_3,
         adjust_left_edge_test_geometry,
+        vertical_extend_test_geometry,
     };
 
 // FIXME: I was unable to easily find the height of the toolbar to ignore clicks
@@ -3719,6 +3735,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (kv->active_tool == KV_TOOL_VERTICAL_EXTEND &&
                      e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+                // TODO: This code could use some cleanup!
                 struct row_t *clicked_row;
                 struct sgmt_t *clicked_sgmt;
                 double left_margin, y;
@@ -3736,18 +3753,18 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 enum locate_sgmt_status_t new_sgmt_pos = top ? LOCATE_OUTSIDE_TOP : LOCATE_OUTSIDE_BOTTOM;
                 if (row != NULL) { new_sgmt_pos = LOCATE_HIT_KEY; }
 
+                float new_sgmt_glue = 0;
+                float x_last = kv_get_sgmt_x_pos (kv, sgmt);
                 struct sgmt_t **new_sgmt_ptr = NULL;
                 if (new_sgmt_pos == LOCATE_HIT_KEY) {
                     // Set new_sgmt_ptr to the location of the pointer such that
-                    // *new_sgmt_ptr is the first segment in _row_ whose right
+                    // **new_sgmt_ptr is the first segment in _row_ whose right
                     // edge is beyond the left edge of sgmt. The new segment
-                    // will tentatively be inserted before *new_sgmt_ptr.
-                    float x_last = kv_get_sgmt_x_pos (kv, sgmt);
+                    // will tentatively be inserted before **new_sgmt_ptr.
                     new_sgmt_ptr = &row->first_key;
                     float x = left_margin;
                     while (*new_sgmt_ptr != NULL) {
-                        float w = (*new_sgmt_ptr)->internal_glue + get_sgmt_user_glue(*new_sgmt_ptr) +
-                                  get_sgmt_width (*new_sgmt_ptr);
+                        float w = get_sgmt_total_glue(*new_sgmt_ptr) + get_sgmt_width (*new_sgmt_ptr);
                         x += w*kv->default_key_size;
 
                         if (x > x_last) break;
@@ -3755,7 +3772,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                         new_sgmt_ptr = &(*new_sgmt_ptr)->next_key;
                     }
 
-                    // In the case where *new_sgmt_ptr is a multirow key that
+                    // In the case where **new_sgmt_ptr is a multirow key that
                     // extends to the left of sgmt, we move new_sgmt_ptr to the
                     // next segment.
                     if (*new_sgmt_ptr && is_multirow_key(*new_sgmt_ptr)) {
@@ -3769,6 +3786,15 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                             curr_key = curr_key->next_key;
                         }
                     }
+
+                    float x_prev = 0;
+                    struct sgmt_t *curr_sgmt = row->first_key;
+                    while (curr_sgmt != *new_sgmt_ptr) {
+                        x_prev += get_sgmt_total_glue(curr_sgmt) + get_sgmt_width (curr_sgmt);
+                        curr_sgmt = curr_sgmt->next_key;
+                    }
+
+                    new_sgmt_glue = MAX (0, bin_floor ((x_last - left_margin)/kv->default_key_size - x_prev, 3));
                 }
 
                 struct sgmt_t *new_sgmt = kv_insert_new_sgmt (kv, new_sgmt_pos, new_sgmt_ptr);
@@ -3789,6 +3815,17 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 new_sgmt_prev->next_multirow = new_sgmt;
                 kv_adjust_sgmt_glue (kv, new_sgmt->next_key, -get_sgmt_width(sgmt));
                 kv_compute_glue (kv);
+
+                // Update the user glue of sgmt to keep it in place
+                if (new_sgmt_pos == LOCATE_OUTSIDE_TOP) {
+                    new_sgmt->user_glue = sgmt->user_glue;
+                } else if (new_sgmt_pos == LOCATE_HIT_KEY) {
+                    // We call kv_compute_glue() twice because we implicitly changed
+                    // sgmt's user glue to 0 and we need the correct internal glue
+                    // to be able to now set it to new_sgmt_glue.
+                    kv_adjust_sgmt_glue (kv, new_sgmt, new_sgmt_glue);
+                    kv_compute_glue (kv);
+                }
 
             } else if (kv->active_tool == KV_TOOL_VERTICAL_SHRINK &&
                      e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {

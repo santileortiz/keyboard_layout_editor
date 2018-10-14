@@ -22,6 +22,9 @@ def default():
 def keyboard_layout_editor ():
     ex ('gcc {FLAGS} -o bin/keyboard-layout-editor keyboard_layout_editor.c -I/usr/include/libxml2 -lxml2 {GTK3_FLAGS} -lm -lxkbcommon')
 
+def libxkbcommon_test ():
+    ex ('gcc {FLAGS} -o bin/libxkbcommon_test libxkbcommon_test/libxkbcommon_test.c {GTK3_FLAGS} -lm -lxkbcommon')
+
 def im_gtk3 ():
     print ("BUILDING IM FOR GTK3")
     ex ('gcc -shared -fPIC {FLAGS} -o bin/im-kle-xkb.so im/kle_im_context.c im/kle_im_module.c {GTK3_FLAGS} -lm -lxkbcommon')

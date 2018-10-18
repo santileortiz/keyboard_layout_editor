@@ -10,12 +10,13 @@
 #include "keycode_names.h"
 
 #include <gtk/gtk.h>
-#include "app_api.h"
 #include "gtk_utils.c"
+
+#include "keyboard_layout_editor.h"
+struct kle_app_t app;
 
 #include "keyboard_view.c"
 
-char* argv_0;
 
 static inline
 void str_cat_full_path (string_t *str, char *path)
@@ -44,7 +45,7 @@ bool unprivileged_xkb_keymap_install (char *keymap_path)
     if (!xkb_keymap_install (keymap_path)) {
         if (errno == EACCES) {
             string_t command = str_new ("pkexec ");
-            str_cat_full_path (&command, argv_0);
+            str_cat_full_path (&command, app.argv_0);
             str_cat_c (&command, " --install ");
             str_cat_full_path (&command, keymap_path);
 
@@ -67,7 +68,7 @@ bool unprivileged_xkb_keymap_uninstall (const char *layout_name)
     if (!xkb_keymap_uninstall (layout_name)) {
         if (errno == EACCES) {
             string_t command = str_new ("pkexec ");
-            str_cat_full_path (&command, argv_0);
+            str_cat_full_path (&command, app.argv_0);
             str_cat_c (&command, " --uninstall ");
             str_cat_c (&command, layout_name);
 
@@ -90,7 +91,7 @@ bool unprivileged_xkb_keymap_uninstall_everything ()
     if (!xkb_keymap_uninstall_everything ()) {
         if (errno == EACCES) {
             string_t command = str_new ("pkexec ");
-            str_cat_full_path (&command, argv_0);
+            str_cat_full_path (&command, app.argv_0);
             str_cat_c (&command, " --uninstall-everything");
 
             int retval = system (str_data (&command));
@@ -137,7 +138,7 @@ void on_custom_layout_selected (GtkListBox *box, GtkListBoxRow *row, gpointer us
 
     GtkWidget *label = gtk_bin_get_child (GTK_BIN(row));
     const gchar *curr_layout = gtk_label_get_text (GTK_LABEL (label));
-    keyboard_view_set_keymap (keyboard_view, curr_layout);
+    keyboard_view_set_keymap (app.keyboard_view, curr_layout);
 }
 
 void set_custom_layouts_list (GtkWidget **custom_layout_list, char **custom_layouts, int num_custom_layouts)
@@ -197,10 +198,10 @@ gboolean install_layout_callback (gpointer layout_path)
         xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
 
         // If installataion was successful then num_custom_layouts > 0.
-        if (no_custom_layouts_welcome_view) {
+        if (app.no_custom_layouts_welcome_view) {
             transition_to_welcome_with_custom_layouts (custom_layouts, num_custom_layouts);
         } else {
-            set_custom_layouts_list (&custom_layout_list, custom_layouts, num_custom_layouts);
+            set_custom_layouts_list (&app.custom_layout_list, custom_layouts, num_custom_layouts);
         }
 
         mem_pool_destroy (&tmp);
@@ -213,7 +214,7 @@ void install_layout_handler (GtkButton *button, gpointer   user_data)
 {
     GtkWidget *dialog =
         gtk_file_chooser_dialog_new ("Install Layout",
-                                     GTK_WINDOW(window),
+                                     GTK_WINDOW(app.window),
                                      GTK_FILE_CHOOSER_ACTION_OPEN,
                                      "_Cancel",
                                      GTK_RESPONSE_CANCEL,
@@ -232,7 +233,7 @@ void install_layout_handler (GtkButton *button, gpointer   user_data)
 
 gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
 {
-    GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX(custom_layout_list));
+    GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX(app.custom_layout_list));
     GtkWidget *label = gtk_bin_get_child (GTK_BIN(row));
     const gchar *curr_layout = gtk_label_get_text (GTK_LABEL (label));
 
@@ -243,7 +244,7 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
         int num_custom_layouts;
         xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
         if (num_custom_layouts > 0) {
-            set_custom_layouts_list (&custom_layout_list, custom_layouts, num_custom_layouts);
+            set_custom_layouts_list (&app.custom_layout_list, custom_layouts, num_custom_layouts);
         } else {
             transition_to_welcome_with_no_custom_layouts ();
         }
@@ -287,15 +288,15 @@ void set_header_icon_button_gcallback (GtkWidget **button, const char *icon_name
 gboolean grab_input (GtkButton *button, gpointer user_data)
 {
     GdkDisplay *disp = gdk_display_get_default ();
-    gdk_seat = gdk_display_get_default_seat (disp);
-    GdkWindow *gdk_window = gtk_widget_get_window (window);
-    GdkGrabStatus status = gdk_seat_grab (gdk_seat,
+    app.gdk_seat = gdk_display_get_default_seat (disp);
+    GdkWindow *gdk_window = gtk_widget_get_window (app.window);
+    GdkGrabStatus status = gdk_seat_grab (app.gdk_seat,
                                           gdk_window,
                                           GDK_SEAT_CAPABILITY_ALL, // See @why_not_GDK_SEAT_CAPABILITY_KEYBOARD
                                           TRUE, // If this is FALSE we don't get any pointer events, why?
                                           NULL, NULL, NULL, NULL);
     if (status == GDK_GRAB_SUCCESS) {
-        set_header_icon_button (&keyboard_grabbing_button, "media-playback-stop", ungrab_input);
+        set_header_icon_button (&app.keyboard_grabbing_button, "media-playback-stop", ungrab_input);
     }
     return G_SOURCE_REMOVE;
 }
@@ -303,9 +304,9 @@ gboolean grab_input (GtkButton *button, gpointer user_data)
 // TODO: @requires:GTK_3.20
 gboolean ungrab_input (GtkButton *button, gpointer user_data)
 {
-    set_header_icon_button (&keyboard_grabbing_button, "process-completed", grab_input);
-    gdk_seat_ungrab (gdk_seat);
-    gdk_seat = NULL;
+    set_header_icon_button (&app.keyboard_grabbing_button, "process-completed", grab_input);
+    gdk_seat_ungrab (app.gdk_seat);
+    app.gdk_seat = NULL;
     return G_SOURCE_REMOVE;
 }
 
@@ -320,9 +321,9 @@ void handle_grab_broken (GdkEvent *event, gpointer data)
     // TODO: @requires:GTK_3.20
     if (event->type == GDK_KEY_PRESS ) {
         if (((GdkEventKey*)event)->keyval == GDK_KEY_Escape) {
-            gdk_seat_ungrab (gdk_seat);
-            gdk_seat = NULL;
-            set_header_icon_button (&keyboard_grabbing_button, "process-completed", grab_input);
+            gdk_seat_ungrab (app.gdk_seat);
+            app.gdk_seat = NULL;
+            set_header_icon_button (&app.keyboard_grabbing_button, "process-completed", grab_input);
         }
     }
 #endif
@@ -349,7 +350,7 @@ void handle_grab_broken (GdkEvent *event, gpointer data)
     // missing an event mask but there is no mask for GdkGrabBroken). I need to
     // test in GNOME.
     if (event->type == GDK_GRAB_BROKEN) {
-        set_header_icon_button (&keyboard_grabbing_button, "process-completed", grab_input);
+        set_header_icon_button (&app.keyboard_grabbing_button, "process-completed", grab_input);
     } else {
         gtk_main_do_event (event);
     }
@@ -359,7 +360,7 @@ void handle_grab_broken (GdkEvent *event, gpointer data)
 // selected from a list.
 void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_layouts)
 {
-    no_custom_layouts_welcome_view = false;
+    app.no_custom_layouts_welcome_view = false;
     gdk_event_handler_set (handle_grab_broken, NULL, NULL);
 
     GtkWidget *header_bar = gtk_header_bar_new ();
@@ -369,17 +370,17 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
     GtkWidget *delete_layout_button = new_icon_button ("list-remove", delete_layout_handler);
     gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), delete_layout_button);
 
-    keyboard_grabbing_button = new_icon_button ("process-completed", grab_input);
-    gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), keyboard_grabbing_button);
+    app.keyboard_grabbing_button = new_icon_button ("process-completed", grab_input);
+    gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), app.keyboard_grabbing_button);
 
-    gtk_window_set_titlebar (GTK_WINDOW(window), header_bar);
+    gtk_window_set_titlebar (GTK_WINDOW(app.window), header_bar);
     gtk_widget_show (header_bar);
 
-    keyboard_view = keyboard_view_new (window);
+    app.keyboard_view = keyboard_view_new (app.window);
 
     GtkWidget *scrolled_custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
-    set_custom_layouts_list (&custom_layout_list, custom_layouts, num_custom_layouts);
-    gtk_container_add (GTK_CONTAINER (scrolled_custom_layout_list), custom_layout_list);
+    set_custom_layouts_list (&app.custom_layout_list, custom_layouts, num_custom_layouts);
+    gtk_container_add (GTK_CONTAINER (scrolled_custom_layout_list), app.custom_layout_list);
     gtk_widget_show (scrolled_custom_layout_list);
 
     GtkWidget *new_layout_button =
@@ -411,8 +412,8 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
                     "    min-height: 2px;"
                     "}");
     gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
-    gtk_paned_pack2 (GTK_PANED(paned), keyboard_view->widget, TRUE, TRUE);
-    gtk_container_add(GTK_CONTAINER(window), paned);
+    gtk_paned_pack2 (GTK_PANED(paned), app.keyboard_view->widget, TRUE, TRUE);
+    gtk_container_add(GTK_CONTAINER(app.window), paned);
     gtk_widget_show (paned);
 }
 
@@ -420,12 +421,12 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
 // of keyboards.
 void build_welcome_screen_no_custom_layouts ()
 {
-    no_custom_layouts_welcome_view = true;
+    app.no_custom_layouts_welcome_view = true;
 
     GtkWidget *header_bar = gtk_header_bar_new ();
     gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
     gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
-    gtk_window_set_titlebar (GTK_WINDOW(window), header_bar);
+    gtk_window_set_titlebar (GTK_WINDOW(app.window), header_bar);
     gtk_widget_show (header_bar);
 
     GtkWidget *no_custom_layouts_message;
@@ -473,7 +474,7 @@ void build_welcome_screen_no_custom_layouts ()
     gtk_container_add (GTK_CONTAINER(welcome_view), sidebar);
     gtk_widget_show (welcome_view);
 
-    gtk_container_add(GTK_CONTAINER(window), welcome_view);
+    gtk_container_add(GTK_CONTAINER(app.window), welcome_view);
 }
 
 // There are two welcome screens, one for the case where there are already
@@ -486,28 +487,30 @@ void build_welcome_screen_no_custom_layouts ()
 void transition_to_welcome_with_custom_layouts (char **custom_layouts, int num_custom_layouts)
 {
     assert (num_custom_layouts > 0);
-    GtkWidget *child = gtk_bin_get_child (GTK_BIN (window));
+    GtkWidget *child = gtk_bin_get_child (GTK_BIN (app.window));
     gtk_widget_destroy (child);
-    window_resize_centered (window, 1320, 570);
+    window_resize_centered (app.window, 1320, 570);
     build_welcome_screen_custom_layouts (custom_layouts, num_custom_layouts);
 }
 
 void transition_to_welcome_with_no_custom_layouts (void)
 {
-    GtkWidget *child = gtk_bin_get_child (GTK_BIN (window));
-    GtkWidget *header_bar = gtk_window_get_titlebar (GTK_WINDOW(window));
+    GtkWidget *child = gtk_bin_get_child (GTK_BIN (app.window));
+    GtkWidget *header_bar = gtk_window_get_titlebar (GTK_WINDOW(app.window));
     gtk_container_foreach (GTK_CONTAINER(header_bar),
                            destroy_children_callback,
                            NULL);
     gtk_widget_destroy (child);
-    window_resize_centered (window, 900, 570);
+    window_resize_centered (app.window, 900, 570);
     build_welcome_screen_no_custom_layouts ();
 }
 
 int main (int argc, char *argv[])
 {
+    app = ZERO_INIT(struct kle_app_t);
+
     bool success = true;
-    argv_0 = argv[0];
+    app.argv_0 = argv[0];
     if (argc > 1) {
         if (strcmp (argv[1], "--install") == 0) {
             if (argc == 2) {
@@ -533,24 +536,25 @@ int main (int argc, char *argv[])
         int num_custom_layouts = 0;
         xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
 
-        window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-        g_signal_connect (G_OBJECT(window), "delete-event", G_CALLBACK (window_delete_handler), NULL);
-        gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
-        gtk_window_set_gravity (GTK_WINDOW(window), GDK_GRAVITY_CENTER);
+        app.window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+        g_signal_connect (G_OBJECT(app.window), "delete-event", G_CALLBACK (window_delete_handler), NULL);
+        gtk_window_set_position(GTK_WINDOW(app.window), GTK_WIN_POS_CENTER);
+        gtk_window_set_gravity (GTK_WINDOW(app.window), GDK_GRAVITY_CENTER);
 
         if (num_custom_layouts > 0) {
-            gtk_window_resize (GTK_WINDOW(window), 1320, 570);
+            gtk_window_resize (GTK_WINDOW(app.window), 1320, 570);
             build_welcome_screen_custom_layouts (custom_layouts, num_custom_layouts);
         } else {
-            gtk_window_resize (GTK_WINDOW(window), 900, 570);
+            gtk_window_resize (GTK_WINDOW(app.window), 900, 570);
             build_welcome_screen_no_custom_layouts ();
         }
-        gtk_widget_show (window);
+        gtk_widget_show (app.window);
+        mem_pool_destroy (&tmp);
 
         gtk_main();
 
-        if (keyboard_view != NULL) {
-            keyboard_view_destroy (keyboard_view);
+        if (app.keyboard_view != NULL) {
+            keyboard_view_destroy (app.keyboard_view);
         }
     }
 

@@ -1498,14 +1498,14 @@ char *keysym_representations[][2] = {
 
 gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
 {
-    struct keyboard_view_t *kv = keyboard_view;
+    struct keyboard_view_t *kv = app.keyboard_view;
     cairo_set_source_rgba (cr, 1, 1, 1, 1);
     cairo_paint(cr);
     cairo_set_line_width (cr, 1);
 
     mem_pool_t pool = {0};
     double left_margin, top_margin;
-    keyboard_view_get_margins (keyboard_view, &left_margin, &top_margin);
+    keyboard_view_get_margins (kv, &left_margin, &top_margin);
 
     double y_pos = top_margin;
     struct row_t *curr_row = kv->first_row;
@@ -1518,7 +1518,7 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
             char buff[64];
             buff[0] = '\0';
             if (curr_key->type == KEY_DEFAULT || curr_key->type == KEY_PRESSED) {
-                switch (keyboard_view->label_mode) {
+                switch (kv->label_mode) {
                     case KV_KEYSYM_LABELS:
                         if (curr_key->kc == KEY_FN) {
                             strcpy (buff, "Fn");
@@ -1527,7 +1527,7 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
                         xkb_keysym_t keysym;
                         if (buff[0] == '\0') {
                             int buff_len = 0;
-                            keysym = xkb_state_key_get_one_sym(keyboard_view->xkb_state, curr_key->kc + 8);
+                            keysym = xkb_state_key_get_one_sym(kv->xkb_state, curr_key->kc + 8);
                             buff_len = xkb_keysym_to_utf8(keysym, buff, sizeof(buff) - 1);
                             buff[buff_len] = '\0';
                         }
@@ -1568,12 +1568,12 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
 
             dvec4 key_color;
             if (curr_key->type != KEY_MULTIROW_SEGMENT) {
-                if (keyboard_view->selected_key != NULL && curr_key == keyboard_view->selected_key) {
+                if (kv->selected_key != NULL && curr_key == kv->selected_key) {
                     buff[0] = '\0';
                     key_color = RGB_HEX(0xe34442);
 
                 } else if (curr_key->type == KEY_PRESSED ||
-                           (curr_key->type != KEY_UNASSIGNED && curr_key->kc == keyboard_view->clicked_kc)) {
+                           (curr_key->type != KEY_UNASSIGNED && curr_key->kc == kv->clicked_kc)) {
                     key_color = RGB_HEX(0x90de4d);
 
                 } else {
@@ -1846,61 +1846,61 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
 void start_edit_handler (GtkButton *button, gpointer user_data)
 {
-    kv_update (keyboard_view, KV_CMD_SET_MODE_EDIT, NULL);
+    kv_update (app.keyboard_view, KV_CMD_SET_MODE_EDIT, NULL);
 }
 void stop_edit_handler (GtkButton *button, gpointer user_data)
 {
-    kv_update (keyboard_view, KV_CMD_SET_MODE_PREVIEW, NULL);
+    kv_update (app.keyboard_view, KV_CMD_SET_MODE_PREVIEW, NULL);
 }
 
 void keycode_keypress_handler (GtkButton *button, gpointer user_data)
 {
-    keyboard_view->active_tool = KV_TOOL_KEYCODE_KEYPRESS;
+    app.keyboard_view->active_tool = KV_TOOL_KEYCODE_KEYPRESS;
 }
 
 void split_key_handler (GtkButton *button, gpointer user_data)
 {
-    keyboard_view->active_tool = KV_TOOL_SPLIT_KEY;
+    app.keyboard_view->active_tool = KV_TOOL_SPLIT_KEY;
 }
 
 void delete_key_handler (GtkButton *button, gpointer user_data)
 {
-    keyboard_view->active_tool = KV_TOOL_DELETE_KEY;
+    app.keyboard_view->active_tool = KV_TOOL_DELETE_KEY;
 }
 
 void resize_key_handler (GtkButton *button, gpointer user_data)
 {
-    keyboard_view->active_tool = KV_TOOL_RESIZE_KEY;
+    app.keyboard_view->active_tool = KV_TOOL_RESIZE_KEY;
 }
 
 void resize_segment_handler (GtkButton *button, gpointer user_data)
 {
-    keyboard_view->active_tool = KV_TOOL_RESIZE_SEGMENT;
+    app.keyboard_view->active_tool = KV_TOOL_RESIZE_SEGMENT;
 }
 
 void resize_row_handler (GtkButton *button, gpointer user_data)
 {
-    keyboard_view->active_tool = KV_TOOL_RESIZE_ROW;
+    app.keyboard_view->active_tool = KV_TOOL_RESIZE_ROW;
 }
 
 void vertical_extend_handler (GtkButton *button, gpointer user_data)
 {
-    keyboard_view->active_tool = KV_TOOL_VERTICAL_EXTEND;
+    app.keyboard_view->active_tool = KV_TOOL_VERTICAL_EXTEND;
 }
 
 void vertical_shrink_handler (GtkButton *button, gpointer user_data)
 {
-    keyboard_view->active_tool = KV_TOOL_VERTICAL_SHRINK;
+    app.keyboard_view->active_tool = KV_TOOL_VERTICAL_SHRINK;
 }
 
 void add_key_handler (GtkButton *button, gpointer user_data)
 {
-    keyboard_view->active_tool = KV_TOOL_ADD_KEY;
+    app.keyboard_view->active_tool = KV_TOOL_ADD_KEY;
 }
 
 void push_right_handler (GtkButton *button, gpointer user_data)
 {
-    keyboard_view->active_tool = KV_TOOL_PUSH_RIGHT;
+    app.keyboard_view->active_tool = KV_TOOL_PUSH_RIGHT;
 }
 
 void kv_push_manual_tooltip (struct keyboard_view_t *kv, GdkRectangle *rect, const char *text)
@@ -1930,7 +1930,7 @@ void kv_clear_manual_tooltips (struct keyboard_view_t *kv)
 void button_allocated (GtkWidget *widget, GdkRectangle *rect, gpointer user_data)
 {
     gchar *text = gtk_widget_get_tooltip_text (widget);
-    kv_push_manual_tooltip (keyboard_view, rect, text);
+    kv_push_manual_tooltip (app.keyboard_view, rect, text);
     g_free (text);
 }
 
@@ -4127,19 +4127,19 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
 gboolean key_press_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-    kv_update (keyboard_view, KV_CMD_NONE, event);
+    kv_update (app.keyboard_view, KV_CMD_NONE, event);
     return TRUE;
 }
 
 gboolean key_release_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-    kv_update (keyboard_view, KV_CMD_NONE, event);
+    kv_update (app.keyboard_view, KV_CMD_NONE, event);
     return TRUE;
 }
 
 gboolean kv_motion_notify (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-    kv_update (keyboard_view, KV_CMD_NONE, event);
+    kv_update (app.keyboard_view, KV_CMD_NONE, event);
     return TRUE;
 }
 
@@ -4151,13 +4151,13 @@ gboolean kv_button_press (GtkWidget *widget, GdkEvent *event, gpointer user_data
         return FALSE;
     }
 
-    kv_update (keyboard_view, KV_CMD_NONE, event);
+    kv_update (app.keyboard_view, KV_CMD_NONE, event);
     return TRUE;
 }
 
 gboolean kv_button_release (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-    kv_update (keyboard_view, KV_CMD_NONE, event);
+    kv_update (app.keyboard_view, KV_CMD_NONE, event);
     return TRUE;
 }
 
@@ -4171,7 +4171,7 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
 
     gboolean show_tooltip = FALSE;
     GdkRectangle rect = {0};
-    struct sgmt_t *key = keyboard_view_get_key (keyboard_view, x, y, &rect, NULL, NULL, NULL);
+    struct sgmt_t *key = keyboard_view_get_key (app.keyboard_view, x, y, &rect, NULL, NULL, NULL);
     if (key != NULL) {
         // For non rectangular multirow keys keyboard_view_get_key() returns the
         // rectangle of the segment that was hovered. This has the (undesired?)
@@ -4181,12 +4181,12 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
         // bounding box, which would cause the tooltip to not jump even when
         // changing across different keys (although the text inside would change
         // appropiately).
-        if (keyboard_view->label_mode == KV_KEYCODE_LABELS) {
+        if (app.keyboard_view->label_mode == KV_KEYCODE_LABELS) {
             gtk_tooltip_set_text (tooltip, keycode_names[key->kc]);
 
         } else { // KV_KEYSYM_LABELS
             char buff[64];
-            xkb_keysym_t keysym = xkb_state_key_get_one_sym(keyboard_view->xkb_state, key->kc + 8);
+            xkb_keysym_t keysym = xkb_state_key_get_one_sym(app.keyboard_view->xkb_state, key->kc + 8);
             xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
             gtk_tooltip_set_text (tooltip, buff);
         }
@@ -4195,7 +4195,7 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
         show_tooltip = TRUE;
 
     } else {
-        struct manual_tooltip_t *curr_tooltip = keyboard_view->first_tooltip;
+        struct manual_tooltip_t *curr_tooltip = app.keyboard_view->first_tooltip;
         while (curr_tooltip != NULL) {
             if (is_in_rect (x, y, curr_tooltip->rect)) {
                 gtk_tooltip_set_text (tooltip, curr_tooltip->text);

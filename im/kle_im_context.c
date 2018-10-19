@@ -6,6 +6,7 @@
 
 struct _KleIMContext {
     GtkIMContext parent_instance;
+    gchar buff[10];
 };
 
 static void kle_im_context_finalize (GObject *obj);
@@ -60,15 +61,16 @@ kle_im_context_filter_keypress (GtkIMContext *context, GdkEventKey *event)
     gunichar uni = gdk_keyval_to_unicode (event->keyval);
 
     if (!g_unichar_iscntrl (uni)) {
-        gchar buff[10];
-        int len = g_unichar_to_utf8 (uni, buff);
-        buff[len] = '\0';
+        gchar *str = KLE_IM_CONTEXT(context)->buff;
+        int len = g_unichar_to_utf8 (uni, str);
+        str[len] = '\0';
 
-        if (*buff != '\0' && event->type == GDK_KEY_PRESS ) {
-            g_signal_emit_by_name (context, "commit", &buff);
+        if (*str != '\0' && event->type == GDK_KEY_PRESS) {
+            g_signal_emit_by_name (context, "commit", str);
             return TRUE;
         }
     }
+
 
     return FALSE;
 }

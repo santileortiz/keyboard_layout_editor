@@ -3840,6 +3840,22 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 struct sgmt_t *sgmt, *prev_multirow;
                 kv_locate_vedge (kv, clicked_sgmt, clicked_row, event->y, y, &sgmt, &prev_multirow, &row, &top);
 
+                // If the segment being removed was a supporting segment, then
+                // we must compute the new user glue as the minimum total glue
+                // of the remaining segments.
+                float new_user_glue = INFINITY;
+                if (is_supporting_sgmt (sgmt)) {
+                    struct sgmt_t *curr_sgmt = sgmt->next_multirow;
+                    do {
+                        new_user_glue = MIN (new_user_glue, get_sgmt_total_glue (curr_sgmt));
+
+                        curr_sgmt = curr_sgmt->next_multirow;
+                    } while (curr_sgmt != sgmt);
+
+                } else {
+                    new_user_glue = sgmt->user_glue;
+                }
+
                 if (top) {
                     kv->keys_by_kc[sgmt->kc] = sgmt->next_multirow;
                     if (sgmt->next_multirow->type != KEY_MULTIROW_SEGMENT_SIZED) {
@@ -3847,7 +3863,10 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     }
                     sgmt->next_multirow->type = sgmt->type;
                     sgmt->next_multirow->kc = sgmt->kc;
-                    sgmt->next_multirow->user_glue = sgmt->user_glue;
+                    sgmt->next_multirow->user_glue = new_user_glue;
+
+                } else {
+                    sgmt->user_glue = new_user_glue;
                 }
 
                 if (sgmt->next_sgmt != NULL && get_sgmt_total_glue (sgmt->next_sgmt) != 0) {
@@ -3857,11 +3876,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 if (is_multirow_key (sgmt)) {
                     kv_unlink_multirow_sgmt (sgmt, prev_multirow);
                     if (!is_multirow_key (prev_multirow)) {
-                        // kv_compute_glue() never modifies non multirow segments,
-                        // because their internal_glue == 0. In this case a multirow
-                        // key becomes non multirow, so we move its internal glue
-                        // into the user glue.
-                        prev_multirow->user_glue += prev_multirow->internal_glue;
+                        // If the key became single row, then update its internal glue
+                        // as kv_compute_glue() will ignore it, and expect it to be 0.
                         prev_multirow->internal_glue = 0;
                     }
 
@@ -3873,6 +3889,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv_remove_empty_rows (kv);
                 kv_compute_glue (kv);
                 kv_equalize_left_edge (kv);
+
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_MOTION_NOTIFY) {

@@ -1290,9 +1290,11 @@ void swap_n_bytes (void *a, void*b, uint32_t n)
     }
 }
 
-// Templetized merge sort
+// Templetized merge sort for arrays
+//
 // IS_A_LT_B is an expression where a and b are pointers
 // to _arr_ true when *a<*b.
+// NOTE: IS_A_LT_B as defined, will sort the array in ascending order.
 #define templ_sort(FUNCNAME,TYPE,IS_A_LT_B)                     \
 void FUNCNAME ## _user_data (TYPE *arr, int n, void *user_data) \
 {                                                               \
@@ -1329,7 +1331,7 @@ void FUNCNAME ## _user_data (TYPE *arr, int n, void *user_data) \
         }                                                       \
     }                                                           \
 }                                                               \
-\
+                                                                \
 void FUNCNAME(TYPE *arr, int n) {                               \
     FUNCNAME ## _user_data (arr,n,NULL);                        \
 }
@@ -1445,6 +1447,56 @@ void print_u64_array (uint64_t *arr, int n)
     }
     printf ("%"PRIu64"]\n", arr[i]);
 }
+
+// Templetized linked list sort
+//
+// IS_A_LT_B is an expression where a and b are pointers of type TYPE and should
+// evaluate to true when *a<*b. NEXT_FIELD specifies the name of the field where
+// the next node pointer is found. The macro templ_sort_ll is convenience for
+// when this field's name is "next". Use n=-1 if the size is unknown, in this
+// case the full linked list will be iterated to compute it.
+// NOTE: IS_A_LT_B as defined, will sort the linked list in ascending order.
+// NOTE: The last node of the linked list is expected to have NEXT_FIELD field
+// set to NULL.
+// NOTE: It uses a pointer array of size n, and calls merge sort on that array.
+#define templ_sort_ll_next_field(FUNCNAME,TYPE,NEXT_FIELD,IS_A_LT_B)\
+templ_sort(FUNCNAME ## _arr, TYPE*, IS_A_LT_B)                      \
+void FUNCNAME ## _user_data (TYPE **head, int n, void *user_data)   \
+{                                                                   \
+    if (n == -1) {                                                  \
+        n = 0;                                                      \
+        TYPE *node = *head;                                         \
+        while (node != NULL) {                                      \
+            n++;                                                    \
+            node = node->NEXT_FIELD;                                \
+        }                                                           \
+    }                                                               \
+                                                                    \
+    TYPE *node = *head;                                             \
+    TYPE *arr[n];                                                   \
+                                                                    \
+    int j = 0;                                                      \
+    while (node != NULL) {                                          \
+        arr[j] = node;                                              \
+        j++;                                                        \
+        node = node->NEXT_FIELD;                                    \
+    }                                                               \
+                                                                    \
+    FUNCNAME ## _arr (arr, n);                                      \
+                                                                    \
+    *head = arr[0];                                                 \
+    for (j=0; j<n - 1; j++) {                                       \
+        arr[j]->NEXT_FIELD = arr[j+1];                              \
+    }                                                               \
+    arr[j]->NEXT_FIELD = NULL;                                      \
+}                                                                   \
+                                                                    \
+void FUNCNAME(TYPE **head, int n) {                                 \
+    FUNCNAME ## _user_data (head,n,NULL);                           \
+}
+
+#define templ_sort_ll(FUNCNAME,TYPE,IS_A_LT_B) \
+    templ_sort_ll_next_field(FUNCNAME,TYPE,next,IS_A_LT_B)
 
 void print_line (const char *sep, int len)
 {
@@ -1865,6 +1917,7 @@ void mem_pool_end_temporary_memory (mem_pool_temp_marker_t mrkr)
 #define pom_push_array(pool, n, type) pom_push_size(pool, (n)*sizeof(type))
 #define pom_push_size(pool, size) (pool==NULL? malloc(size) : mem_pool_push_size(pool,size))
 
+#define pom_strdup(pool,str) pom_strndup(pool,str,((str)!=NULL?strlen(str):0))
 static inline
 char* pom_strndup (mem_pool_t *pool, const char *str, uint32_t str_len)
 {
@@ -2153,6 +2206,29 @@ bool path_exists (char *path)
     return retval;
 }
 
+bool dir_exists (char *path)
+{
+    bool retval = true;
+    char *dir_path = sh_expand (path, NULL);
+
+    struct stat st;
+    int status;
+    if ((status = stat(dir_path, &st)) == -1) {
+        retval = false;
+        if (errno != ENOENT) {
+            printf ("Error checking existance of %s: %s\n", path, strerror(errno));
+        }
+
+    } else {
+        if (!S_ISDIR(st.st_mode)) {
+            return false;
+        }
+    }
+
+    free (dir_path);
+    return retval;
+}
+
 // NOTE: Returns false if there was an error creating the directory.
 bool ensure_dir_exists (char *path)
 {
@@ -2222,6 +2298,82 @@ bool ensure_path_exists (const char *path)
 
     free (dir_path);
     return success;
+}
+
+bool read_dir (DIR *dirp, struct dirent **res)
+{
+    errno = 0;
+    *res = readdir (dirp);
+    if (*res == NULL) {
+        if (errno != 0) {
+            printf ("Error while reading directory: %s", strerror (errno));
+        }
+        return false;
+    }
+    return true;
+}
+
+////////////////////////////
+// Recursive folder iterator
+//
+// Usage:
+//  iterate_dir (path, callback_name, data);
+//
+// The function _callback name will be called for each file under _path_. The
+// function iterate_dir_printf() is an example callback. To define a new
+// callback called my_cb use:
+//
+// ITERATE_DIR_CB (my_cb)
+// {
+//     // The pointer _data_ from iterate_dir will be passed here as data.
+//     ....
+// }
+//
+// TODO: Make a non-recursive version of this and maybe don't even use a
+// callback but use a macro that hides a while or for loop behind. Making code
+// much more readable, and not requiring closures.
+#define ITERATE_DIR_CB(name) void name(char *fname, void *data)
+typedef ITERATE_DIR_CB(iterate_dir_cb_t);
+
+ITERATE_DIR_CB (iterate_dir_printf)
+{
+    printf ("%s\n", fname);
+}
+
+void iterate_dir_helper (string_t *path,  iterate_dir_cb_t *callback, void *data)
+{
+    int path_len = str_len (path);
+
+    struct stat st;
+    DIR *d = opendir (str_data(path));
+    struct dirent *entry_info;
+    while (read_dir (d, &entry_info)) {
+        if (entry_info->d_name[0] != '.') { // file is not hidden
+            str_put_c (path, path_len, entry_info->d_name);
+            if (stat(str_data(path), &st) == 0) {
+                if (S_ISREG(st.st_mode)) {
+                    callback (str_data(path), data);
+
+                } else if (S_ISDIR(st.st_mode)) {
+                    str_cat_c (path, "/");
+                    iterate_dir_helper (path, callback, data);
+                }
+            }
+        }
+    }
+    closedir (d);
+}
+
+void iterate_dir (char *path, iterate_dir_cb_t *callback, void *data)
+{
+    string_t path_str = str_new (path);
+    if (str_last (&path_str) != '/') {
+        str_cat_c (&path_str, "/");
+    }
+
+    iterate_dir_helper (&path_str, callback, data);
+
+    str_free (&path_str);
 }
 
 //////////////////////////////

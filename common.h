@@ -15,6 +15,7 @@
 #include <wordexp.h>
 #include <math.h>
 #include <stdarg.h>
+#include <dirent.h>
 
 #ifdef __cplusplus
 #define ZERO_INIT(type) (type){}

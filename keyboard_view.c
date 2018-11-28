@@ -1936,9 +1936,7 @@ void button_allocated (GtkWidget *widget, GdkRectangle *rect, gpointer user_data
 
 GtkWidget* toolbar_button_new (const char *icon_name, char *tooltip, GCallback callback, gpointer user_data)
 {
-    if (icon_name == NULL) {
-        icon_name = "bug-symbolic";
-    }
+    assert (icon_name != NULL);
 
     GtkWidget *new_button = gtk_button_new_from_icon_name (icon_name, GTK_ICON_SIZE_SMALL_TOOLBAR);
     add_css_class (new_button, "flat");
@@ -1988,60 +1986,61 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
                                NULL);
     }
 
+    int i = 0;
     GtkWidget *stop_edit_button = toolbar_button_new ("close-symbolic",
                                                       "Stop edit mode",
                                                       G_CALLBACK (stop_edit_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), stop_edit_button, 0, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(*toolbar), stop_edit_button, i++, 0, 1, 1);
 
-    GtkWidget *keycode_keypress = toolbar_button_new (NULL,
-                                                      "Assign keycode by pressing the key",
+    GtkWidget *keycode_keypress = toolbar_button_new ("set-keycode-symbolic",
+                                                      "Assign keycode by pressing key",
                                                       G_CALLBACK (keycode_keypress_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), keycode_keypress, 1, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(*toolbar), keycode_keypress, i++, 0, 1, 1);
 
-    GtkWidget *split_key_button = toolbar_button_new ("edit-cut-symbolic",
-                                                      "Split key",
-                                                      G_CALLBACK (split_key_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), split_key_button, 2, 0, 1, 1);
-
-    GtkWidget *delete_key_button = toolbar_button_new ("edit-delete-symbolic",
-                                                      "Delete key",
-                                                      G_CALLBACK (delete_key_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), delete_key_button, 3, 0, 1, 1);
-
-    GtkWidget *resize_key_button = toolbar_button_new (NULL,
-                                                      "Resize key",
-                                                      G_CALLBACK (resize_key_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), resize_key_button, 4, 0, 1, 1);
-
-    GtkWidget *resize_segment_button = toolbar_button_new (NULL,
-                                                           "Resize key segment",
-                                                           G_CALLBACK (resize_segment_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), resize_segment_button, 5, 0, 1, 1);
-
-    GtkWidget *resize_row_button = toolbar_button_new (NULL,
-                                                       "Resize row",
-                                                       G_CALLBACK (resize_row_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), resize_row_button, 6, 0, 1, 1);
-
-    GtkWidget *vertical_extend_button = toolbar_button_new (NULL,
-                                                            "Extend key vertically",
-                                                            G_CALLBACK (vertical_extend_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), vertical_extend_button, 7, 0, 1, 1);
-
-    GtkWidget *vertical_shrink_button = toolbar_button_new (NULL,
-                                                            "Shrink key vertically",
-                                                            G_CALLBACK (vertical_shrink_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), vertical_shrink_button, 8, 0, 1, 1);
-
-    GtkWidget *add_key_button = toolbar_button_new (NULL,
+    GtkWidget *add_key_button = toolbar_button_new ("add-key-symbolic",
                                                     "Add key",
                                                     G_CALLBACK (add_key_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), add_key_button, 9, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(*toolbar), add_key_button, i++, 0, 1, 1);
 
-    GtkWidget *push_right_button = toolbar_button_new (NULL,
+    GtkWidget *delete_key_button = toolbar_button_new ("delete-key-symbolic",
+                                                      "Delete key",
+                                                      G_CALLBACK (delete_key_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), delete_key_button, i++, 0, 1, 1);
+
+    GtkWidget *split_key_button = toolbar_button_new ("split-key-symbolic",
+                                                      "Split key",
+                                                      G_CALLBACK (split_key_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), split_key_button, i++, 0, 1, 1);
+
+    GtkWidget *resize_key_button = toolbar_button_new ("resize-key-symbolic",
+                                                      "Resize key edge",
+                                                      G_CALLBACK (resize_key_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), resize_key_button, i++, 0, 1, 1);
+
+    GtkWidget *resize_segment_button = toolbar_button_new ("resize-segment-symbolic",
+                                                           "Resize key segment",
+                                                           G_CALLBACK (resize_segment_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), resize_segment_button, i++, 0, 1, 1);
+
+    GtkWidget *resize_row_button = toolbar_button_new ("resize-row-symbolic",
+                                                       "Resize row",
+                                                       G_CALLBACK (resize_row_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), resize_row_button, i++, 0, 1, 1);
+
+    GtkWidget *vertical_extend_button = toolbar_button_new ("vextend-key-symbolic",
+                                                            "Extend key vertically",
+                                                            G_CALLBACK (vertical_extend_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), vertical_extend_button, i++, 0, 1, 1);
+
+    GtkWidget *vertical_shrink_button = toolbar_button_new ("vshrink-key-symbolic",
+                                                            "Shrink key vertically",
+                                                            G_CALLBACK (vertical_shrink_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), vertical_shrink_button, i++, 0, 1, 1);
+
+    GtkWidget *push_right_button = toolbar_button_new ("push-key-symbolic",
                                                        "Move and push keys to the right",
                                                        G_CALLBACK (push_right_handler), NULL);
-    gtk_grid_attach (GTK_GRID(*toolbar), push_right_button, 10, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(*toolbar), push_right_button, i++, 0, 1, 1);
 }
 
 // Round i downwards to the nearest multiple of 1/2^n. If i is negative treat it

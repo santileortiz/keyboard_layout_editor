@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+    <gresource prefix="/com/github/santileortiz/iconoscope/icons/16x16/actions">
+        <file alias="vextend-key-symbolic.svg">data/icons/16/vextend-key-symbolic.svg</file>
+        <file alias="resize-key-symbolic.svg">data/icons/16/resize-key-symbolic.svg</file>
+        <file alias="add-key-symbolic.svg">data/icons/16/add-key-symbolic.svg</file>
+        <file alias="set-keycode-symbolic.svg">data/icons/16/set-keycode-symbolic.svg</file>
+        <file alias="resize-segment-symbolic.svg">data/icons/16/resize-segment-symbolic.svg</file>
+        <file alias="delete-key-symbolic.svg">data/icons/16/delete-key-symbolic.svg</file>
+        <file alias="push-key-symbolic.svg">data/icons/16/push-key-symbolic.svg</file>
+        <file alias="split-key-symbolic.svg">data/icons/16/split-key-symbolic.svg</file>
+        <file alias="vshrink-key-symbolic.svg">data/icons/16/vshrink-key-symbolic.svg</file>
+        <file alias="resize-row-symbolic.svg">data/icons/16/resize-row-symbolic.svg</file>
+    </gresource>
+</gresources>

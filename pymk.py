@@ -20,6 +20,7 @@ def default():
     call_user_function(target)
 
 def keyboard_layout_editor ():
+    ex ('glib-compile-resources data/gresource.xml --internal --generate-source --target=gresource.c')
     ex ('gcc {FLAGS} -o bin/keyboard-layout-editor keyboard_layout_editor.c -I/usr/include/libxml2 -lxml2 {GTK3_FLAGS} -lm -lxkbcommon')
 
 def im_gtk3 ():

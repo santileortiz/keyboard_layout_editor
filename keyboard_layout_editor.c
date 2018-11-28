@@ -10,6 +10,7 @@
 #include "keycode_names.h"
 
 #include <gtk/gtk.h>
+#include "gresource.c"
 #include "gtk_utils.c"
 
 #include "keyboard_layout_editor.h"
@@ -530,6 +531,10 @@ int main (int argc, char *argv[])
     } else {
         init_keycode_names ();
         gtk_init(&argc, &argv);
+
+        gresource_get_resource ();
+        gtk_icon_theme_add_resource_path (gtk_icon_theme_get_default (),
+                                          "/com/github/santileortiz/iconoscope/icons");
 
         mem_pool_t tmp = {0};
         char **custom_layouts;

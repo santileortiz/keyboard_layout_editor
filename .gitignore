@@ -1,3 +1,6 @@
+# Generated code
+gresource.c
+
 *.swp
 *.log
 perf.data*

@@ -191,11 +191,15 @@ struct row_t {
     struct sgmt_t *first_key;
 };
 
+#define OVERLAY_TOOLTIP_FIX
+#ifdef OVERLAY_TOOLTIP_FIX
+// FIXME: @broken_tooltips_in_overlay
 struct manual_tooltip_t {
     struct manual_tooltip_t *next;
     GdkRectangle rect;
     char *text;
 };
+#endif
 
 enum locate_sgmt_status_t {
     LOCATE_OUTSIDE_TOP,
@@ -273,10 +277,12 @@ struct keyboard_view_t {
     // PUSH_RIGHT state
     struct sgmt_t *push_right_key;
 
+#ifdef OVERLAY_TOOLTIP_FIX
     // Manual tooltips list
     mem_pool_t tooltips_pool;
     struct manual_tooltip_t *first_tooltip;
     struct manual_tooltip_t *last_tooltip;
+#endif
 
     // GUI related information and state
     GtkWidget *widget;
@@ -1903,6 +1909,8 @@ void push_right_handler (GtkButton *button, gpointer user_data)
     app.keyboard_view->active_tool = KV_TOOL_PUSH_RIGHT;
 }
 
+#ifdef OVERLAY_TOOLTIP_FIX
+// FIXME: @broken_tooltips_in_overlay
 void kv_push_manual_tooltip (struct keyboard_view_t *kv, GdkRectangle *rect, const char *text)
 {
     struct manual_tooltip_t *new_tooltip =
@@ -1926,13 +1934,35 @@ void kv_clear_manual_tooltips (struct keyboard_view_t *kv)
     kv->tooltips_pool = ZERO_INIT (mem_pool_t);
 }
 
-// FIXME: @broken_tooltips_in_overlay
 void button_allocated (GtkWidget *widget, GdkRectangle *rect, gpointer user_data)
 {
-    gchar *text = gtk_widget_get_tooltip_text (widget);
+    gchar *text = (gchar*)user_data;
     kv_push_manual_tooltip (app.keyboard_view, rect, text);
-    g_free (text);
 }
+
+gboolean kv_toolbar_tooltip_handler (GtkWidget *widget, gint x, gint y,
+                                     gboolean keyboard_mode, GtkTooltip *tooltip,
+                                     gpointer user_data)
+{
+    if (keyboard_mode) {
+        return FALSE;
+    }
+
+    bool show_tooltip = FALSE;
+    struct manual_tooltip_t *curr_tooltip = app.keyboard_view->first_tooltip;
+    while (curr_tooltip != NULL) {
+        if (is_in_rect (x, y, curr_tooltip->rect)) {
+            gtk_tooltip_set_text (tooltip, curr_tooltip->text);
+            gtk_tooltip_set_tip_area (tooltip, &curr_tooltip->rect);
+            show_tooltip = TRUE;
+            break;
+        }
+        curr_tooltip = curr_tooltip->next;
+    }
+
+    return show_tooltip;
+}
+#endif
 
 GtkWidget* toolbar_button_new (const char *icon_name, char *tooltip, GCallback callback, gpointer user_data)
 {
@@ -1942,9 +1972,12 @@ GtkWidget* toolbar_button_new (const char *icon_name, char *tooltip, GCallback c
     add_css_class (new_button, "flat");
     g_signal_connect (G_OBJECT(new_button), "clicked", callback, user_data);
 
-    gtk_widget_set_tooltip_text (new_button, tooltip);
+#ifdef OVERLAY_TOOLTIP_FIX
     // FIXME: @broken_tooltips_in_overlay
     g_signal_connect (G_OBJECT(new_button), "size-allocate", G_CALLBACK(button_allocated), tooltip);
+#else
+    gtk_widget_set_tooltip_text (new_button, tooltip);
+#endif
 
     gtk_widget_show (new_button);
 
@@ -3413,6 +3446,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
     GdkRectangle button_event_key_rect = {0};
     if (e->type == GDK_BUTTON_PRESS || e->type == GDK_BUTTON_RELEASE) {
         GdkEventButton *btn_e = (GdkEventButton*)e;
+        // TODO: If we ever stop using manual tooltips, maybe this won't be
+        // necessary? test that.
+        // @broken_tooltips_in_overlay
         if (btn_e->y < KV_TOOLBAR_HEIGHT) {
             return;
         }
@@ -3457,8 +3493,10 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
     switch (kv->state) {
         case KV_PREVIEW:
             if (cmd == KV_CMD_SET_MODE_EDIT) {
+#ifdef OVERLAY_TOOLTIP_FIX
                 // FIXME: @broken_tooltips_in_overlay
                 kv_clear_manual_tooltips (kv);
+#endif
                 kv_set_full_toolbar (&kv->toolbar);
                 kv->label_mode = KV_KEYCODE_LABELS;
                 kv->state = KV_EDIT;
@@ -3485,8 +3523,10 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             }
 
             if (cmd == KV_CMD_SET_MODE_PREVIEW) {
+#ifdef OVERLAY_TOOLTIP_FIX
                 // FIXME: @broken_tooltips_in_overlay
                 kv_clear_manual_tooltips (kv);
+#endif
                 kv_set_simple_toolbar (&kv->toolbar);
                 kv->label_mode = KV_KEYSYM_LABELS;
                 kv->state = KV_PREVIEW;
@@ -4178,8 +4218,8 @@ gboolean kv_button_release (GtkWidget *widget, GdkEvent *event, gpointer user_da
 }
 
 gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
-                                        gboolean keyboard_mode, GtkTooltip *tooltip,
-                                        gpointer user_data)
+                             gboolean keyboard_mode, GtkTooltip *tooltip,
+                             gpointer user_data)
 {
     if (keyboard_mode) {
         return FALSE;
@@ -4209,18 +4249,6 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
 
         gtk_tooltip_set_tip_area (tooltip, &rect);
         show_tooltip = TRUE;
-
-    } else {
-        struct manual_tooltip_t *curr_tooltip = app.keyboard_view->first_tooltip;
-        while (curr_tooltip != NULL) {
-            if (is_in_rect (x, y, curr_tooltip->rect)) {
-                gtk_tooltip_set_text (tooltip, curr_tooltip->text);
-                gtk_tooltip_set_tip_area (tooltip, &curr_tooltip->rect);
-                show_tooltip = TRUE;
-                break;
-            }
-            curr_tooltip = curr_tooltip->next;
-        }
     }
 
     return show_tooltip;
@@ -4263,6 +4291,14 @@ void keyboard_view_set_keymap (struct keyboard_view_t *kv, const char *keymap_na
     mem_pool_destroy (&pool);
 }
 
+gboolean bla (GtkWidget *widget, cairo_t *cr, gpointer data)
+{
+    cairo_set_source_rgb (cr, 0, 0, 0);
+    cairo_paint (cr);
+    printf ("HOLA\n");
+    return TRUE;
+}
+
 // NOTE: The caller of keyboard_view_new() is responsible of calling
 // keyboard_view_destroy() when the view is no longer needed.
 struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
@@ -4286,48 +4322,74 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
     // NOTE: Using a horizontal GtkBox as container for the toolbar didn't work
     // because it took the full height of the drawing area. Which puts buttons
     // in the center of the keyboard view vertically.
+    GtkWidget *draw_area;
     {
-        GtkWidget *kv_widget = gtk_overlay_new ();
-        gtk_widget_add_events (kv_widget,
+        draw_area = gtk_drawing_area_new ();
+        gtk_widget_add_events (draw_area,
                                GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK |
                                GDK_POINTER_MOTION_MASK);
-        gtk_widget_set_vexpand (kv_widget, TRUE);
-        gtk_widget_set_hexpand (kv_widget, TRUE);
-        g_signal_connect (G_OBJECT (kv_widget), "button-press-event", G_CALLBACK (kv_button_press), NULL);
-        g_signal_connect (G_OBJECT (kv_widget), "button-release-event", G_CALLBACK (kv_button_release), NULL);
-        g_signal_connect (G_OBJECT (kv_widget), "motion-notify-event", G_CALLBACK (kv_motion_notify), NULL);
-        g_object_set_property_bool (G_OBJECT (kv_widget), "has-tooltip", TRUE);
-
-        // FIXME: Tooltips for children of a GtkOverlay appear to be broken (or
-        // I was unable set them up properly). Only one query-tooltip signal is
-        // sent to the overlay. Even if a children of the overlay has a tooltip,
-        // it never receives the query-tooltip signal. It's as if tooltip
-        // "events" don't trickle down to children.
-        //
-        // To work around this, we manually add tooltips for buttons in the
-        // toolbar. Then the correct tooltip is chosen in the handler for the
-        // query-tooltip signal, for the overlay.
-        //
-        // NOTE: There was a bug in g_object_set_property_bool() and it's now
-        // fixed. I should remember to not mix my type bool with Gtk's gboolean.
-        // Maybe this fixes this issue? I don't know, and don't remember enough
-        // about the issue to test it right now, study again what the problem
-        // was and see if maybe that fixed it.
-        // @broken_tooltips_in_overlay
-        g_signal_connect (G_OBJECT (kv_widget), "query-tooltip", G_CALLBACK (kv_tooltip_handler), NULL);
-        gtk_widget_show (kv_widget);
-
-        GtkWidget *draw_area = gtk_drawing_area_new ();
         gtk_widget_set_vexpand (draw_area, TRUE);
         gtk_widget_set_hexpand (draw_area, TRUE);
+        g_signal_connect (G_OBJECT (draw_area), "button-press-event", G_CALLBACK (kv_button_press), NULL);
+        g_signal_connect (G_OBJECT (draw_area), "button-release-event", G_CALLBACK (kv_button_release), NULL);
+        g_signal_connect (G_OBJECT (draw_area), "motion-notify-event", G_CALLBACK (kv_motion_notify), NULL);
+
+        gtk_widget_set_has_tooltip (draw_area, TRUE);
+        g_signal_connect (G_OBJECT (draw_area), "query-tooltip", G_CALLBACK (kv_tooltip_handler), NULL);
+
         g_signal_connect (G_OBJECT (draw_area), "draw", G_CALLBACK (keyboard_view_render), NULL);
         gtk_widget_show (draw_area);
-        gtk_overlay_add_overlay (GTK_OVERLAY(kv_widget), draw_area);
-        kv->widget = kv_widget;
     }
 
     kv_set_simple_toolbar (&kv->toolbar);
+
+    kv->widget = gtk_overlay_new ();
+    gtk_widget_set_vexpand (kv->widget, TRUE);
+    gtk_widget_set_hexpand (kv->widget, TRUE);
+    gtk_container_add (GTK_CONTAINER(kv->widget), draw_area);
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
+    gtk_overlay_set_overlay_pass_through (GTK_OVERLAY(kv->widget), kv->toolbar, TRUE);
+
+#ifdef OVERLAY_TOOLTIP_FIX
+    // FIXME: I first thought all tooltips in a GtkOverlay were broken because
+    // query-tooltip signals didn't reach its children, this was caused because
+    // I didn't know about the gtk_overlay_set_overlay_pass_through() function,
+    // which lets events pass through an overlay.
+    //
+    // After learning about this API I splitted the tooltip callback, one for
+    // drawing_area and another one for the toolbar. Then I tried to remove all
+    // the manual tooltip code I had created when I was receiving all
+    // query-tooltip signals in the overlay itself and not in its children.
+    // Sadly, tooltips for buttons inside a child of a GtkOverlay are broken,
+    // sigh. See bug https://gitlab.gnome.org/GNOME/gtk/issues/492, it has been
+    // open since 2016 and no fix or workaround seems to be available.
+    //
+    // So, I still use manual tooltips, but this time the toolbar tooltip
+    // handler is located in a drawing area that is overlayed on top of the
+    // toolbar (yeah we have 3 layers when only 2 should be necessary...). I
+    // added ifdefs for OVERLAY_TOOLTIP_FIX, so I can switch to the "clean"
+    // version of code and check if the issue has been solved.
+    //
+    // At least this new code puts toolbar tooltips inside the keyboard view and
+    // not on top of the headerbar, I guess that's a small win?...
+    //
+    // BUT!!! Although this fixes tooltips, it completely breaks the toolbar as
+    // now all events (including button press/release events) will be received
+    // by the overlay placed on top of the toolbar. Which means I can't merge
+    // this into master. I will leave this as a stale branch for when this stuff
+    // gets solved in GTK.
+    // @broken_tooltips_in_overlay
+    GtkWidget *toolbar_events = gtk_drawing_area_new ();
+    gtk_widget_set_size_request (toolbar_events, 300, KV_TOOLBAR_HEIGHT);
+    gtk_widget_set_has_tooltip (toolbar_events, TRUE);
+    g_signal_connect (G_OBJECT (toolbar_events), "query-tooltip", G_CALLBACK (kv_toolbar_tooltip_handler), NULL);
+    toolbar_events = wrap_gtk_widget(toolbar_events);
+    gtk_widget_show_all (toolbar_events);
+    gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), toolbar_events);
+    gtk_overlay_set_overlay_pass_through (GTK_OVERLAY(kv->widget), toolbar_events, TRUE);
+#endif
+
+    gtk_widget_show (kv->widget);
 
     kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
     kv->geometry_idx = 0;
@@ -4343,7 +4405,10 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
 void keyboard_view_destroy (struct keyboard_view_t *kv)
 {
     mem_pool_destroy (&kv->keyboard_pool);
+#ifdef OVERLAY_TOOLTIP_FIX
+// FIXME: @broken_tooltips_in_overlay
     mem_pool_destroy (&kv->tooltips_pool);
+#endif
     mem_pool_destroy (&kv->resize_pool);
     mem_pool_destroy (kv->pool);
 }

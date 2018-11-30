@@ -1951,11 +1951,12 @@ GtkWidget* toolbar_button_new (const char *icon_name, char *tooltip, GCallback c
     return new_button;
 }
 
-void kv_set_simple_toolbar (GtkWidget **toolbar)
+void kv_toolbar_init (GtkWidget **toolbar)
 {
-    assert (toolbar != NULL);
-
     if (*toolbar == NULL) {
+        // NOTE: Using a horizontal GtkBox as container for the toolbar didn't
+        // work because it took the full height of the drawing area. Which puts
+        // buttons in the center of the keyboard view vertically.
         *toolbar = gtk_grid_new ();
         gtk_widget_show (*toolbar);
 
@@ -1964,6 +1965,12 @@ void kv_set_simple_toolbar (GtkWidget **toolbar)
                                destroy_children_callback,
                                NULL);
     }
+}
+
+void kv_set_simple_toolbar (GtkWidget **toolbar)
+{
+    assert (toolbar != NULL);
+    kv_toolbar_init (toolbar);
 
     GtkWidget *edit_button = toolbar_button_new ("edit-symbolic",
                                                  "Edit the view to match your keyboard",
@@ -1975,16 +1982,7 @@ void kv_set_simple_toolbar (GtkWidget **toolbar)
 void kv_set_full_toolbar (GtkWidget **toolbar)
 {
     assert (toolbar != NULL);
-
-    if (*toolbar == NULL) {
-        *toolbar = gtk_grid_new ();
-        gtk_widget_show (*toolbar);
-
-    } else {
-        gtk_container_foreach (GTK_CONTAINER(*toolbar),
-                               destroy_children_callback,
-                               NULL);
-    }
+    kv_toolbar_init (toolbar);
 
     int i = 0;
     GtkWidget *stop_edit_button = toolbar_button_new ("close-symbolic",
@@ -4282,10 +4280,6 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
 
     // Build the GtkWidget as an Overlay of a GtkDrawingArea and a GtkGrid
     // containing the toolbar.
-    //
-    // NOTE: Using a horizontal GtkBox as container for the toolbar didn't work
-    // because it took the full height of the drawing area. Which puts buttons
-    // in the center of the keyboard view vertically.
     {
         GtkWidget *kv_widget = gtk_overlay_new ();
         gtk_widget_add_events (kv_widget,
@@ -4296,7 +4290,7 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
         g_signal_connect (G_OBJECT (kv_widget), "button-press-event", G_CALLBACK (kv_button_press), NULL);
         g_signal_connect (G_OBJECT (kv_widget), "button-release-event", G_CALLBACK (kv_button_release), NULL);
         g_signal_connect (G_OBJECT (kv_widget), "motion-notify-event", G_CALLBACK (kv_motion_notify), NULL);
-        g_object_set_property_bool (G_OBJECT (kv_widget), "has-tooltip", TRUE);
+        gtk_widget_set_has_tooltip (kv_widget, TRUE);
 
         // FIXME: Tooltips for children of a GtkOverlay appear to be broken (or
         // I was unable set them up properly). Only one query-tooltip signal is
@@ -4308,11 +4302,16 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
         // toolbar. Then the correct tooltip is chosen in the handler for the
         // query-tooltip signal, for the overlay.
         //
-        // NOTE: There was a bug in g_object_set_property_bool() and it's now
-        // fixed. I should remember to not mix my type bool with Gtk's gboolean.
-        // Maybe this fixes this issue? I don't know, and don't remember enough
-        // about the issue to test it right now, study again what the problem
-        // was and see if maybe that fixed it.
+        // UPDATE (November 29, 2018):
+        // I tried to fix this and although GtkOverlay lets events reach its
+        // children by using gtk_overlay_set_overlay_pass_through(), it's broken
+        // for the case of buttons inside overlays, so this code still seems to
+        // be the best workaround. To see how the clean code should look, and an
+        // attempt at working around this found Gtk bug (it was reported in
+        // 2016), look at the overlay-tooltips-fix branch.
+        //
+        // Sigh, maybe just create a fk_tooltip() API...
+        //
         // @broken_tooltips_in_overlay
         g_signal_connect (G_OBJECT (kv_widget), "query-tooltip", G_CALLBACK (kv_tooltip_handler), NULL);
         gtk_widget_show (kv_widget);

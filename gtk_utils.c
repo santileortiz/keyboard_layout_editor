@@ -266,3 +266,113 @@ void round_path_close (struct round_path_ctx *ctx)
     cr_draw_round_corner (ctx->cr, ctx->x_start, ctx->y_start, ctx->r, last_edge_dir, ctx->start_dir);
 }
 
+// Widget Wrapping Idiom
+// ---------------------
+//
+// Gtk uses reference counting of its objects. As a convenience for C
+// programming they have a feature called "floating references", this feature
+// makes most objects be created with a floating reference, instead of a normal
+// one. Then the object that will take ownership of it, calls
+// g_object_ref_sink() and becomes the owner of this floating reference making
+// it a normal one. This allows C code to not call g_object_unref() on the newly
+// created object and not leak a reference (and thus, not leak memory).
+//
+// The problem is this only work for objects that inherit from the
+// GInitialyUnowned class. In all the Gtk class hierarchy ~150 classes inherit
+// from GInitiallyUnowned and ~100 don't, which makes floating references the
+// common case. What I normally do is assume things use floating references, and
+// never call g_object_ref_sink() under the assumption that the function I'm
+// passing the object to will sink it.
+//
+// Doing this for GtkWidgets is very useful to implement changes in the UI
+// without creating a tangle of signals. What I do is completely replace widgets
+// that need to be updated, instead of trying to update the state of objects to
+// reflect changes. I keep weak references (C pointers, not even Gtk weak
+// references) to widgets that may need to be replaced, then I remove the widget
+// from it's container and replace it by a new one. Here not taking references
+// to any widget becomes useful as removing the widget form it's parent will
+// have the effect of destroying all the children objects (as long as Gtk
+// internally isn't leaking memory).
+//
+// The only issue I've found is that containers like GtkPaned or GtkGrid use
+// special _add methods with different declaration than gtk_container_add().
+// It's very common to move widgets accross different kinds of containers, which
+// adds the burden of having to kneo where in the code we assumed something was
+// stored in a GtkGrid or a GtkPaned etc. What I do to alieviate this pain is
+// wrap widgets that will be replaced into a GtkBox with wrap_gtk_widget() and
+// then use replace_wrapped_widget() to replace it.
+//
+// Doing this ties the lifespan of an GInitiallyUnowned object to the lifespan
+// of the parent. Sometimes this is not desired, in those cases we must call
+// g_object_ref_sink() (NOT g_object_ref(), because as far as I understand it
+// will set refcount to 2 and never free them). Fortunatelly cases where this is
+// required will print lots of Critical warnings or crash the application so
+// they are easy to detect and fix, a memory leak is harder to detect/fix.
+//
+// NOTE: The approach of storing a pointer to the parent widget not only doubles
+// the number of pointers that need to be stored for a replacable widget, but
+// also doesn't work because we can't know the true parent of a widget. For
+// instance, GtkScrolledWindow wraps its child in a GtkViewPort.
+//
+// TODO: I need a way to detect when I'm using objects that don't inherit from
+// GInitiallyUnowned and be sure we are not leaking references. Also make sure
+// g_object_ref_sink() is used instead of g_object_ref().
+GtkWidget* wrap_gtk_widget (GtkWidget *widget)
+{
+    GtkWidget *wrapper = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+    gtk_container_add (GTK_CONTAINER(wrapper), widget);
+    return wrapper;
+}
+
+void replace_wrapped_widget (GtkWidget **original, GtkWidget *new_widget)
+{
+    GtkWidget *parent = gtk_widget_get_parent (*original);
+    gtk_container_remove (GTK_CONTAINER(parent), *original);
+
+    *original = new_widget;
+    gtk_container_add (GTK_CONTAINER(parent), new_widget);
+
+    gtk_widget_show_all (new_widget);
+}
+
+// An issue with the wrapped widget idiom is that if a widget triggers a replace
+// of one of its ancestors, then we are effectiveley destroying ourselves from
+// the signal handler. I've found cases where Gtk does not like that and shows
+// lots of critical errors. I think these errors happen because the signal where
+// we triggered the destruction of the ancestor is not the only one being
+// handled, then after destruction, other handlers try to trigger inside the
+// widget that does not exist anymore.
+//
+// I don't know if this is a Gtk bug, or we are not supposed to trigger the
+// destruction of an object from the signal handler of a signal of the object
+// that will be destroyed. The case I found not to work was a GtkCombobox
+// destroying itself from the "changed" signal. A button destroying itself from
+// the "clicked" signal worked fine though.
+//
+// In any case, if this happens, the function replace_wrapped_widget_deferred()
+// splits widget replacement so that widget destruction is triggered, and then
+// in the handler for the destroy signal, we actually replace the widget. Not
+// nice, but seems to solve the issue.
+gboolean idle_widget_destroy (gpointer user_data)
+{
+    gtk_widget_destroy ((GtkWidget *) user_data);
+    return FALSE;
+}
+
+void replace_wrapped_widget_deferred_cb (GtkWidget *object, gpointer user_data)
+{
+    // We do this here so we never add the old and new widgets to the wrapper
+    // and end up increasing the allocation size and glitching/
+    gtk_widget_show_all ((GtkWidget *) user_data);
+}
+
+void replace_wrapped_widget_deferred (GtkWidget **original, GtkWidget *new_widget)
+{
+    GtkWidget *parent = gtk_widget_get_parent (*original);
+    gtk_container_add (GTK_CONTAINER(parent), new_widget);
+
+    g_signal_connect (G_OBJECT(*original), "destroy", G_CALLBACK (replace_wrapped_widget_deferred_cb), new_widget);
+    g_idle_add (idle_widget_destroy, *original);
+    *original = new_widget;
+}
+

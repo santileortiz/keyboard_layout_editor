@@ -204,6 +204,18 @@ enum locate_sgmt_status_t {
     LOCATE_HIT_GLUE
 };
 
+// Distances inside a keyboard view are NOT in pixels, they are relative to the
+// value of kv->default_key_size. This value represents the width and height in
+// pixels of a "normal" key (what we would say is 1 by 1 units in size for this
+// keyboard). KV_DEFAULT_KEY_SIZE is the default value for kv->default_key_size.
+#define KV_DEFAULT_KEY_SIZE 56
+
+// All tools that change a distance in the keyboard view will change it in steps
+// of kv->default_key_size/(2^KV_STEP_PRECISION) pixels.
+// NOTE: To ensure everything is pixel perfect this value has to be an integer,
+// be careful about that!.
+#define KV_STEP_PRECISION 3
+
 struct keyboard_view_t {
     mem_pool_t *pool;
 
@@ -2126,7 +2138,7 @@ float bin_ceil (float i, int n)
 static inline
 float kv_get_min_key_width (struct keyboard_view_t *kv)
 {
-    return bin_ceil(2*(KEY_LEFT_MARGIN + KEY_CORNER_RADIUS)/kv->default_key_size, 3);
+    return bin_ceil(2*(KEY_LEFT_MARGIN + KEY_CORNER_RADIUS)/kv->default_key_size, KV_STEP_PRECISION);
 }
 
 // Provides information about an edge of a non rectangular multirow key. Its
@@ -2795,7 +2807,7 @@ static inline
 void compute_split_widths (struct keyboard_view_t *kv, float cursor_x,
                            float *left_width, float *right_width)
 {
-    *left_width = bin_floor ((cursor_x - kv->split_rect_x)/kv->default_key_size, 3);
+    *left_width = bin_floor ((cursor_x - kv->split_rect_x)/kv->default_key_size, KV_STEP_PRECISION);
     *left_width = CLAMP (*left_width, kv->left_min_width, kv->split_full_width - kv->right_min_width);
     *right_width = kv->split_full_width - *left_width;
 }
@@ -2872,7 +2884,7 @@ void kv_set_add_key_state (struct keyboard_view_t *kv, double event_x, double ev
             kv->to_add_rect.width = kv->default_key_size;
             // NOTE: This glue is measured with respect to the left
             // margin. It can be negative.
-            glue = bin_floor ((event_x - left_margin)/kv->default_key_size - 0.5, 3);
+            glue = bin_floor ((event_x - left_margin)/kv->default_key_size - 0.5, KV_STEP_PRECISION);
             glue = MIN (glue, (x - left_margin)/kv->default_key_size - 1);
             kv->to_add_rect.x = left_margin + glue*kv->default_key_size;
 
@@ -2880,7 +2892,7 @@ void kv_set_add_key_state (struct keyboard_view_t *kv, double event_x, double ev
             // Pointer is right of keyboard
 
             kv->to_add_rect.width = kv->default_key_size;
-            glue = bin_floor ((event_x - x)/kv->default_key_size - 0.5, 3);
+            glue = bin_floor ((event_x - x)/kv->default_key_size - 0.5, KV_STEP_PRECISION);
             glue = MAX (glue, 0);
 
             kv->to_add_rect.x = x + glue*kv->default_key_size;
@@ -2896,7 +2908,7 @@ void kv_set_add_key_state (struct keyboard_view_t *kv, double event_x, double ev
                 glue = 0;
             } else {
                 kv->to_add_rect.width = MIN (1, total_glue)*kv->default_key_size;
-                glue = bin_floor ((event_x - glue_x)/kv->default_key_size - 0.5, 3);
+                glue = bin_floor ((event_x - glue_x)/kv->default_key_size - 0.5, KV_STEP_PRECISION);
                 glue = CLAMP (glue, 0, total_glue - 1);
             }
 
@@ -2915,7 +2927,7 @@ void kv_set_add_key_state (struct keyboard_view_t *kv, double event_x, double ev
             kv->to_add_rect.y = y - kv->default_key_size/2;
 
         } else {
-            float x_pos = bin_floor ((event_x - left_margin)/kv->default_key_size - 0.5, 3);
+            float x_pos = bin_floor ((event_x - left_margin)/kv->default_key_size - 0.5, KV_STEP_PRECISION);
             kv->to_add_rect.x = left_margin + x_pos*kv->default_key_size;
             // NOTE: This glue is measured with respect to the left
             // margin. It can be negative.
@@ -3817,7 +3829,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                         curr_sgmt = curr_sgmt->next_sgmt;
                     }
 
-                    new_sgmt_glue = MAX (0, bin_floor ((x_last - left_margin)/kv->default_key_size - x_prev, 3));
+                    new_sgmt_glue = MAX (0, bin_floor ((x_last - left_margin)/kv->default_key_size - x_prev, KV_STEP_PRECISION));
                 }
 
                 struct sgmt_t *new_sgmt = kv_insert_new_sgmt (kv, new_sgmt_pos, new_sgmt_ptr);
@@ -4047,7 +4059,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         case KV_EDIT_KEY_RESIZE:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
-                float delta = bin_floor((event->x - kv->clicked_pos)/kv->default_key_size, 3);
+                float delta = bin_floor((event->x - kv->clicked_pos)/kv->default_key_size, KV_STEP_PRECISION);
 
                 float new_width = kv->edit_right_edge ?
                     kv->original_size + delta : kv->original_size - delta;
@@ -4083,7 +4095,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         case KV_EDIT_KEY_RESIZE_SEGMENT:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
-                float delta = bin_floor((event->x - kv->clicked_pos)/kv->default_key_size, 3);
+                float delta = bin_floor((event->x - kv->clicked_pos)/kv->default_key_size, KV_STEP_PRECISION);
 
                 float new_width = kv->edit_right_edge ?
                     kv->original_size + delta : kv->original_size - delta;
@@ -4140,7 +4152,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         case KV_EDIT_KEY_PUSH_RIGHT:
             if (e->type == GDK_MOTION_NOTIFY) {
                 GdkEventMotion *event = (GdkEventMotion*)e;
-                float delta = bin_floor((event->x - kv->clicked_pos)/kv->default_key_size, 3);
+                float delta = bin_floor((event->x - kv->clicked_pos)/kv->default_key_size, KV_STEP_PRECISION);
                 float new_glue = MAX (0, kv->original_size + delta);
 
                 if (kv->push_right_key->user_glue != new_glue) {
@@ -4354,7 +4366,7 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
     kv_set_simple_toolbar (&kv->toolbar);
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
 
-    kv->default_key_size = 56; // Should be divisible by 4 so everything is pixel perfect
+    kv->default_key_size = KV_DEFAULT_KEY_SIZE;
     kv->geometry_idx = 0;
     kv_geometries[kv->geometry_idx](kv);
 

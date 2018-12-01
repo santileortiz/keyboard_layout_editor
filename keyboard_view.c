@@ -162,8 +162,9 @@ enum key_render_type_t {
 // Anyway, this change is non trivial because it implies changes in all complex
 // parts of the code. Algorithms that would be modified include: non rectangular
 // key path drawing, glue computation, size computation, key search from pointer
-// coordinates, segment search from pointer coordinates. Also, it's necessary to
-// keep an invariant that forbids keys with disjoint segments.
+// coordinates, segment search from pointer coordinates, serialization and
+// parsing of keyboard view string representations. Also, it's necessary to keep
+// an invariant that forbids keys with disjoint segments.
 //
 // @arbitrary_align
 #define sgmt_check_align(sgmt,algn) ((sgmt)->type == KEY_MULTIROW_SEGMENT_SIZED && (sgmt)->align == algn)
@@ -712,43 +713,141 @@ bool compute_key_size_full (struct keyboard_view_t *kv, struct sgmt_t *key, stru
 
 char* kv_to_string (mem_pool_t *pool, struct keyboard_view_t *kv)
 {
-    mem_pool_t local_pool = ZERO_INIT (mem_pool_t);
-    string_t str = ZERO_INIT(string_t);
+    // Set posix locale so the decimal separator is always .
+    char *old_locale;
+    old_locale = strdup (setlocale (LC_ALL, NULL));
+    assert (old_locale != NULL);
+    setlocale (LC_ALL, "POSIX");
+
+    string_t str = {0};
+
+    // Compute the number of digits in the real part of the biggest float so we
+    // can create a buffer big enough and never read invalid memory.
+    int buff_size = 0;
+    {
+        struct row_t *row = kv->first_row;
+        while (row != NULL) {
+            buff_size = MAX (buff_size, snprintf (NULL, 0, "%g", row->height));
+
+            struct sgmt_t *sgmt = row->first_key;
+            while (sgmt != NULL) {
+                buff_size = MAX (buff_size, snprintf (NULL, 0, "%g", sgmt->width));
+                buff_size = MAX (buff_size, snprintf (NULL, 0, "%g", sgmt->user_glue));
+                buff_size = MAX (buff_size, snprintf (NULL, 0, "%g", sgmt->internal_glue));
+
+                sgmt = sgmt->next_sgmt;
+            }
+            row = row->next_row;
+        }
+    }
+
+    // Keycodes require at 3 bytes.
+    buff_size = MAX(buff_size, 3);
+
+    char buff[buff_size + 1];
 
     struct row_t *row = kv->first_row;
     while (row != NULL) {
-        // TODO: A fixed size buffer and snprintf() may be faster than using the
-        // local pool with pprintf().
-        // @performance
-        mem_pool_temp_marker_t mrkr = mem_pool_begin_temporary_memory (&local_pool);
+        if (row->height != 1) {
+            sprintf (buff, "%g", row->height);
+            str_cat_c (&str, buff);
+            str_cat_c (&str, " ");
+        }
 
         struct sgmt_t *sgmt = row->first_key;
         while (sgmt != NULL) {
-            char *sgmt_str;
             if (!is_multirow_key (sgmt)) {
-                sgmt_str = pprintf (&local_pool,
-                                    "(KC: %i, W: %.3f, UG %.3f) ",
-                                    sgmt->kc, sgmt->width, sgmt->user_glue);
+                str_cat_c (&str, "K(");
+                snprintf (buff, ARRAY_SIZE(buff), "%i", sgmt->kc);
+                str_cat_c (&str, buff);
+
+                if (sgmt->width != 1) {
+                    str_cat_c (&str, ", W: ");
+                    snprintf (buff, ARRAY_SIZE(buff), "%g", sgmt->width);
+                    str_cat_c (&str, buff);
+                }
+
+                if (sgmt->user_glue != 0) {
+                    str_cat_c (&str, ", UG: ");
+                    snprintf (buff, ARRAY_SIZE(buff), "%g", sgmt->user_glue);
+                    str_cat_c (&str, buff);
+                }
+
+                str_cat_c (&str, ")");
 
             } else if (is_multirow_parent (sgmt)) {
-                sgmt_str = pprintf (&local_pool,
-                                    "P:(KC: %i, W: %.3f, UG %.3f, IG: %.3f) ",
-                                    sgmt->kc, sgmt->width, sgmt->user_glue,
-                                    sgmt->internal_glue);
+                str_cat_c (&str, "P(");
+                snprintf (buff, ARRAY_SIZE(buff), "%i", sgmt->kc);
+                str_cat_c (&str, buff);
+
+                if (sgmt->width != 1) {
+                    str_cat_c (&str, ", W: ");
+                    snprintf (buff, ARRAY_SIZE(buff), "%g", sgmt->width);
+                    str_cat_c (&str, buff);
+                }
+
+                if (sgmt->user_glue != 0) {
+                    str_cat_c (&str, ", UG: ");
+                    snprintf (buff, ARRAY_SIZE(buff), "%g", sgmt->user_glue);
+                    str_cat_c (&str, buff);
+                }
+
+                if (sgmt->internal_glue != 0) {
+                    str_cat_c (&str, ", IG: ");
+                    snprintf (buff, ARRAY_SIZE(buff), "%g", sgmt->internal_glue);
+                    str_cat_c (&str, buff);
+                }
+
+                str_cat_c (&str, ")");
 
             } else {
-                sgmt_str = pprintf (&local_pool,
-                                    "S:(W: %.3f, IG: %.3f) ",
-                                    sgmt->width, sgmt->internal_glue);
-            }
-            sgmt = sgmt->next_sgmt;
-            str_cat_c (&str, sgmt_str);
+                if (is_multirow_parent (sgmt->next_multirow)) {
+                    str_cat_c (&str, "E(");
+                } else {
+                    str_cat_c (&str, "S(");
+                }
 
-            mem_pool_end_temporary_memory (mrkr);
+                if (sgmt->type == KEY_MULTIROW_SEGMENT_SIZED) {
+                    str_cat_c (&str, "W: ");
+                    snprintf (buff, ARRAY_SIZE(buff), "%g", sgmt->width);
+                    str_cat_c (&str, buff);
+
+                    if (sgmt->align == MULTIROW_ALIGN_LEFT) {
+                        str_cat_c (&str, ", L");
+                    } else {
+                        str_cat_c (&str, ", R");
+                    }
+                }
+
+                if (sgmt->internal_glue != 0) {
+                    if (sgmt->type == KEY_MULTIROW_SEGMENT_SIZED) {
+                        str_cat_c (&str, ", ");
+                    }
+
+                    str_cat_c (&str, "IG: ");
+                    snprintf (buff, ARRAY_SIZE(buff), "%g", sgmt->internal_glue);
+                    str_cat_c (&str, buff);
+                }
+
+                str_cat_c (&str, ")");
+
+            }
+
+            sgmt = sgmt->next_sgmt;
+
+            if (sgmt == NULL) {
+                str_cat_c (&str, ";\n");
+            } else {
+                str_cat_c (&str, " ");
+            }
         }
-        str_cat_c (&str, "\n");
         row = row->next_row;
     }
+
+
+    // Restore the original locale
+    setlocale (LC_ALL, old_locale);
+    free (old_locale);
 
     return pom_strdup (pool, str_data(&str));
 }

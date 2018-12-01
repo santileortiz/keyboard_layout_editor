@@ -9,6 +9,8 @@
 #include <linux/input-event-codes.h>
 #include "keycode_names.h"
 
+#include <locale.h>
+
 #include <gtk/gtk.h>
 #include "gresource.c"
 #include "gtk_utils.c"

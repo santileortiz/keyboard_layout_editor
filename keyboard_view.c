@@ -698,28 +698,54 @@ bool compute_key_size_full (struct keyboard_view_t *kv, struct sgmt_t *key, stru
     return is_rectangular;
 }
 
-void kv_print (struct keyboard_view_t *kv)
+char* kv_to_string (mem_pool_t *pool, struct keyboard_view_t *kv)
 {
+    mem_pool_t local_pool = ZERO_INIT (mem_pool_t);
+    string_t str = ZERO_INIT(string_t);
+
     struct row_t *row = kv->first_row;
     while (row != NULL) {
+        // TODO: A fixed size buffer and snprintf() may be faster than using the
+        // local pool with pprintf().
+        // @performance
+        mem_pool_temp_marker_t mrkr = mem_pool_begin_temporary_memory (&local_pool);
+
         struct sgmt_t *sgmt = row->first_key;
         while (sgmt != NULL) {
+            char *sgmt_str;
             if (!is_multirow_key (sgmt)) {
-                printf ("(KC: %i, W: %.3f, UG %.3f) ",
-                        sgmt->kc, sgmt->width, sgmt->user_glue);
+                sgmt_str = pprintf (&local_pool,
+                                    "(KC: %i, W: %.3f, UG %.3f) ",
+                                    sgmt->kc, sgmt->width, sgmt->user_glue);
 
             } else if (is_multirow_parent (sgmt)) {
-                printf ("P:(KC: %i, W: %.3f, UG %.3f, IG: %.3f) ",
-                        sgmt->kc, sgmt->width, sgmt->user_glue, sgmt->internal_glue);
+                sgmt_str = pprintf (&local_pool,
+                                    "P:(KC: %i, W: %.3f, UG %.3f, IG: %.3f) ",
+                                    sgmt->kc, sgmt->width, sgmt->user_glue,
+                                    sgmt->internal_glue);
+
             } else {
-                printf ("S:(W: %.3f, IG: %.3f) ", sgmt->width, sgmt->internal_glue);
+                sgmt_str = pprintf (&local_pool,
+                                    "S:(W: %.3f, IG: %.3f) ",
+                                    sgmt->width, sgmt->internal_glue);
             }
             sgmt = sgmt->next_sgmt;
+            str_cat_c (&str, sgmt_str);
+
+            mem_pool_end_temporary_memory (mrkr);
         }
-        printf ("\n");
+        str_cat_c (&str, "\n");
         row = row->next_row;
     }
-    printf ("\n");
+
+    return pom_strdup (pool, str_data(&str));
+}
+
+void kv_print (struct keyboard_view_t *kv)
+{
+    mem_pool_t pool = ZERO_INIT (mem_pool_t);
+    printf ("%s\n", kv_to_string (&pool, kv));
+    mem_pool_destroy (&pool);
 }
 
 static inline

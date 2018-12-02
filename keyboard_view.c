@@ -4276,16 +4276,26 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
     gtk_widget_queue_draw (kv->widget);
 }
 
+// The default behavior is to let key events fall through, but sometimes we
+// don't want to, this function computes if the key event will be consumed.
+static inline
+gboolean kv_will_consume_key_event (struct keyboard_view_t *kv)
+{
+    return kv->state == KV_EDIT_KEYCODE_KEYPRESS ? TRUE : FALSE;
+}
+
 gboolean key_press_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
+    gboolean consumed = kv_will_consume_key_event (app.keyboard_view);
     kv_update (app.keyboard_view, KV_CMD_NONE, event);
-    return TRUE;
+    return consumed;
 }
 
 gboolean key_release_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
+    gboolean consumed = kv_will_consume_key_event (app.keyboard_view);
     kv_update (app.keyboard_view, KV_CMD_NONE, event);
-    return TRUE;
+    return consumed;
 }
 
 gboolean kv_motion_notify (GtkWidget *widget, GdkEvent *event, gpointer user_data)
@@ -4412,6 +4422,10 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
     struct keyboard_view_t *kv = mem_pool_push_size (pool, sizeof(struct keyboard_view_t));
     *kv = ZERO_INIT(struct keyboard_view_t);
 
+    // This handlers are set in the window so we don't need focus on the
+    // keyboard view to react to keypresses. I think this is useful for
+    // discoverability of how the keyboard view is interactive, not requiring
+    // the user to click on the view to enable keypress feedback.
     g_signal_connect (G_OBJECT(window), "key-press-event", G_CALLBACK (key_press_handler), NULL);
     g_signal_connect (G_OBJECT(window), "key-release-event", G_CALLBACK (key_release_handler), NULL);
 

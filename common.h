@@ -4,6 +4,7 @@
 
 #if !defined(COMMON_H)
 #include <stdio.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <inttypes.h>
 #include <sys/stat.h>

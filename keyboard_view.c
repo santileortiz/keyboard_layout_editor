@@ -4490,6 +4490,197 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
     return kv;
 }
 
+struct scanner_t {
+    char *pos;
+    bool is_eof;
+
+    bool error;
+    char *error_message;
+};
+
+bool scanner_float (struct scanner_t *scnr, float *value)
+{
+    assert (value != NULL);
+    if (scnr->error)
+        return false;
+
+    char *end;
+    float res = strtof (scnr->pos, &end);
+    if (res != 0 || scnr->pos != end) {
+        *value = res;
+        scnr->pos = end;
+
+        if (*scnr->pos == '\0') {
+            scnr->is_eof = true;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+bool scanner_int (struct scanner_t *scnr, int *value)
+{
+    assert (value != NULL);
+    if (scnr->error)
+        return false;
+
+    char *end;
+    int res = strtol (scnr->pos, &end, 10);
+    if (res != 0 || scnr->pos != end) {
+        *value = res;
+        scnr->pos = end;
+
+        if (*scnr->pos == '\0') {
+            scnr->is_eof = true;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+void scanner_consume_spaces (struct scanner_t *scnr)
+{
+    while (isspace(*scnr->pos)) {
+           scnr->pos++;
+    }
+
+    if (*scnr->pos == '\0') {
+        scnr->is_eof = true;
+    }
+}
+
+bool scanner_char (struct scanner_t *scnr, char c)
+{
+    if (scnr->error)
+        return false;
+
+    scanner_consume_spaces (scnr);
+
+    if (*scnr->pos == c) {
+        scnr->pos++;
+
+        if (*scnr->pos == '\0') {
+            scnr->is_eof = true;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+bool scanner_str (struct scanner_t *scnr, char *str)
+{
+    assert (str != NULL);
+    if (scnr->error)
+        return false;
+
+    scanner_consume_spaces (scnr);
+
+    size_t len = strlen(str);
+    if (strncmp(scnr->pos, str, len) == 0) {
+        scnr->pos += len;
+
+        if (*scnr->pos == '\0') {
+            scnr->is_eof = true;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+// NOTE: The error message is not duplicated or stored by the scanner, it just
+// stores a pointer to it.
+void scanner_set_error (struct scanner_t *scnr, char *error_message)
+{
+    scnr->error = true;
+    scnr->error_message = error_message;
+}
+
+void kv_set_from_string (struct keyboard_view_t *kv, char *str)
+{
+    kv_clear (kv);
+    struct geometry_edit_ctx_t ctx;
+    kv_geometry_ctx_init_append (kv, &ctx);
+
+    // Set posix locale so the decimal separator is always .
+    char *old_locale;
+    old_locale = strdup (setlocale (LC_ALL, NULL));
+    assert (old_locale != NULL);
+    setlocale (LC_ALL, "POSIX");
+
+    struct scanner_t scnr = ZERO_INIT(struct scanner_t);
+    scnr.pos = str;
+
+    while (!scnr.is_eof && !scnr.error) {
+        float row_height = 1;
+        scanner_float (&scnr, &row_height);
+
+        kv_new_row_h (&ctx, row_height);
+
+        while (!scnr.is_eof) {
+            if (scanner_str (&scnr, "K(")) {
+                int kc;
+                float width = 1, user_glue = 0;
+                if (!scanner_int (&scnr, &kc)) {
+                    scanner_set_error (&scnr, "Expected keycode.\n");
+                }
+
+                if (scanner_char (&scnr, ',') && scanner_str (&scnr, "W:")) {
+                    if (!scanner_float (&scnr, &width)) {
+                        scanner_set_error (&scnr, "Expected width.\n");
+                    }
+                }
+
+                if (scanner_char (&scnr, ',') && scanner_str (&scnr, "UG:")) {
+                    if (!scanner_float (&scnr, &user_glue)) {
+                        scanner_set_error (&scnr, "Expected user glue.\n");
+                    }
+                }
+
+                scanner_char (&scnr, ')');
+
+                if (!scnr.error) {
+                    kv_add_key_full (&ctx, kc, width, user_glue);
+                } else {
+                    break;
+                }
+
+            } else if (scanner_str (&scnr, "P(")) {
+
+                scanner_char (&scnr, ')');
+
+            } else if (scanner_str (&scnr, "S(")) {
+
+                scanner_char (&scnr, ')');
+
+            } else if (scanner_str (&scnr, "E(")) {
+
+                scanner_char (&scnr, ')');
+
+            } else if (scanner_char (&scnr, ';')) {
+                scanner_consume_spaces (&scnr);
+                break;
+
+            } else {
+                printf ("Error: expected key segment or ';'\n");
+            }
+        }
+    }
+
+    if (scnr.error) {
+        printf ("%s", scnr.error_message);
+    }
+
+    // Restore the original locale
+    setlocale (LC_ALL, old_locale);
+    free (old_locale);
+}
+
 void keyboard_view_destroy (struct keyboard_view_t *kv)
 {
     mem_pool_destroy (&kv->keyboard_pool);

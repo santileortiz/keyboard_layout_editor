@@ -4274,6 +4274,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
     }
 
     gtk_widget_queue_draw (kv->widget);
+
+    kv_print (kv);
 }
 
 // The default behavior is to let key events fall through, but sometimes we
@@ -4480,7 +4482,7 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
 
     kv->default_key_size = KV_DEFAULT_KEY_SIZE;
-    kv->geometry_idx = 0;
+    kv->geometry_idx = 1;
     kv_geometries[kv->geometry_idx](kv);
 
     kv->pool = pool;
@@ -4498,8 +4500,19 @@ struct scanner_t {
     char *error_message;
 };
 
+// TODO: I still have to think about parsing optional stuff, sometimes we want
+// to test something but not consume it. Maybe split testing and consuming one
+// value creating something like scanner_consume_matched() that consumes
+// everything matched so far, and something like scanner_reset() that goes back
+// to the last position where we consumed something?. Another option is to
+// "backup" the position before consuming these things, and if we want to go
+// back, restore it (like memory pool markers). I need more experience with the
+// API to know which is better for the user, or if there are other alternatives.
+
 bool scanner_float (struct scanner_t *scnr, float *value)
 {
+    // TODO: Maybe allow value==NULL for the case when we want to consume
+    // something but discard it's value.
     assert (value != NULL);
     if (scnr->error)
         return false;
@@ -4521,6 +4534,8 @@ bool scanner_float (struct scanner_t *scnr, float *value)
 
 bool scanner_int (struct scanner_t *scnr, int *value)
 {
+    // TODO: Maybe allow value==NULL for the case when we want to consume
+    // something but discard it's value.
     assert (value != NULL);
     if (scnr->error)
         return false;
@@ -4601,6 +4616,100 @@ void scanner_set_error (struct scanner_t *scnr, char *error_message)
     scnr->error_message = error_message;
 }
 
+void parse_full_key_arguments (struct scanner_t *scnr, int *kc, float *width, float *user_glue)
+{
+    assert (kc != NULL && width != NULL && user_glue != NULL);
+
+    *kc=0;
+    *width = 1;
+    *user_glue = 0;
+
+    if (!scanner_int (scnr, kc)) {
+        scanner_set_error (scnr, "Expected keycode.\n");
+    }
+
+    if (scanner_str (scnr, ", W:")) {
+        if (!scanner_float (scnr, width)) {
+            scanner_set_error (scnr, "Expected width.\n");
+        }
+    }
+
+    if (scanner_str (scnr, ", UG:")) {
+        if (!scanner_float (scnr, user_glue)) {
+            scanner_set_error (scnr, "Expected user glue.\n");
+        }
+    }
+
+    // Internal glue is parsed but ignored as the API to create keyboard layouts
+    // does not allow setting it. Instead it expects the user to call
+    // kv_compute_glue(). I currently think this is the right thing because I
+    // don't want to bother the user of the API with something that can be
+    // computed. Maybe it should be removed from the string format, although it
+    // can be useful for debug purposes.
+    // @parser_ignores_internal_glue
+    if (scanner_str (scnr, ", IG:")) {
+        float internal_glue;
+        if (!scanner_float (scnr, &internal_glue)) {
+            scanner_set_error (scnr, "Expected user glue.\n");
+        }
+    }
+
+    if (!scanner_char (scnr, ')')) {
+        scanner_set_error (scnr, "Missing ')'\n");
+    }
+}
+
+void parse_key_sgmt_arguments (struct scanner_t *scnr, float *width, enum multirow_key_align_t *align)
+{
+    assert (width != NULL && align != NULL);
+    // The default width of 0 will make the segment keep the width of the
+    // previous multirow segment.
+    *width = 0;
+    // For segments that keep the width of the previous multirow segment, the
+    // align property is ignored.
+    *align = MULTIROW_ALIGN_LEFT;
+
+    if (scanner_str (scnr, "W:")) {
+        if (!scanner_float (scnr, width)) {
+            scanner_set_error (scnr, "Expected width.\n");
+        }
+
+        if (scanner_char (scnr, ',')) {
+            if (scanner_char (scnr, 'L')) {
+                *align = MULTIROW_ALIGN_LEFT;
+            } else if (scanner_char (scnr, 'R')) {
+                *align = MULTIROW_ALIGN_RIGHT;
+            } else {
+                scanner_set_error (scnr, "Expected alignment value.\n");
+            }
+
+        } else {
+            scanner_set_error (scnr, "Expected segment alignment.\n");
+        }
+
+        // @parser_ignores_internal_glue
+        if (scanner_char (scnr, ',')) {
+            float user_glue;
+            if (!scanner_str (scnr, "IG:") || !scanner_float (scnr, &user_glue)) {
+                scanner_set_error (scnr, "Expected internal glue value.\n");
+            }
+        }
+
+    } else {
+        // @parser_ignores_internal_glue
+        if (scanner_str (scnr, "IG:")){
+            float user_glue;
+            if (!scanner_float (scnr, &user_glue)) {
+                scanner_set_error (scnr, "Expected internal glue value.\n");
+            }
+        }
+    }
+
+    if (!scanner_char (scnr, ')')) {
+        scanner_set_error (scnr, "Missing ')'\n");
+    }
+}
+
 void kv_set_from_string (struct keyboard_view_t *kv, char *str)
 {
     kv_clear (kv);
@@ -4616,6 +4725,8 @@ void kv_set_from_string (struct keyboard_view_t *kv, char *str)
     struct scanner_t scnr = ZERO_INIT(struct scanner_t);
     scnr.pos = str;
 
+    GList *multirow_list=NULL, *curr_multirrow = multirow_list;
+
     while (!scnr.is_eof && !scnr.error) {
         float row_height = 1;
         scanner_float (&scnr, &row_height);
@@ -4625,24 +4736,8 @@ void kv_set_from_string (struct keyboard_view_t *kv, char *str)
         while (!scnr.is_eof) {
             if (scanner_str (&scnr, "K(")) {
                 int kc;
-                float width = 1, user_glue = 0;
-                if (!scanner_int (&scnr, &kc)) {
-                    scanner_set_error (&scnr, "Expected keycode.\n");
-                }
-
-                if (scanner_char (&scnr, ',') && scanner_str (&scnr, "W:")) {
-                    if (!scanner_float (&scnr, &width)) {
-                        scanner_set_error (&scnr, "Expected width.\n");
-                    }
-                }
-
-                if (scanner_char (&scnr, ',') && scanner_str (&scnr, "UG:")) {
-                    if (!scanner_float (&scnr, &user_glue)) {
-                        scanner_set_error (&scnr, "Expected user glue.\n");
-                    }
-                }
-
-                scanner_char (&scnr, ')');
+                float width, user_glue;
+                parse_full_key_arguments (&scnr, &kc, &width, &user_glue);
 
                 if (!scnr.error) {
                     kv_add_key_full (&ctx, kc, width, user_glue);
@@ -4651,16 +4746,49 @@ void kv_set_from_string (struct keyboard_view_t *kv, char *str)
                 }
 
             } else if (scanner_str (&scnr, "P(")) {
+                int kc;
+                float width, user_glue;
+                parse_full_key_arguments (&scnr, &kc, &width, &user_glue);
 
-                scanner_char (&scnr, ')');
+                if (!scnr.error) {
+                    struct sgmt_t *new_parent = kv_add_key_full (&ctx, kc, width, user_glue);
+
+                    multirow_list = g_list_insert_before (multirow_list, curr_multirrow, new_parent);
+
+                } else {
+                    break;
+                }
 
             } else if (scanner_str (&scnr, "S(")) {
+                float width;
+                enum multirow_key_align_t align;
+                parse_key_sgmt_arguments (&scnr, &width, &align);
 
-                scanner_char (&scnr, ')');
+                if (!scnr.error) {
+                    kv_add_multirow_sized_sgmt (&ctx, curr_multirrow->data, width, align);
+                    curr_multirrow = curr_multirrow->next;
+
+                } else {
+                    break;
+                }
 
             } else if (scanner_str (&scnr, "E(")) {
+                float width;
+                enum multirow_key_align_t align;
+                parse_key_sgmt_arguments (&scnr, &width, &align);
 
-                scanner_char (&scnr, ')');
+                if (!scnr.error) {
+                    kv_add_multirow_sized_sgmt (&ctx, curr_multirrow->data, width, align);
+
+                    assert (curr_multirrow != NULL);
+                    GList *to_remove = curr_multirrow;
+                    curr_multirrow = curr_multirrow->next;
+                    multirow_list = g_list_remove_link (multirow_list, to_remove);
+                    g_list_free (to_remove);
+
+                } else {
+                    break;
+                }
 
             } else if (scanner_char (&scnr, ';')) {
                 scanner_consume_spaces (&scnr);
@@ -4670,10 +4798,18 @@ void kv_set_from_string (struct keyboard_view_t *kv, char *str)
                 printf ("Error: expected key segment or ';'\n");
             }
         }
+
+        assert (curr_multirrow == NULL);
+        curr_multirrow = multirow_list;
     }
+
+    assert (g_list_length (multirow_list) == 0);
 
     if (scnr.error) {
         printf ("%s", scnr.error_message);
+
+    } else {
+        kv_compute_glue (kv);
     }
 
     // Restore the original locale

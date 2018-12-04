@@ -380,20 +380,6 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
     gtk_widget_show (header_bar);
 
     app.keyboard_view = keyboard_view_new (app.window);
-    {
-        mem_pool_t pool = ZERO_INIT(mem_pool_t);
-        char *str1 = kv_to_string (&pool, app.keyboard_view);
-        kv_set_from_string (app.keyboard_view, str1);
-        char *str2 = kv_to_string (&pool, app.keyboard_view);
-
-        if (strcmp (str1, str2) != 0) {
-            printf ("Strings differ\n");
-            printf ("original:\n%s\nparsed:\n%s\n", str1, str2);
-        } else {
-            printf ("Strings are the same!\n");
-        }
-    }
-
 
     GtkWidget *scrolled_custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
     set_custom_layouts_list (&app.custom_layout_list, custom_layouts, num_custom_layouts);

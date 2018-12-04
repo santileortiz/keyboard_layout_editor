@@ -4274,8 +4274,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
     }
 
     gtk_widget_queue_draw (kv->widget);
-
-    kv_print (kv);
 }
 
 // The default behavior is to let key events fall through, but sometimes we
@@ -4482,7 +4480,7 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
 
     kv->default_key_size = KV_DEFAULT_KEY_SIZE;
-    kv->geometry_idx = 1;
+    kv->geometry_idx = 0;
     kv_geometries[kv->geometry_idx](kv);
 
     kv->pool = pool;
@@ -4815,6 +4813,23 @@ void kv_set_from_string (struct keyboard_view_t *kv, char *str)
     // Restore the original locale
     setlocale (LC_ALL, old_locale);
     free (old_locale);
+}
+
+bool kv_test_parser (struct keyboard_view_t *kv)
+{
+    mem_pool_t pool = ZERO_INIT(mem_pool_t);
+    char *str1 = kv_to_string (&pool, app.keyboard_view);
+    kv_set_from_string (app.keyboard_view, str1);
+    char *str2 = kv_to_string (&pool, app.keyboard_view);
+
+    if (strcmp (str1, str2) != 0) {
+        printf ("Strings differ\n");
+        printf ("original:\n%s\nparsed:\n%s\n", str1, str2);
+        return false;
+    } else {
+        printf ("Strings are the same!\n");
+        return true;
+    }
 }
 
 void keyboard_view_destroy (struct keyboard_view_t *kv)

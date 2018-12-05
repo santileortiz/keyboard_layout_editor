@@ -571,14 +571,15 @@ int main (int argc, char *argv[])
                         "   box-shadow: none;"
                         "}");
 
-        add_global_css (".flat-combobox menu {"
+        add_global_css (".flat-combobox window {"
                         "   padding: 1px 1px;"
                         "   border-width: 0px;"
                         "   border-radius: 2.5px;"
-                        "   background-color: white;"
+                        "   background-color: red;"//@base_color;"
                         "   background-image: none;"
                         "   box-shadow: none;"
                         "}");
+
 
         gtk_main();
 

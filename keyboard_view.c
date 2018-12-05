@@ -2076,6 +2076,8 @@ GtkWidget* toolbar_button_new (const char *icon_name, char *tooltip, GCallback c
     assert (icon_name != NULL);
 
     GtkWidget *new_button = gtk_button_new_from_icon_name (icon_name, GTK_ICON_SIZE_SMALL_TOOLBAR);
+    gtk_widget_set_valign (new_button, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign (new_button, GTK_ALIGN_CENTER);
     add_css_class (new_button, "flat");
     g_signal_connect (G_OBJECT(new_button), "clicked", callback, user_data);
 
@@ -2176,6 +2178,21 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
                                                        "Move and push keys to the right",
                                                        G_CALLBACK (push_right_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), push_right_button, i++, 0, 1, 1);
+
+    GtkWidget *layout_combobox = gtk_combo_box_text_new ();
+    gtk_widget_set_margin_top (layout_combobox, 6);
+    gtk_widget_set_margin_bottom (layout_combobox, 6);
+    gtk_widget_set_margin_end (layout_combobox, 6);
+    add_css_class (layout_combobox, "flat-combobox");
+    combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(layout_combobox), "Simple");
+    combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(layout_combobox), "Full");
+    combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(layout_combobox), "Custom");
+    gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), "Simple");
+    gtk_widget_set_halign (layout_combobox, GTK_ALIGN_END);
+    gtk_widget_set_hexpand (layout_combobox, TRUE);
+
+    gtk_widget_show (layout_combobox);
+    gtk_grid_attach (GTK_GRID(*toolbar), layout_combobox, i++, 0, 1, 1);
 }
 
 // Round i downwards to the nearest multiple of 1/2^n. If i is negative treat it

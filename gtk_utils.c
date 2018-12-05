@@ -24,6 +24,16 @@ void window_resize_centered (GtkWidget *window, gint w, gint h)
     gtk_window_move (GTK_WINDOW(window), x, y);
 }
 
+void add_global_css (gchar *css_data)
+{
+    GdkScreen *screen = gdk_screen_get_default ();
+    GtkCssProvider *css_provider = gtk_css_provider_new ();
+    gtk_css_provider_load_from_data (css_provider, css_data, -1, NULL);
+    gtk_style_context_add_provider_for_screen (screen,
+                                    GTK_STYLE_PROVIDER(css_provider),
+                                    GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+}
+
 void add_custom_css (GtkWidget *widget, gchar *css_data)
 {
     GtkStyleContext *style_context = gtk_widget_get_style_context (widget);
@@ -374,5 +384,10 @@ void replace_wrapped_widget_deferred (GtkWidget **original, GtkWidget *new_widge
     g_signal_connect (G_OBJECT(*original), "destroy", G_CALLBACK (replace_wrapped_widget_deferred_cb), new_widget);
     g_idle_add (idle_widget_destroy, *original);
     *original = new_widget;
+}
+
+void combo_box_text_append_text_with_id (GtkComboBoxText *combobox, const gchar *text)
+{
+    gtk_combo_box_text_append (combobox, text, text);
 }
 

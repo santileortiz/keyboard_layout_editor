@@ -2040,6 +2040,16 @@ void push_right_handler (GtkButton *button, gpointer user_data)
     app.keyboard_view->active_tool = KV_TOOL_PUSH_RIGHT;
 }
 
+void save_view_handler (GtkButton *button, gpointer user_data)
+{
+    // TODO: Implement this!!!
+}
+
+void save_view_as_handler (GtkButton *button, gpointer user_data)
+{
+    // TODO: Implement this!!!
+}
+
 void kv_push_manual_tooltip (struct keyboard_view_t *kv, GdkRectangle *rect, const char *text)
 {
     struct manual_tooltip_t *new_tooltip =
@@ -2179,6 +2189,20 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
                                                        G_CALLBACK (push_right_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), push_right_button, i++, 0, 1, 1);
 
+    GtkWidget *save_button = toolbar_button_new ("document-save-symbolic",
+                                                 "Save keyboard representation",
+                                                 G_CALLBACK (save_view_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), save_button, i++, 0, 1, 1);
+    gtk_widget_set_sensitive (save_button, FALSE);
+    gtk_widget_set_halign (save_button, GTK_ALIGN_END);
+    gtk_widget_set_hexpand (save_button, TRUE);
+
+    GtkWidget *save_as_button = toolbar_button_new ("document-save-as-symbolic",
+                                                    "Save keyboard representation as…",
+                                                    G_CALLBACK (save_view_as_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), save_as_button, i++, 0, 1, 1);
+    gtk_widget_set_sensitive (save_as_button, FALSE);
+
     GtkWidget *layout_combobox = gtk_combo_box_text_new ();
     gtk_widget_set_margin_top (layout_combobox, 6);
     gtk_widget_set_margin_bottom (layout_combobox, 6);
@@ -2186,13 +2210,11 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
     add_css_class (layout_combobox, "flat-combobox");
     combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(layout_combobox), "Simple");
     combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(layout_combobox), "Full");
-    combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(layout_combobox), "Custom");
     gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), "Simple");
-    gtk_widget_set_halign (layout_combobox, GTK_ALIGN_END);
-    gtk_widget_set_hexpand (layout_combobox, TRUE);
 
     gtk_widget_show (layout_combobox);
     gtk_grid_attach (GTK_GRID(*toolbar), layout_combobox, i++, 0, 1, 1);
+
 }
 
 // Round i downwards to the nearest multiple of 1/2^n. If i is negative treat it

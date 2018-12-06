@@ -224,6 +224,7 @@ struct keyboard_view_t {
     mem_pool_t keyboard_pool;
 
     int geometry_idx;
+    char *representation_str;
 
     // Array of sgmt_t pointers indexed by keycode. Provides fast access to keys
     // from a keycode. It's about 6KB in memory, maybe too much?
@@ -4313,6 +4314,15 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
     }
 
     gtk_widget_queue_draw (kv->widget);
+
+    if (e->type != GDK_MOTION_NOTIFY) {
+        char *str = kv_to_string (NULL, kv);
+        if (kv->representation_str == NULL || strcmp (kv->representation_str, str) != 0) {
+            free (kv->representation_str);
+            kv->representation_str = str;
+            printf ("String representation changed:\n%s\n", str);
+        }
+    }
 }
 
 // The default behavior is to let key events fall through, but sometimes we
@@ -4877,5 +4887,6 @@ void keyboard_view_destroy (struct keyboard_view_t *kv)
     mem_pool_destroy (&kv->tooltips_pool);
     mem_pool_destroy (&kv->resize_pool);
     mem_pool_destroy (kv->pool);
+    free (kv->representation_str);
 }
 

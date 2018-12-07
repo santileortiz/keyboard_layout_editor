@@ -538,6 +538,9 @@ int main (int argc, char *argv[])
         gtk_icon_theme_add_resource_path (gtk_icon_theme_get_default (),
                                           "/com/github/santileortiz/iconoscope/icons");
 
+        app.user_dir = "~/.keys-data";
+        ensure_dir_exists (app.user_dir);
+
         mem_pool_t tmp = {0};
         char **custom_layouts;
         int num_custom_layouts = 0;

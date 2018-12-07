@@ -224,6 +224,9 @@ struct keyboard_view_t {
     mem_pool_t keyboard_pool;
 
     int geometry_idx;
+
+    // This is the state used to keep track of available layout representations.
+    mem_pool_t repr_pool;
     char *representation_str;
 
     // Array of sgmt_t pointers indexed by keycode. Provides fast access to keys
@@ -2209,9 +2212,15 @@ void kv_set_full_toolbar (GtkWidget **toolbar)
     gtk_widget_set_margin_bottom (layout_combobox, 6);
     gtk_widget_set_margin_end (layout_combobox, 6);
     add_css_class (layout_combobox, "flat-combobox");
-    combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(layout_combobox), "Simple");
-    combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(layout_combobox), "Full");
-    gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), "Simple");
+    FOREACH (curr_repr in kv->representations) {
+        combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(layout_combobox), curr_repr->name);
+    }
+
+    if (app.selected_repr == NULL) {
+        gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), "Simple");
+    } else {
+        gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), app.selected_repr);
+    }
 
     gtk_widget_show (layout_combobox);
     gtk_grid_attach (GTK_GRID(*toolbar), layout_combobox, i++, 0, 1, 1);
@@ -4320,9 +4329,59 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         if (kv->representation_str == NULL || strcmp (kv->representation_str, str) != 0) {
             free (kv->representation_str);
             kv->representation_str = str;
-            printf ("String representation changed:\n%s\n", str);
+
+            // TODO: Enable Save As button
+            if (kv->curr_repr->type != KV_REPR_INTERNAL) {
+                // TODO: Enable Save button
+            }
+
+            // Create an autosave
+            string_t path = str_new (app.user_dir);
+            str_cat_c (&path, "/repr/");
+            ensure_dir_exists (str_data(&path));
+
+            str_cat_c (&path, kv->curr_repr->name);
+            str_cat_c (&path, ".autosave.lrep");
+            full_file_write (str, strlen(str), str_data(&path));
+            str_free (&path);
+
+            if (kv->curr_repr->saved == true) {
+                // Rebuild all representations
+                kv_build_representations (&pool, kv);
+
+                // Lookup and set the autosave version created above as the
+                // current one
+            }
+
+            assert (kv->curr_repr->saved == false);
         }
+        free (str);
     }
+}
+
+void kv_build_representations (mem_pool_t *pool, struct keyboard_view_t *kv)
+{
+    // TODO: Load debug geometries as representations
+
+    kv_push_representation_func (kv, "Simple", kv_build_default_geometry, KV_REPR_INTERNAL);
+    // TODO: Get Full.lrep file from gresource
+    //kv_push_representation_str (kv, full_str, KV_REPR_INTERNAL);
+
+    string_t repr_path = kv_get_repr_path (&app);
+    size_t repr_path_len = str_len (&repr_path);
+
+    struct stat st;
+    DIR *d = opendir (str_data(path));
+    struct dirent *entry_info;
+    while (read_dir (d, &entry_info)) {
+        str_put_c (&repr_path, repr_path_len, entry_info->d_name);
+        kv_push_representation_file (kv, str_data(&repr_path), KV_REPR_USER);
+    }
+
+    // TODO: Sort alphabetically
+
+    closedir (d);
+    str_free (&repr_path);
 }
 
 // The default behavior is to let key events fall through, but sometimes we

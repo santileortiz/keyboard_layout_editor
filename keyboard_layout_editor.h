@@ -10,6 +10,9 @@ struct kle_app_t {
     GtkWidget *keyboard_grabbing_button;
     GdkSeat *gdk_seat;
     bool no_custom_layouts_welcome_view;
+
+    char *user_dir;
+    char *selected_repr;
 };
 
 gboolean grab_input (GtkButton *button, gpointer user_data);

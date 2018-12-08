@@ -2070,7 +2070,14 @@ void kv_set_full_toolbar (struct keyboard_view_t *kv, GtkWidget **toolbar)
     add_css_class (layout_combobox, "flat-combobox");
     struct kv_repr_t *curr_repr = kv->repr_store->reprs;
     while (curr_repr != NULL) {
-        combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(layout_combobox), curr_repr->name);
+        string_t display_name = str_new (curr_repr->name);
+        if (!curr_repr->saved) {
+            str_cat_c (&display_name, "*");
+        }
+
+        combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(layout_combobox), str_data(&display_name));
+
+        str_free (&display_name);
 
         curr_repr = curr_repr->next;
     }
@@ -4196,7 +4203,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             // Create an autosave
             string_t path = app_get_repr_path (&app);
-
             str_cat_c (&path, kv->repr_store->curr_repr->name);
             str_cat_c (&path, ".autosave.lrep");
             full_file_write (str, strlen(str), str_data(&path));
@@ -4206,8 +4212,17 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 // Rebuild all representations
                 struct kv_repr_store_t *repr_store = kv_repr_store_new ();
 
-                // TODO: Lookup and set the autosave version created above as the
+                // Lookup and set the autosave version created above as the
                 // current one
+                struct kv_repr_t *curr_repr = repr_store->reprs;
+                while (curr_repr != NULL) {
+                    if (curr_repr->saved == false &&
+                        strcmp (curr_repr->name, kv->repr_store->curr_repr->name) == 0) {
+                        repr_store->curr_repr = curr_repr;
+                    }
+
+                    curr_repr = curr_repr->next;
+                }
 
                 // Replace the new repr_store
                 kv_repr_store_destroy (kv->repr_store);
@@ -4216,7 +4231,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             assert (kv->repr_store->curr_repr->saved == false);
         }
-        free (str);
     }
 }
 

@@ -42,12 +42,12 @@ void kv_repr_store_push_file (struct kv_repr_store_t *store, char *path)
     char *fname;
     path_split (NULL, path, NULL, &fname);
     if (g_str_has_suffix(fname, ".autosave.lrep")) {
-        res.saved = true;
+        res.saved = false;
         res.name = remove_multiple_extensions (&store->pool, fname, 2);
 
     } else if (g_str_has_suffix(fname, ".lrep")) {
+        res.saved = true;
         res.name = remove_extension (&store->pool, fname);
-        res.saved = false;
 
     } else {
         // Invalid file extension don't push anything.
@@ -81,6 +81,7 @@ struct kv_repr_store_t* kv_repr_store_new ()
     {
         mem_pool_t bootstrap = {0};
         store = mem_pool_push_size (&bootstrap, sizeof(struct kv_repr_store_t));
+        *store = ZERO_INIT (struct kv_repr_store_t);
         store->pool = bootstrap;
     }
 

@@ -17,3 +17,5 @@ struct kle_app_t {
 
 gboolean grab_input (GtkButton *button, gpointer user_data);
 gboolean ungrab_input (GtkButton *button, gpointer user_data);
+
+string_t app_get_repr_path (struct kle_app_t *app);

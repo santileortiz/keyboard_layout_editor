@@ -18,8 +18,10 @@
 #include "keyboard_layout_editor.h"
 struct kle_app_t app;
 
+#include "keyboard_view_repr_store.h"
 #include "keyboard_view.c"
-
+#include "keyboard_view_repr_store.c"
+#include "keyboard_view_as_string.c"
 
 static inline
 void str_cat_full_path (string_t *str, char *path)
@@ -508,6 +510,14 @@ void transition_to_welcome_with_no_custom_layouts (void)
     build_welcome_screen_no_custom_layouts ();
 }
 
+string_t app_get_repr_path (struct kle_app_t *app)
+{
+    string_t path = str_new (app->user_dir);
+    str_cat_c (&path, "/repr/");
+    ensure_dir_exists (str_data(&path));
+    return path;
+}
+
 int main (int argc, char *argv[])
 {
     app = ZERO_INIT(struct kle_app_t);
@@ -538,7 +548,10 @@ int main (int argc, char *argv[])
         gtk_icon_theme_add_resource_path (gtk_icon_theme_get_default (),
                                           "/com/github/santileortiz/iconoscope/icons");
 
-        app.user_dir = "~/.keys-data";
+        // TODO: When we get a pool at the app level the put this path there,
+        // currently it will leak, but I don't care ATM because it's small and
+        // only allocated once. Will make Valgrind complain though.
+        app.user_dir = sh_expand ("~/.keys-data", NULL);
         ensure_dir_exists (app.user_dir);
 
         mem_pool_t tmp = {0};

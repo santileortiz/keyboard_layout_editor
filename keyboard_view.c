@@ -4352,19 +4352,26 @@ void keyboard_view_set_keymap (struct keyboard_view_t *kv, const char *keymap_na
     mem_pool_destroy (&pool);
 }
 
-// NOTE: The caller of keyboard_view_new() is responsible of calling
-// keyboard_view_destroy() when the view is no longer needed.
-struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
+// A keyboard view created with this is useful to test the data structure
+// programatically without having any GUI.
+struct keyboard_view_t* kv_new ()
 {
-    mem_pool_t *pool;
-    {
-        mem_pool_t bootstrap_pool = {0};
-        pool = mem_pool_push_size (&bootstrap_pool, sizeof(mem_pool_t));
-        *pool = bootstrap_pool;
-    }
+    mem_pool_t bootstrap_pool = {0};
+    mem_pool_t *pool = mem_pool_push_size (&bootstrap_pool, sizeof(mem_pool_t));
+    *pool = bootstrap_pool;
 
     struct keyboard_view_t *kv = mem_pool_push_size (pool, sizeof(struct keyboard_view_t));
     *kv = ZERO_INIT(struct keyboard_view_t);
+    kv->pool = pool;
+
+    return kv;
+}
+
+// NOTE: The caller of keyboard_view_new_with_gui() is responsible of calling
+// keyboard_view_destroy() when the view is no longer needed.
+struct keyboard_view_t* keyboard_view_new_with_gui (GtkWidget *window)
+{
+    struct keyboard_view_t *kv = kv_new ();
 
     // This handlers are set in the window so we don't need focus on the
     // keyboard view to react to keypresses. I think this is useful for
@@ -4427,7 +4434,6 @@ struct keyboard_view_t* keyboard_view_new (GtkWidget *window)
     kv->repr_store = kv_repr_store_new ();
     kv_set_from_string (kv, kv->repr_store->curr_repr->repr);
 
-    kv->pool = pool;
     kv->state = KV_PREVIEW;
     kv_update (kv, KV_CMD_SET_MODE_EDIT, NULL);
 

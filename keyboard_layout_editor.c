@@ -381,7 +381,7 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
     gtk_window_set_titlebar (GTK_WINDOW(app.window), header_bar);
     gtk_widget_show (header_bar);
 
-    app.keyboard_view = keyboard_view_new (app.window);
+    app.keyboard_view = keyboard_view_new_with_gui (app.window);
 
     GtkWidget *scrolled_custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
     set_custom_layouts_list (&app.custom_layout_list, custom_layouts, num_custom_layouts);

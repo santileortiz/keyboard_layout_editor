@@ -16,16 +16,7 @@ void kv_repr_store_push_func (struct kv_repr_store_t *store, char *name, set_geo
     new_repr->saved = true;
     new_repr->name = pom_strdup (&store->pool, name);
 
-    struct keyboard_view_t *kv;
-    {
-        mem_pool_t bootstrap_pool = {0};
-        mem_pool_t *pool = mem_pool_push_size (&bootstrap_pool, sizeof(mem_pool_t));
-        *pool = bootstrap_pool;
-
-        kv = mem_pool_push_size (pool, sizeof(struct keyboard_view_t));
-        *kv = ZERO_INIT(struct keyboard_view_t);
-        kv->pool = pool;
-    }
+    struct keyboard_view_t *kv = kv_new ();
 
     func (kv);
     new_repr->repr = kv_to_string (&store->pool, kv);

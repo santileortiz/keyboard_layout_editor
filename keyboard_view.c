@@ -1910,6 +1910,44 @@ void save_view_as_handler (GtkButton *button, gpointer user_data)
     // TODO: Implement this!!!
 }
 
+void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr)
+{
+    kv_clear (kv);
+    kv_set_from_string (kv, repr->repr);
+    kv->repr_store->curr_repr = repr;
+}
+
+void kv_set_current_repr_by_name (struct keyboard_view_t *kv, const char *name, bool saved)
+{
+    struct kv_repr_t *curr_repr = kv->repr_store->reprs;
+    while (curr_repr != NULL) {
+        if (strcmp (name, curr_repr->name) == 0 && curr_repr->saved == saved) {
+            break;
+        }
+        curr_repr = curr_repr->next;
+    }
+    assert (curr_repr != NULL);
+
+    kv_set_current_repr (kv, curr_repr);
+}
+
+void change_repr_handler (GtkComboBox *themes_combobox, gpointer user_data)
+{
+    // NOTE: theme_name is interned, don't free it.
+    const char* repr_name = gtk_combo_box_get_active_id (themes_combobox);
+
+    bool saved = true;
+    string_t repr_name_str = str_new (repr_name);
+    size_t len = strlen(repr_name);
+    if (repr_name[len-1] == '*') {
+        strn_set (&repr_name_str, repr_name, len - 1);
+        saved = false;
+    }
+
+    kv_set_current_repr_by_name (app.keyboard_view, str_data(&repr_name_str), saved);
+    str_free (&repr_name_str);
+}
+
 void kv_push_manual_tooltip (struct keyboard_view_t *kv, GdkRectangle *rect, const char *text)
 {
     struct manual_tooltip_t *new_tooltip =
@@ -2087,6 +2125,7 @@ void kv_set_full_toolbar (struct keyboard_view_t *kv, GtkWidget **toolbar)
     } else {
         gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), app.selected_repr);
     }
+    g_signal_connect (G_OBJECT(layout_combobox), "changed", G_CALLBACK (change_repr_handler), NULL);
 
     gtk_widget_show (layout_combobox);
     gtk_grid_attach (GTK_GRID(*toolbar), layout_combobox, i++, 0, 1, 1);
@@ -3429,6 +3468,52 @@ BUILD_GEOMETRY_FUNC(vertical_extend_test_geometry)
     kv_end_geometry (&ctx);
 }
 
+void kv_autosave (struct keyboard_view_t *kv)
+{
+    char *str = kv_to_string (NULL, kv);
+    if (kv->representation_str == NULL || strcmp (kv->representation_str, str) != 0) {
+        free (kv->representation_str);
+        kv->representation_str = str;
+
+        printf ("Created an autosave!\n");
+
+        // TODO: Enable Save As button
+        if (!kv->repr_store->curr_repr->is_internal) {
+            // TODO: Enable Save button
+        }
+
+        // Create an autosave
+        string_t path = app_get_repr_path (&app);
+        str_cat_c (&path, kv->repr_store->curr_repr->name);
+        str_cat_c (&path, ".autosave.lrep");
+        full_file_write (str, strlen(str), str_data(&path));
+        str_free (&path);
+
+        if (kv->repr_store->curr_repr->saved == true) {
+            // Reload representations
+            struct kv_repr_store_t *repr_store = kv_repr_store_new ();
+
+            // Lookup and set the autosave version created above as the
+            // current one
+            struct kv_repr_t *curr_repr = repr_store->reprs;
+            while (curr_repr != NULL) {
+                if (curr_repr->saved == false &&
+                    strcmp (curr_repr->name, kv->repr_store->curr_repr->name) == 0) {
+                    repr_store->curr_repr = curr_repr;
+                }
+
+                curr_repr = curr_repr->next;
+            }
+
+            // Replace the new repr_store
+            kv_repr_store_destroy (kv->repr_store);
+            kv->repr_store = repr_store;
+        }
+
+        assert (kv->repr_store->curr_repr->saved == false);
+    }
+}
+
 // FIXME: I was unable to easily find the height of the toolbar to ignore clicks
 // when setting the tool. The grid widget kv->toolbar is the size of the full
 // keyboard view, the size of the tool buttons in kv_set_full_toolbar() is 1px
@@ -3516,7 +3601,14 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             if (e->type == GDK_KEY_PRESS) {
                 GdkEventKey *event = (GdkEventKey*)e;
                 if (event->state & GDK_CONTROL_MASK && event->hardware_keycode - 8 == KEY_T) {
-                    // TODO: Move to next representation @representations
+
+                    struct kv_repr_t *next_repr;
+                    if (kv->repr_store->curr_repr->next != NULL) {
+                        next_repr = kv->repr_store->curr_repr->next;
+                    } else {
+                        next_repr = kv->repr_store->reprs;
+                    }
+                    kv_set_current_repr (kv, next_repr);
                 }
             }
 
@@ -3644,6 +3736,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv_remove_empty_rows (kv);
                 kv_compute_glue (kv);
                 kv_equalize_left_edge (kv);
+                kv_autosave (kv);
 
             } else if (kv->active_tool == KV_TOOL_RESIZE_KEY &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
@@ -3862,6 +3955,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     kv_compute_glue (kv);
                 }
 
+                kv_autosave (kv);
+
             } else if (kv->active_tool == KV_TOOL_VERTICAL_SHRINK &&
                      e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 double y;
@@ -3925,6 +4020,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv_compute_glue (kv);
                 kv_equalize_left_edge (kv);
 
+                kv_autosave (kv);
+
 
             } else if (kv->active_tool == KV_TOOL_ADD_KEY &&
                        e->type == GDK_MOTION_NOTIFY) {
@@ -3956,6 +4053,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 GdkEventButton *event = (GdkEventButton*)e;
                 kv_set_add_key_state (kv, event->x, event->y);
+
+                kv_autosave (kv);
 
             } else if (kv->active_tool == KV_TOOL_PUSH_RIGHT &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
@@ -3993,6 +4092,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 kv->selected_key = NULL;
                 ungrab_input (NULL, NULL);
+                kv_autosave (kv);
                 kv->state = KV_EDIT;
 
             } else if (e->type == GDK_BUTTON_RELEASE) { // @select_is_release_based
@@ -4014,6 +4114,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (e->type == GDK_BUTTON_RELEASE) {
                 kv->state = KV_EDIT;
+                kv_autosave (kv);
 
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
@@ -4038,6 +4139,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (e->type == GDK_BUTTON_RELEASE) {
                 kv->state = KV_EDIT;
+                kv_autosave (kv);
 
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
@@ -4076,6 +4178,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             } else if (e->type == GDK_BUTTON_RELEASE) {
                 kv_resize_cleanup (kv);
                 kv->state = KV_EDIT;
+                kv_autosave (kv);
 
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
@@ -4111,6 +4214,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (e->type == GDK_BUTTON_RELEASE) {
                 kv->state = KV_EDIT;
+                kv_autosave (kv);
 
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
@@ -4140,6 +4244,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (e->type == GDK_BUTTON_RELEASE) {
                 kv->state = KV_EDIT;
+                kv_autosave (kv);
 
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
@@ -4163,6 +4268,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
             } else if (e->type == GDK_BUTTON_RELEASE) {
                 kv->state = KV_EDIT;
+                kv_autosave (kv);
 
             } else if (e->type == GDK_KEY_PRESS) {
                 if (key_event_kc - 8 == KEY_ESC) {
@@ -4175,49 +4281,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
     }
 
     gtk_widget_queue_draw (kv->widget);
-
-    if (e->type != GDK_MOTION_NOTIFY && e->type != GDK_NOTHING) {
-        char *str = kv_to_string (NULL, kv);
-        if (kv->representation_str == NULL || strcmp (kv->representation_str, str) != 0) {
-            free (kv->representation_str);
-            kv->representation_str = str;
-
-            // TODO: Enable Save As button
-            if (!kv->repr_store->curr_repr->is_internal) {
-                // TODO: Enable Save button
-            }
-
-            // Create an autosave
-            string_t path = app_get_repr_path (&app);
-            str_cat_c (&path, kv->repr_store->curr_repr->name);
-            str_cat_c (&path, ".autosave.lrep");
-            full_file_write (str, strlen(str), str_data(&path));
-            str_free (&path);
-
-            if (kv->repr_store->curr_repr->saved == true) {
-                // Rebuild all representations
-                struct kv_repr_store_t *repr_store = kv_repr_store_new ();
-
-                // Lookup and set the autosave version created above as the
-                // current one
-                struct kv_repr_t *curr_repr = repr_store->reprs;
-                while (curr_repr != NULL) {
-                    if (curr_repr->saved == false &&
-                        strcmp (curr_repr->name, kv->repr_store->curr_repr->name) == 0) {
-                        repr_store->curr_repr = curr_repr;
-                    }
-
-                    curr_repr = curr_repr->next;
-                }
-
-                // Replace the new repr_store
-                kv_repr_store_destroy (kv->repr_store);
-                kv->repr_store = repr_store;
-            }
-
-            assert (kv->repr_store->curr_repr->saved == false);
-        }
-    }
 }
 
 // The default behavior is to let key events fall through, but sometimes we
@@ -4432,7 +4495,11 @@ struct keyboard_view_t* keyboard_view_new_with_gui (GtkWidget *window)
 
     kv->default_key_size = KV_DEFAULT_KEY_SIZE;
     kv->repr_store = kv_repr_store_new ();
-    kv_set_from_string (kv, kv->repr_store->curr_repr->repr);
+
+    // TODO: Lookup which is the active representation
+    struct kv_repr_t *active_repr = kv->repr_store->curr_repr;
+    kv_set_current_repr (kv, active_repr);
+    kv->representation_str = strdup (active_repr->repr);
 
     kv->state = KV_PREVIEW;
     kv_update (kv, KV_CMD_SET_MODE_EDIT, NULL);

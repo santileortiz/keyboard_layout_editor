@@ -75,6 +75,9 @@ void kv_repr_store_push_file (struct kv_repr_store_t *store, char *path)
     }
 }
 
+#define kv_repr_store_push_func_simple(store,func_name) \
+    kv_repr_store_push_func(store, #func_name, func_name);
+
 struct kv_repr_store_t* kv_repr_store_new ()
 {
     struct kv_repr_store_t *store;
@@ -89,7 +92,17 @@ struct kv_repr_store_t* kv_repr_store_new ()
     // TODO: Get Full.lrep file from gresource
     //kv_push_representation_str (kv, "Full", full_str);
 
-    // TODO: Load debug geometries as representations
+#ifndef NDEBUG
+    // Push debug geometries
+    kv_repr_store_push_func_simple (store, multirow_test_geometry);
+    kv_repr_store_push_func_simple (store, edge_resize_leave_original_pos_1);
+    kv_repr_store_push_func_simple (store, edge_resize_leave_original_pos_2);
+    kv_repr_store_push_func_simple (store, edge_resize_test_geometry_1);
+    kv_repr_store_push_func_simple (store, edge_resize_test_geometry_2);
+    kv_repr_store_push_func_simple (store, edge_resize_test_geometry_3);
+    kv_repr_store_push_func_simple (store, adjust_left_edge_test_geometry);
+    kv_repr_store_push_func_simple (store, vertical_extend_test_geometry);
+#endif
 
     string_t repr_path = app_get_repr_path (&app);
     size_t repr_path_len = str_len (&repr_path);

@@ -3429,18 +3429,6 @@ BUILD_GEOMETRY_FUNC(vertical_extend_test_geometry)
     kv_end_geometry (&ctx);
 }
 
-set_geometry_func_t* kv_geometries[] = {
-        kv_build_default_geometry, // Default
-        multirow_test_geometry,
-        edge_resize_leave_original_pos_1,
-        edge_resize_leave_original_pos_2,
-        edge_resize_test_geometry_1,
-        edge_resize_test_geometry_2,
-        edge_resize_test_geometry_3,
-        adjust_left_edge_test_geometry,
-        vertical_extend_test_geometry,
-    };
-
 // FIXME: I was unable to easily find the height of the toolbar to ignore clicks
 // when setting the tool. The grid widget kv->toolbar is the size of the full
 // keyboard view, the size of the tool buttons in kv_set_full_toolbar() is 1px
@@ -3528,9 +3516,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             if (e->type == GDK_KEY_PRESS) {
                 GdkEventKey *event = (GdkEventKey*)e;
                 if (event->state & GDK_CONTROL_MASK && event->hardware_keycode - 8 == KEY_T) {
-                    kv_clear (kv);
-                    kv->geometry_idx = (kv->geometry_idx+1) % ARRAY_SIZE(kv_geometries);
-                    kv_geometries[kv->geometry_idx](kv);
+                    // TODO: Move to next representation @representations
                 }
             }
 

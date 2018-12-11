@@ -1920,7 +1920,7 @@ string_t kv_repr_get_display_name (struct kv_repr_t *repr)
     return display_name;
 }
 
-GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, char *active_name);
+GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *active_name);
 void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr, bool rebuild_combobox)
 {
     kv_clear (kv);
@@ -1928,10 +1928,7 @@ void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr, bo
     kv->repr_store->curr_repr = repr;
 
     if (rebuild_combobox) {
-        string_t display_name = kv_repr_get_display_name (repr);
-        GtkWidget *new_combobox = kv_new_repr_combobox (kv, str_data (&display_name));
-        str_free (&display_name);
-
+        GtkWidget *new_combobox = kv_new_repr_combobox (kv, repr);
         replace_wrapped_widget (&kv->repr_combobox, new_combobox);
     }
 }
@@ -1967,7 +1964,7 @@ void change_repr_handler (GtkComboBox *themes_combobox, gpointer user_data)
     str_free (&repr_name_str);
 }
 
-GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, char *active_name)
+GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *active_repr)
 {
     GtkWidget *layout_combobox = gtk_combo_box_text_new ();
     gtk_widget_set_margin_top (layout_combobox, 6);
@@ -1985,10 +1982,12 @@ GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, char *active_name)
         curr_repr = curr_repr->next;
     }
 
-    if (active_name == NULL) {
+    if (active_repr == NULL) {
         gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), "Simple");
     } else {
-        gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), active_name);
+        string_t display_name = kv_repr_get_display_name (active_repr);
+        gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), str_data(&display_name));
+        str_free (&display_name);
     }
     g_signal_connect (G_OBJECT(layout_combobox), "changed", G_CALLBACK (change_repr_handler), NULL);
 
@@ -2149,9 +2148,7 @@ void kv_set_full_toolbar (struct keyboard_view_t *kv, GtkWidget **toolbar)
     gtk_grid_attach (GTK_GRID(*toolbar), save_as_button, i++, 0, 1, 1);
     gtk_widget_set_sensitive (save_as_button, FALSE);
 
-    string_t display_name = kv_repr_get_display_name (kv->repr_store->curr_repr);
-    kv->repr_combobox = kv_new_repr_combobox (kv, str_data (&display_name));
-    str_free (&display_name);
+    kv->repr_combobox = kv_new_repr_combobox (kv, kv->repr_store->curr_repr);
     {
         GtkWidget *wrapper = wrap_gtk_widget(kv->repr_combobox);
         gtk_widget_show_all (wrapper);

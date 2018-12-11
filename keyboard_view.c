@@ -298,6 +298,7 @@ struct keyboard_view_t {
     // GUI related information and state
     GtkWidget *widget;
     GtkWidget *toolbar;
+    GtkWidget *repr_combobox;
     float default_key_size; // In pixels
     int clicked_kc;
     struct sgmt_t *selected_key;
@@ -1910,11 +1911,29 @@ void save_view_as_handler (GtkButton *button, gpointer user_data)
     // TODO: Implement this!!!
 }
 
-void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr)
+string_t kv_repr_get_display_name (struct kv_repr_t *repr)
+{
+    string_t display_name = str_new (repr->name);
+    if (!repr->saved) {
+        str_cat_c (&display_name, "*");
+    }
+    return display_name;
+}
+
+GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, char *active_name);
+void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr, bool rebuild_combobox)
 {
     kv_clear (kv);
     kv_set_from_string (kv, repr->repr);
     kv->repr_store->curr_repr = repr;
+
+    if (rebuild_combobox) {
+        string_t display_name = kv_repr_get_display_name (repr);
+        GtkWidget *new_combobox = kv_new_repr_combobox (kv, str_data (&display_name));
+        str_free (&display_name);
+
+        replace_wrapped_widget (&kv->repr_combobox, new_combobox);
+    }
 }
 
 void kv_set_current_repr_by_name (struct keyboard_view_t *kv, const char *name, bool saved)
@@ -1928,7 +1947,7 @@ void kv_set_current_repr_by_name (struct keyboard_view_t *kv, const char *name, 
     }
     assert (curr_repr != NULL);
 
-    kv_set_current_repr (kv, curr_repr);
+    kv_set_current_repr (kv, curr_repr, false);
 }
 
 void change_repr_handler (GtkComboBox *themes_combobox, gpointer user_data)
@@ -1946,6 +1965,35 @@ void change_repr_handler (GtkComboBox *themes_combobox, gpointer user_data)
 
     kv_set_current_repr_by_name (app.keyboard_view, str_data(&repr_name_str), saved);
     str_free (&repr_name_str);
+}
+
+GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, char *active_name)
+{
+    GtkWidget *layout_combobox = gtk_combo_box_text_new ();
+    gtk_widget_set_margin_top (layout_combobox, 6);
+    gtk_widget_set_margin_bottom (layout_combobox, 6);
+    gtk_widget_set_margin_end (layout_combobox, 6);
+    add_css_class (layout_combobox, "flat-combobox");
+    struct kv_repr_t *curr_repr = kv->repr_store->reprs;
+    while (curr_repr != NULL) {
+        string_t display_name = kv_repr_get_display_name (curr_repr);
+
+        combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(layout_combobox), str_data(&display_name));
+
+        str_free (&display_name);
+
+        curr_repr = curr_repr->next;
+    }
+
+    if (active_name == NULL) {
+        gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), "Simple");
+    } else {
+        gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), active_name);
+    }
+    g_signal_connect (G_OBJECT(layout_combobox), "changed", G_CALLBACK (change_repr_handler), NULL);
+
+    gtk_widget_show (layout_combobox);
+    return layout_combobox;
 }
 
 void kv_push_manual_tooltip (struct keyboard_view_t *kv, GdkRectangle *rect, const char *text)
@@ -2101,35 +2149,14 @@ void kv_set_full_toolbar (struct keyboard_view_t *kv, GtkWidget **toolbar)
     gtk_grid_attach (GTK_GRID(*toolbar), save_as_button, i++, 0, 1, 1);
     gtk_widget_set_sensitive (save_as_button, FALSE);
 
-    GtkWidget *layout_combobox = gtk_combo_box_text_new ();
-    gtk_widget_set_margin_top (layout_combobox, 6);
-    gtk_widget_set_margin_bottom (layout_combobox, 6);
-    gtk_widget_set_margin_end (layout_combobox, 6);
-    add_css_class (layout_combobox, "flat-combobox");
-    struct kv_repr_t *curr_repr = kv->repr_store->reprs;
-    while (curr_repr != NULL) {
-        string_t display_name = str_new (curr_repr->name);
-        if (!curr_repr->saved) {
-            str_cat_c (&display_name, "*");
-        }
-
-        combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(layout_combobox), str_data(&display_name));
-
-        str_free (&display_name);
-
-        curr_repr = curr_repr->next;
+    string_t display_name = kv_repr_get_display_name (kv->repr_store->curr_repr);
+    kv->repr_combobox = kv_new_repr_combobox (kv, str_data (&display_name));
+    str_free (&display_name);
+    {
+        GtkWidget *wrapper = wrap_gtk_widget(kv->repr_combobox);
+        gtk_widget_show_all (wrapper);
+        gtk_grid_attach (GTK_GRID(*toolbar), wrapper, i++, 0, 1, 1);
     }
-
-    if (app.selected_repr == NULL) {
-        gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), "Simple");
-    } else {
-        gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), app.selected_repr);
-    }
-    g_signal_connect (G_OBJECT(layout_combobox), "changed", G_CALLBACK (change_repr_handler), NULL);
-
-    gtk_widget_show (layout_combobox);
-    gtk_grid_attach (GTK_GRID(*toolbar), layout_combobox, i++, 0, 1, 1);
-
 }
 
 // Round i downwards to the nearest multiple of 1/2^n. If i is negative treat it
@@ -3499,7 +3526,7 @@ void kv_autosave (struct keyboard_view_t *kv)
             while (curr_repr != NULL) {
                 if (curr_repr->saved == false &&
                     strcmp (curr_repr->name, kv->repr_store->curr_repr->name) == 0) {
-                    repr_store->curr_repr = curr_repr;
+                    break;
                 }
 
                 curr_repr = curr_repr->next;
@@ -3508,6 +3535,7 @@ void kv_autosave (struct keyboard_view_t *kv)
             // Replace the new repr_store
             kv_repr_store_destroy (kv->repr_store);
             kv->repr_store = repr_store;
+            kv_set_current_repr (kv, curr_repr, true);
         }
 
         assert (kv->repr_store->curr_repr->saved == false);
@@ -3608,7 +3636,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     } else {
                         next_repr = kv->repr_store->reprs;
                     }
-                    kv_set_current_repr (kv, next_repr);
+                    kv_set_current_repr (kv, next_repr, true);
                 }
             }
 
@@ -4498,7 +4526,7 @@ struct keyboard_view_t* keyboard_view_new_with_gui (GtkWidget *window)
 
     // TODO: Lookup which is the active representation
     struct kv_repr_t *active_repr = kv->repr_store->curr_repr;
-    kv_set_current_repr (kv, active_repr);
+    kv_set_current_repr (kv, active_repr, false);
     kv->representation_str = strdup (active_repr->repr);
 
     kv->state = KV_PREVIEW;

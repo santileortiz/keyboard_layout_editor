@@ -1948,6 +1948,12 @@ void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr, bo
         }
     }
 
+    // Update settings so the active representation becomes the one just set
+    string_t settings_file_path = str_new(app.user_dir);
+    str_cat_c (&settings_file_path, "/settings");
+    full_file_write (repr->name, strlen(repr->name), str_data(&settings_file_path));
+    str_free (&settings_file_path);
+
     if (rebuild_combobox) {
         GtkWidget *new_combobox = kv_new_repr_combobox (kv, repr);
         replace_wrapped_widget (&kv->repr_combobox, new_combobox);
@@ -4538,10 +4544,8 @@ struct keyboard_view_t* keyboard_view_new_with_gui (GtkWidget *window)
     kv->default_key_size = KV_DEFAULT_KEY_SIZE;
     kv->repr_store = kv_repr_store_new ();
 
-    // TODO: Lookup which is the active representation
-    struct kv_repr_t *active_repr = kv->repr_store->curr_repr;
-    kv_set_current_repr (kv, active_repr, false);
-    kv->representation_str = strdup (active_repr->repr);
+    char *active_repr_name = app.selected_repr==NULL ? "Simple" : app.selected_repr;
+    kv_set_current_repr_by_name (kv, active_repr_name, true);
 
     kv->state = KV_PREVIEW;
     kv_update (kv, KV_CMD_SET_MODE_EDIT, NULL);

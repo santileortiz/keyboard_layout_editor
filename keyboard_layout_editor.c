@@ -548,11 +548,33 @@ int main (int argc, char *argv[])
         gtk_icon_theme_add_resource_path (gtk_icon_theme_get_default (),
                                           "/com/github/santileortiz/iconoscope/icons");
 
-        // TODO: When we get a pool at the app level the put this path there,
+        // TODO: When we get a pool at the app level, put this path there,
         // currently it will leak, but I don't care ATM because it's small and
         // only allocated once. Will make Valgrind complain though.
+        // @small_leaks
         app.user_dir = sh_expand ("~/.keys-data", NULL);
         ensure_dir_exists (app.user_dir);
+
+        // TODO: Currently the only setting we have is the last used
+        // representation name. So for now that's the only content of the
+        // settings file. When we get more settings either start using a
+        // .desktop formatted file, or use gsettings.
+        // Also, the representation name will also leak ATM. @small_leaks
+        string_t settings_file_path = str_new(app.user_dir);
+        str_cat_c (&settings_file_path, "/settings");
+        if (path_exists(str_data(&settings_file_path))) {
+            app.selected_repr = full_file_read (NULL, str_data(&settings_file_path));
+            // Make the string end at the first line break
+            char *c = app.selected_repr;
+            while (c) {
+                if (*c == '\n') {
+                    *c = '\0';
+                    break;
+                }
+                c++;
+            }
+        }
+        str_free (&settings_file_path);
 
         mem_pool_t tmp = {0};
         char **custom_layouts;

@@ -299,6 +299,9 @@ struct keyboard_view_t {
     GtkWidget *widget;
     GtkWidget *toolbar;
     GtkWidget *repr_combobox;
+    GtkWidget *repr_save_button;
+    GtkWidget *repr_save_as_button;
+
     float default_key_size; // In pixels
     int clicked_kc;
     struct sgmt_t *selected_key;
@@ -1927,6 +1930,24 @@ void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr, bo
     kv_set_from_string (kv, repr->repr);
     kv->repr_store->curr_repr = repr;
 
+    // Enable/Disable Save button
+    if (kv->repr_save_button) {
+        if (repr->is_internal) {
+            gtk_widget_set_sensitive (kv->repr_save_button, FALSE);
+        } else {
+            gtk_widget_set_sensitive (kv->repr_save_button, TRUE);
+        }
+    }
+
+    // Enable/Disable Save As button
+    if (kv->repr_save_as_button) {
+        if (repr->saved) {
+            gtk_widget_set_sensitive (kv->repr_save_as_button, FALSE);
+        } else {
+            gtk_widget_set_sensitive (kv->repr_save_as_button, TRUE);
+        }
+    }
+
     if (rebuild_combobox) {
         GtkWidget *new_combobox = kv_new_repr_combobox (kv, repr);
         replace_wrapped_widget (&kv->repr_combobox, new_combobox);
@@ -1966,6 +1987,8 @@ void change_repr_handler (GtkComboBox *themes_combobox, gpointer user_data)
 
 GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *active_repr)
 {
+    assert (active_repr != NULL);
+
     GtkWidget *layout_combobox = gtk_combo_box_text_new ();
     gtk_widget_set_margin_top (layout_combobox, 6);
     gtk_widget_set_margin_bottom (layout_combobox, 6);
@@ -1982,13 +2005,9 @@ GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *a
         curr_repr = curr_repr->next;
     }
 
-    if (active_repr == NULL) {
-        gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), "Simple");
-    } else {
-        string_t display_name = kv_repr_get_display_name (active_repr);
-        gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), str_data(&display_name));
-        str_free (&display_name);
-    }
+    string_t display_name = kv_repr_get_display_name (active_repr);
+    gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), str_data(&display_name));
+    str_free (&display_name);
     g_signal_connect (G_OBJECT(layout_combobox), "changed", G_CALLBACK (change_repr_handler), NULL);
 
     gtk_widget_show (layout_combobox);
@@ -2138,15 +2157,15 @@ void kv_set_full_toolbar (struct keyboard_view_t *kv, GtkWidget **toolbar)
                                                  "Save keyboard representation",
                                                  G_CALLBACK (save_view_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), save_button, i++, 0, 1, 1);
-    gtk_widget_set_sensitive (save_button, FALSE);
     gtk_widget_set_halign (save_button, GTK_ALIGN_END);
     gtk_widget_set_hexpand (save_button, TRUE);
+    kv->repr_save_button = save_button;
 
     GtkWidget *save_as_button = toolbar_button_new ("document-save-as-symbolic",
                                                     "Save keyboard representation as…",
                                                     G_CALLBACK (save_view_as_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), save_as_button, i++, 0, 1, 1);
-    gtk_widget_set_sensitive (save_as_button, FALSE);
+    kv->repr_save_as_button = save_as_button;
 
     kv->repr_combobox = kv_new_repr_combobox (kv, kv->repr_store->curr_repr);
     {
@@ -2154,6 +2173,7 @@ void kv_set_full_toolbar (struct keyboard_view_t *kv, GtkWidget **toolbar)
         gtk_widget_show_all (wrapper);
         gtk_grid_attach (GTK_GRID(*toolbar), wrapper, i++, 0, 1, 1);
     }
+    kv_set_current_repr (kv, kv->repr_store->curr_repr, false);
 }
 
 // Round i downwards to the nearest multiple of 1/2^n. If i is negative treat it
@@ -3494,17 +3514,14 @@ BUILD_GEOMETRY_FUNC(vertical_extend_test_geometry)
 
 void kv_autosave (struct keyboard_view_t *kv)
 {
+    assert (kv->state != KV_PREVIEW);
+
     char *str = kv_to_string (NULL, kv);
     if (kv->representation_str == NULL || strcmp (kv->representation_str, str) != 0) {
         free (kv->representation_str);
         kv->representation_str = str;
 
         printf ("Created an autosave!\n");
-
-        // TODO: Enable Save As button
-        if (!kv->repr_store->curr_repr->is_internal) {
-            // TODO: Enable Save button
-        }
 
         // Create an autosave
         string_t path = app_get_repr_path (&app);

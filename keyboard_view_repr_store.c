@@ -130,3 +130,16 @@ struct kv_repr_store_t* kv_repr_store_new ()
     return store;
 }
 
+struct kv_repr_t* kv_repr_get_by_name (struct kv_repr_store_t *store, const char *name, bool saved)
+{
+    struct kv_repr_t *curr_repr = store->reprs;
+    while (curr_repr != NULL) {
+        if (strcmp (name, curr_repr->name) == 0 && curr_repr->saved == saved) {
+            break;
+        }
+        curr_repr = curr_repr->next;
+    }
+    return curr_repr;
+
+}
+

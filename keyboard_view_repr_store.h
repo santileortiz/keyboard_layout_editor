@@ -20,3 +20,4 @@ struct kv_repr_store_t {
 
 struct kv_repr_store_t* kv_repr_store_new ();
 void kv_repr_store_destroy (struct kv_repr_store_t *store);
+struct kv_repr_t* kv_repr_get_by_name (struct kv_repr_store_t *store, const char *name, bool saved);

@@ -1906,11 +1906,6 @@ void push_right_handler (GtkButton *button, gpointer user_data)
     app.keyboard_view->active_tool = KV_TOOL_PUSH_RIGHT;
 }
 
-void save_view_handler (GtkButton *button, gpointer user_data)
-{
-    // TODO: Implement this!!!
-}
-
 void repr_save_as_popover_cancel_handler (GtkButton *button, gpointer user_data)
 {
     struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
@@ -1958,14 +1953,27 @@ bool maybe_get_overwrite_confirmation (char *path)
     return overwrite;
 }
 
-void kv_set_current_repr_by_name (struct keyboard_view_t *kv, const char *name, bool saved);
-void repr_save_as_popover_save_handler (GtkButton *button, gpointer user_data)
+void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr);
+void kv_reload_representations (struct keyboard_view_t *kv, const char *name, bool saved)
 {
-    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    // Reload representations into a new repr_store
+    struct kv_repr_store_t *repr_store = kv_repr_store_new ();
 
-    // NOTE: name must not be freed
-    const char *name = gtk_entry_get_text (GTK_ENTRY(kv->repr_save_as_popover_entry));
+    // Lookup the representation mathching name and saved arguments.
+    struct kv_repr_t *curr_repr = kv_repr_get_by_name (repr_store, name, saved);
+    assert (curr_repr != NULL);
 
+    // Replace the the old repr_store with the new one.
+    // NOTE: Be careful to leave this at the end to avoid reading stuff that
+    // will be freed here.
+    kv_repr_store_destroy (kv->repr_store);
+    kv->repr_store = repr_store;
+    kv_set_current_repr (kv, curr_repr);
+    kv_rebuild_repr_combobox (kv, repr_store->curr_repr);
+}
+
+void kv_repr_save_current (struct keyboard_view_t *kv, const char *name, bool confirm_overwrite)
+{
     assert (kv->repr_store->curr_repr->saved == false && "Don't save a representation that isn't an autosave");
 
     string_t repr_path = app_get_repr_path (&app);
@@ -1982,7 +1990,8 @@ void repr_save_as_popover_save_handler (GtkButton *button, gpointer user_data)
         valid_name = false;
     }
 
-    if (valid_name && maybe_get_overwrite_confirmation (str_data (&repr_path))) {
+    if (valid_name &&
+        (!confirm_overwrite || maybe_get_overwrite_confirmation (str_data (&repr_path)))) {
         // TODO: @remove_represetation_str use the current representation
         // instead.
         char *repr = kv->representation_str == NULL ? kv->repr_store->curr_repr->repr : kv->representation_str;
@@ -1994,14 +2003,19 @@ void repr_save_as_popover_save_handler (GtkButton *button, gpointer user_data)
             printf ("Error deleting autosave: %s\n", strerror(errno));
         }
 
-        struct kv_repr_store_t *repr_store = kv_repr_store_new ();
-        kv_repr_store_destroy (kv->repr_store);
-        kv->repr_store = repr_store;
-        kv_set_current_repr_by_name (kv, name, true);
-        kv_rebuild_repr_combobox (kv, repr_store->curr_repr);
+        kv_reload_representations (kv, name, true);
     }
 
     str_free (&repr_path);
+}
+
+void repr_save_as_popover_save_handler (GtkButton *button, gpointer user_data)
+{
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+
+    // NOTE: name must not be freed
+    const char *name = gtk_entry_get_text (GTK_ENTRY(kv->repr_save_as_popover_entry));
+    kv_repr_save_current (kv, name, true);
 
     gtk_widget_destroy (kv->repr_save_as_popover);
     kv->repr_save_as_popover_entry = NULL;
@@ -2070,6 +2084,14 @@ void save_view_as_handler (GtkButton *button, gpointer user_data)
     gtk_widget_grab_focus (GTK_WIDGET(kv->repr_save_as_popover_entry));
 }
 
+void save_view_handler (GtkButton *button, gpointer user_data)
+{
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+
+    // NOTE: name must not be freed
+    kv_repr_save_current (kv, kv->repr_store->curr_repr->name, false);
+}
+
 string_t kv_repr_get_display_name (struct kv_repr_t *repr)
 {
     string_t display_name = str_new (repr->name);
@@ -2081,6 +2103,8 @@ string_t kv_repr_get_display_name (struct kv_repr_t *repr)
 
 void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr)
 {
+    assert (repr != NULL);
+
     kv_clear (kv);
     kv_set_from_string (kv, repr->repr);
     kv->repr_store->curr_repr = repr;
@@ -2110,20 +2134,6 @@ void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr)
     str_free (&settings_file_path);
 }
 
-void kv_set_current_repr_by_name (struct keyboard_view_t *kv, const char *name, bool saved)
-{
-    struct kv_repr_t *curr_repr = kv->repr_store->reprs;
-    while (curr_repr != NULL) {
-        if (strcmp (name, curr_repr->name) == 0 && curr_repr->saved == saved) {
-            break;
-        }
-        curr_repr = curr_repr->next;
-    }
-    assert (curr_repr != NULL);
-
-    kv_set_current_repr (kv, curr_repr);
-}
-
 void change_repr_handler (GtkComboBox *themes_combobox, gpointer user_data)
 {
     // NOTE: theme_name is interned, don't free it.
@@ -2137,7 +2147,8 @@ void change_repr_handler (GtkComboBox *themes_combobox, gpointer user_data)
         saved = false;
     }
 
-    kv_set_current_repr_by_name (app.keyboard_view, str_data(&repr_name_str), saved);
+    struct kv_repr_t *repr = kv_repr_get_by_name (app.keyboard_view->repr_store, str_data(&repr_name_str), saved);
+    kv_set_current_repr (app.keyboard_view, repr);
     str_free (&repr_name_str);
 }
 
@@ -2311,7 +2322,7 @@ void kv_set_full_toolbar (struct keyboard_view_t *kv, GtkWidget **toolbar)
 
     GtkWidget *save_button = toolbar_button_new ("document-save-symbolic",
                                                  "Save keyboard representation",
-                                                 G_CALLBACK (save_view_handler), NULL);
+                                                 G_CALLBACK (save_view_handler), kv);
     gtk_grid_attach (GTK_GRID(*toolbar), save_button, i++, 0, 1, 1);
     gtk_widget_set_halign (save_button, GTK_ALIGN_END);
     gtk_widget_set_hexpand (save_button, TRUE);
@@ -3685,27 +3696,7 @@ void kv_autosave (struct keyboard_view_t *kv)
         str_free (&path);
 
         if (kv->repr_store->curr_repr->saved == true) {
-            // Reload representations
-            struct kv_repr_store_t *repr_store = kv_repr_store_new ();
-
-            // Lookup and set the autosave version created above as the
-            // current one
-            struct kv_repr_t *curr_repr = repr_store->reprs;
-            while (curr_repr != NULL) {
-                if (curr_repr->saved == false &&
-                    strcmp (curr_repr->name, kv->repr_store->curr_repr->name) == 0) {
-                    break;
-                }
-
-                curr_repr = curr_repr->next;
-            }
-            assert (curr_repr != NULL);
-
-            // Replace the new repr_store
-            kv_repr_store_destroy (kv->repr_store);
-            kv->repr_store = repr_store;
-            kv_set_current_repr (kv, curr_repr);
-            kv_rebuild_repr_combobox (kv, curr_repr);
+            kv_reload_representations (kv, kv->repr_store->curr_repr->name, false);
         }
 
         assert (kv->repr_store->curr_repr->saved == false);
@@ -4696,7 +4687,8 @@ struct keyboard_view_t* keyboard_view_new_with_gui (GtkWidget *window)
     kv->repr_store = kv_repr_store_new ();
 
     char *active_repr_name = app.selected_repr==NULL ? "Simple" : app.selected_repr;
-    kv_set_current_repr_by_name (kv, active_repr_name, true);
+    struct kv_repr_t *repr = kv_repr_get_by_name (kv->repr_store, active_repr_name, true);
+    kv_set_current_repr (kv, repr);
 
     kv->state = KV_PREVIEW;
     kv_update (kv, KV_CMD_SET_MODE_EDIT, NULL);

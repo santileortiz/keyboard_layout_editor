@@ -1911,7 +1911,70 @@ void save_view_handler (GtkButton *button, gpointer user_data)
 
 void save_view_as_handler (GtkButton *button, gpointer user_data)
 {
-    // TODO: Implement this!!!
+    // TODO: Maybe we want to be more restrictive and not allow a full file
+    // chooser dialog to be shown. Maybe a popup with only the desired name will
+    // be better, then the save location will always be inside the app's
+    // configuration directory.
+    //
+    // Using a file chooser lets the user save the representation outside of the
+    // app's configuration directory. We would like to switch the GUI to show
+    // the saved representation is the active one and active representations are
+    // only read from the app's configuration directory. Then, do we store a
+    // link to the representation? do we clone it inside the configuration
+    // directory?. The 1st option breaks the ability of backing up the app's
+    // state by saving/restoring the configuration directory. The 2nd option
+    // makes confusing changes made to the representation, do we update our
+    // internal copy?, or the user's file? maybe what we should do is update
+    // both, but then we need to store the path for the user's version of the
+    // file somewhere, and react to changes to keep both copies in sync.
+    GtkWidget *dialog =
+        gtk_file_chooser_dialog_new ("Save Reperesentation As…",
+                                     GTK_WINDOW(app.window),
+                                     GTK_FILE_CHOOSER_ACTION_SAVE,
+                                     "_Cancel",
+                                     GTK_RESPONSE_CANCEL,
+                                     "_Save",
+                                     GTK_RESPONSE_ACCEPT,
+                                     NULL);
+
+    // FIXME: For some reason, this does not work...
+    string_t repr_dir = app_get_repr_path (&app);
+    str_cat_c (&repr_dir, "Untitled.lrep");
+    gtk_file_chooser_set_filename (GTK_FILE_CHOOSER(dialog), str_data(&repr_dir));
+    str_free (&repr_dir);
+
+    // If gtk_file_chooser_set_filename() worked maybe this would be
+    // unnecessary?
+    gtk_file_chooser_set_current_name (GTK_FILE_CHOOSER(dialog), "Untitled.lrep");
+
+    gtk_file_chooser_set_do_overwrite_confirmation (GTK_FILE_CHOOSER(dialog), TRUE);
+
+    gint result = gtk_dialog_run (GTK_DIALOG (dialog));
+    if (result == GTK_RESPONSE_ACCEPT) {
+        string_t fname_str;
+        {
+            char *fname = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER(dialog));
+            fname_str = str_new (fname);
+            g_free (fname);
+        }
+
+        // FIXME: This will bypass the overwrite confirmation if the user
+        // specifies a filename without extension.
+        if (g_str_has_suffix (str_data(&fname_str), "autosave.lrep")) {
+            printf ("error: Can't save %s, the .autosave.lrep extension is reserved for backups.\n", str_data(&fname_str));
+        } else if (g_str_has_suffix (str_data(&fname_str), ".lrep")) {
+            // fname already has the right extension
+        } else {
+            str_cat_c (&fname_str, ".lrep");
+        }
+
+        printf ("path: %s\n", str_data(&fname_str));
+        struct kv_repr_t *repr = app.keyboard_view->repr_store->curr_repr;
+        full_file_write (repr->repr, strlen(repr->repr), str_data (&fname_str));
+
+        str_free (&fname_str);
+    }
+    gtk_widget_destroy (dialog);
 }
 
 string_t kv_repr_get_display_name (struct kv_repr_t *repr)

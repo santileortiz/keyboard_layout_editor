@@ -68,9 +68,11 @@ void kv_repr_store_push_file (struct kv_repr_store_t *store, char *path)
         } else {
             store->reprs = new_repr;
         }
+        store->last_repr = new_repr;
 
     } else {
         // The push failed, restore pool as it whas when we started.
+        printf ("File representation load failed: %s\n", path);
         mem_pool_end_temporary_memory (mrkr);
     }
 }
@@ -114,8 +116,10 @@ struct kv_repr_store_t* kv_repr_store_new ()
 
     struct dirent *entry_info;
     while (read_dir (d, &entry_info)) {
-        str_put_c (&repr_path, repr_path_len, entry_info->d_name);
-        kv_repr_store_push_file (store, str_data(&repr_path));
+        if (entry_info->d_name[0] != '.') {
+            str_put_c (&repr_path, repr_path_len, entry_info->d_name);
+            kv_repr_store_push_file (store, str_data(&repr_path));
+        }
     }
 
     store->curr_repr = store->reprs;

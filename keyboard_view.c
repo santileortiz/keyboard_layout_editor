@@ -301,6 +301,8 @@ struct keyboard_view_t {
     GtkWidget *repr_combobox;
     GtkWidget *repr_save_button;
     GtkWidget *repr_save_as_button;
+    GtkWidget *repr_save_as_popover;
+    GtkWidget *repr_save_as_popover_entry;
 
     float default_key_size; // In pixels
     int clicked_kc;
@@ -1909,72 +1911,163 @@ void save_view_handler (GtkButton *button, gpointer user_data)
     // TODO: Implement this!!!
 }
 
+void repr_save_as_popover_cancel_handler (GtkButton *button, gpointer user_data)
+{
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    gtk_widget_destroy (kv->repr_save_as_popover);
+    kv->repr_save_as_popover_entry = NULL;
+}
+
+GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *active_repr);
+void kv_rebuild_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *active_repr)
+{
+    GtkWidget *new_combobox = kv_new_repr_combobox (kv, active_repr);
+    replace_wrapped_widget (&kv->repr_combobox, new_combobox);
+}
+
+bool maybe_get_overwrite_confirmation (char *path)
+{
+    bool overwrite = false;
+    if (path_exists (path)) {
+        char *fname;
+        path_split (NULL, path, NULL, &fname);
+        GtkWidget *dialog =
+            gtk_message_dialog_new (GTK_WINDOW(app.window),
+                                    GTK_MESSAGE_QUESTION,
+                                    GTK_DIALOG_DESTROY_WITH_PARENT,
+                                    GTK_BUTTONS_NONE,
+                                    "A layout representation named \"%s\" already exists. Do you want to replace it?",
+                                    fname);
+
+        gtk_dialog_add_buttons (GTK_DIALOG(dialog),
+                                "Cancel",
+                                GTK_RESPONSE_CANCEL,
+                                "Replace",
+                                GTK_RESPONSE_ACCEPT,
+                                NULL);
+
+        int response = gtk_dialog_run (GTK_DIALOG(dialog));
+        if (response == GTK_RESPONSE_ACCEPT) {
+            overwrite = true;
+        }
+        gtk_widget_destroy (dialog);
+
+        free (fname);
+    }
+
+    return overwrite;
+}
+
+void kv_set_current_repr_by_name (struct keyboard_view_t *kv, const char *name, bool saved);
+void repr_save_as_popover_save_handler (GtkButton *button, gpointer user_data)
+{
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+
+    // NOTE: name must not be freed
+    const char *name = gtk_entry_get_text (GTK_ENTRY(kv->repr_save_as_popover_entry));
+
+    assert (kv->repr_store->curr_repr->saved == false && "Don't save a representation that isn't an autosave");
+
+    string_t repr_path = app_get_repr_path (&app);
+    size_t repr_path_len = str_len (&repr_path);
+    str_cat_c (&repr_path, name);
+    if (!g_str_has_suffix (str_data(&repr_path), ".lrep")) {
+        str_cat_c (&repr_path, ".lrep");
+    }
+
+    bool valid_name = true;
+    if (g_str_has_suffix (str_data(&repr_path), ".autosave.lrep")) {
+        printf ("Error: Can't save %s, extension .autosave.lrep is reserved for backups.\n",
+                str_data(&repr_path));
+        valid_name = false;
+    }
+
+    if (valid_name && maybe_get_overwrite_confirmation (str_data (&repr_path))) {
+        // TODO: @remove_represetation_str use the current representation
+        // instead.
+        char *repr = kv->representation_str == NULL ? kv->repr_store->curr_repr->repr : kv->representation_str;
+        full_file_write (repr, strlen(repr), str_data (&repr_path));
+
+        str_put_c (&repr_path, repr_path_len, kv->repr_store->curr_repr->name);
+        str_cat_c (&repr_path, ".autosave.lrep");
+        if (unlink (str_data (&repr_path)) != 0) {
+            printf ("Error deleting autosave: %s\n", strerror(errno));
+        }
+
+        struct kv_repr_store_t *repr_store = kv_repr_store_new ();
+        kv_repr_store_destroy (kv->repr_store);
+        kv->repr_store = repr_store;
+        kv_set_current_repr_by_name (kv, name, true);
+        kv_rebuild_repr_combobox (kv, repr_store->curr_repr);
+    }
+
+    str_free (&repr_path);
+
+    gtk_widget_destroy (kv->repr_save_as_popover);
+    kv->repr_save_as_popover_entry = NULL;
+}
+
 void save_view_as_handler (GtkButton *button, gpointer user_data)
 {
-    // TODO: Maybe we want to be more restrictive and not allow a full file
-    // chooser dialog to be shown. Maybe a popup with only the desired name will
-    // be better, then the save location will always be inside the app's
-    // configuration directory.
+    // I previously used a file chooser dialog, but opted for this custom popup
+    // to restrict what the user can do, so we don't need to keep a lot of
+    // state.
     //
-    // Using a file chooser lets the user save the representation outside of the
-    // app's configuration directory. We would like to switch the GUI to show
-    // the saved representation is the active one and active representations are
-    // only read from the app's configuration directory. Then, do we store a
-    // link to the representation? do we clone it inside the configuration
-    // directory?. The 1st option breaks the ability of backing up the app's
-    // state by saving/restoring the configuration directory. The 2nd option
-    // makes confusing changes made to the representation, do we update our
-    // internal copy?, or the user's file? maybe what we should do is update
-    // both, but then we need to store the path for the user's version of the
-    // file somewhere, and react to changes to keep both copies in sync.
-    GtkWidget *dialog =
-        gtk_file_chooser_dialog_new ("Save Reperesentation As…",
-                                     GTK_WINDOW(app.window),
-                                     GTK_FILE_CHOOSER_ACTION_SAVE,
-                                     "_Cancel",
-                                     GTK_RESPONSE_CANCEL,
-                                     "_Save",
-                                     GTK_RESPONSE_ACCEPT,
-                                     NULL);
+    // After the user saves a representation we switch the GUI to show the saved
+    // representation is the active one. A file chooser dialog lets the
+    // user save the representation outside of the app's configuraton directory
+    // but active representations are only read from the app's configuration
+    // directory. Then, do we store a link to the representation? do we clone it
+    // inside the configuration directory?. The 1st option breaks the ability of
+    // backing up the app's state by saving/restoring the configuration
+    // directory. The 2nd option makes confusing changes made to the
+    // representation, do we update our internal copy?, or the user's file?
+    // maybe what we should do is update both, but then we need to store the
+    // path for the user's version of the file somewhere, and react to changes
+    // to keep both copies in sync.
+    //
+    // Using a custom popup where we only ask for a name seems like a simpler
+    // approach.
+    //
+    // TODO: Maybe the user would like to know where are representations stored,
+    // if this becomes relevant then add this information somewhere in the
+    // popup.
 
-    // FIXME: For some reason, this does not work...
-    string_t repr_dir = app_get_repr_path (&app);
-    str_cat_c (&repr_dir, "Untitled.lrep");
-    gtk_file_chooser_set_filename (GTK_FILE_CHOOSER(dialog), str_data(&repr_dir));
-    str_free (&repr_dir);
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
 
-    // If gtk_file_chooser_set_filename() worked maybe this would be
-    // unnecessary?
-    gtk_file_chooser_set_current_name (GTK_FILE_CHOOSER(dialog), "Untitled.lrep");
+    GtkWidget *name_labeled_entry = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+    {
+        kv->repr_save_as_popover_entry = gtk_entry_new ();
+        gtk_entry_set_text (GTK_ENTRY(kv->repr_save_as_popover_entry), "Untitled");
+        gtk_widget_grab_focus (GTK_WIDGET(kv->repr_save_as_popover_entry));
 
-    gtk_file_chooser_set_do_overwrite_confirmation (GTK_FILE_CHOOSER(dialog), TRUE);
-
-    gint result = gtk_dialog_run (GTK_DIALOG (dialog));
-    if (result == GTK_RESPONSE_ACCEPT) {
-        string_t fname_str;
-        {
-            char *fname = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER(dialog));
-            fname_str = str_new (fname);
-            g_free (fname);
-        }
-
-        // FIXME: This will bypass the overwrite confirmation if the user
-        // specifies a filename without extension.
-        if (g_str_has_suffix (str_data(&fname_str), "autosave.lrep")) {
-            printf ("error: Can't save %s, the .autosave.lrep extension is reserved for backups.\n", str_data(&fname_str));
-        } else if (g_str_has_suffix (str_data(&fname_str), ".lrep")) {
-            // fname already has the right extension
-        } else {
-            str_cat_c (&fname_str, ".lrep");
-        }
-
-        printf ("path: %s\n", str_data(&fname_str));
-        struct kv_repr_t *repr = app.keyboard_view->repr_store->curr_repr;
-        full_file_write (repr->repr, strlen(repr->repr), str_data (&fname_str));
-
-        str_free (&fname_str);
+        gtk_container_add (GTK_CONTAINER(name_labeled_entry), gtk_label_new ("Name:"));
+        gtk_container_add (GTK_CONTAINER(name_labeled_entry), kv->repr_save_as_popover_entry);
     }
-    gtk_widget_destroy (dialog);
+
+    GtkWidget *cancel_button = gtk_button_new_with_label ("Cancel");
+    g_signal_connect (G_OBJECT(cancel_button), "clicked", G_CALLBACK(repr_save_as_popover_cancel_handler), kv);
+    GtkWidget *save_button = gtk_button_new_with_label ("Save");
+    g_signal_connect (G_OBJECT(save_button), "clicked", G_CALLBACK(repr_save_as_popover_save_handler), kv);
+    add_css_class (save_button, "suggested-action");
+
+    GtkWidget *grid = gtk_grid_new ();
+    gtk_widget_set_margin_start (GTK_WIDGET(grid), 12);
+    gtk_widget_set_margin_end (GTK_WIDGET(grid), 12);
+    gtk_widget_set_margin_top (GTK_WIDGET(grid), 12);
+    gtk_widget_set_margin_bottom (GTK_WIDGET(grid), 12);
+    gtk_grid_set_row_spacing (GTK_GRID(grid), 12);
+    gtk_grid_set_column_spacing (GTK_GRID(grid), 12);
+    gtk_grid_attach (GTK_GRID(grid), name_labeled_entry, 0, 0, 2, 1);
+    gtk_grid_attach (GTK_GRID(grid), cancel_button, 0, 1, 1, 1);
+    gtk_grid_attach (GTK_GRID(grid), save_button, 1, 1, 1, 1);
+
+    kv->repr_save_as_popover = gtk_popover_new (GTK_WIDGET(button));
+    gtk_container_add (GTK_CONTAINER(kv->repr_save_as_popover), grid);
+    gtk_popover_set_position (GTK_POPOVER(kv->repr_save_as_popover), GTK_POS_BOTTOM);
+    gtk_widget_show_all (kv->repr_save_as_popover);
+
+    gtk_widget_grab_focus (GTK_WIDGET(kv->repr_save_as_popover_entry));
 }
 
 string_t kv_repr_get_display_name (struct kv_repr_t *repr)
@@ -1986,8 +2079,7 @@ string_t kv_repr_get_display_name (struct kv_repr_t *repr)
     return display_name;
 }
 
-GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *active_name);
-void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr, bool rebuild_combobox)
+void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr)
 {
     kv_clear (kv);
     kv_set_from_string (kv, repr->repr);
@@ -2016,11 +2108,6 @@ void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr, bo
     str_cat_c (&settings_file_path, "/settings");
     full_file_write (repr->name, strlen(repr->name), str_data(&settings_file_path));
     str_free (&settings_file_path);
-
-    if (rebuild_combobox) {
-        GtkWidget *new_combobox = kv_new_repr_combobox (kv, repr);
-        replace_wrapped_widget (&kv->repr_combobox, new_combobox);
-    }
 }
 
 void kv_set_current_repr_by_name (struct keyboard_view_t *kv, const char *name, bool saved)
@@ -2034,7 +2121,7 @@ void kv_set_current_repr_by_name (struct keyboard_view_t *kv, const char *name, 
     }
     assert (curr_repr != NULL);
 
-    kv_set_current_repr (kv, curr_repr, false);
+    kv_set_current_repr (kv, curr_repr);
 }
 
 void change_repr_handler (GtkComboBox *themes_combobox, gpointer user_data)
@@ -2232,7 +2319,7 @@ void kv_set_full_toolbar (struct keyboard_view_t *kv, GtkWidget **toolbar)
 
     GtkWidget *save_as_button = toolbar_button_new ("document-save-as-symbolic",
                                                     "Save keyboard representation as…",
-                                                    G_CALLBACK (save_view_as_handler), NULL);
+                                                    G_CALLBACK (save_view_as_handler), kv);
     gtk_grid_attach (GTK_GRID(*toolbar), save_as_button, i++, 0, 1, 1);
     kv->repr_save_as_button = save_as_button;
 
@@ -2242,7 +2329,7 @@ void kv_set_full_toolbar (struct keyboard_view_t *kv, GtkWidget **toolbar)
         gtk_widget_show_all (wrapper);
         gtk_grid_attach (GTK_GRID(*toolbar), wrapper, i++, 0, 1, 1);
     }
-    kv_set_current_repr (kv, kv->repr_store->curr_repr, false);
+    kv_set_current_repr (kv, kv->repr_store->curr_repr);
 }
 
 // Round i downwards to the nearest multiple of 1/2^n. If i is negative treat it
@@ -3590,8 +3677,6 @@ void kv_autosave (struct keyboard_view_t *kv)
         free (kv->representation_str);
         kv->representation_str = str;
 
-        printf ("Created an autosave!\n");
-
         // Create an autosave
         string_t path = app_get_repr_path (&app);
         str_cat_c (&path, kv->repr_store->curr_repr->name);
@@ -3614,11 +3699,13 @@ void kv_autosave (struct keyboard_view_t *kv)
 
                 curr_repr = curr_repr->next;
             }
+            assert (curr_repr != NULL);
 
             // Replace the new repr_store
             kv_repr_store_destroy (kv->repr_store);
             kv->repr_store = repr_store;
-            kv_set_current_repr (kv, curr_repr, true);
+            kv_set_current_repr (kv, curr_repr);
+            kv_rebuild_repr_combobox (kv, curr_repr);
         }
 
         assert (kv->repr_store->curr_repr->saved == false);
@@ -3719,7 +3806,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     } else {
                         next_repr = kv->repr_store->reprs;
                     }
-                    kv_set_current_repr (kv, next_repr, true);
+                    kv_set_current_repr (kv, next_repr);
+                    kv_rebuild_repr_combobox (kv, next_repr);
                 }
             }
 

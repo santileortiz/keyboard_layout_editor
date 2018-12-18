@@ -227,7 +227,6 @@ struct keyboard_view_t {
 
     // This is the state used to keep track of available layout representations.
     struct kv_repr_store_t *repr_store;
-    char *representation_str;
 
     // Array of sgmt_t pointers indexed by keycode. Provides fast access to keys
     // from a keycode. It's about 6KB in memory, maybe too much?
@@ -1913,10 +1912,10 @@ void repr_save_as_popover_cancel_handler (GtkButton *button, gpointer user_data)
     kv->repr_save_as_popover_entry = NULL;
 }
 
-GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *active_repr);
-void kv_rebuild_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *active_repr)
+GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *active_repr, bool saved);
+void kv_rebuild_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *active_repr, bool saved)
 {
-    GtkWidget *new_combobox = kv_new_repr_combobox (kv, active_repr);
+    GtkWidget *new_combobox = kv_new_repr_combobox (kv, active_repr, saved);
     replace_wrapped_widget (&kv->repr_combobox, new_combobox);
 }
 
@@ -1953,14 +1952,14 @@ bool maybe_get_overwrite_confirmation (char *path)
     return overwrite;
 }
 
-void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr);
+void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr, bool saved);
 void kv_reload_representations (struct keyboard_view_t *kv, const char *name, bool saved)
 {
     // Reload representations into a new repr_store
     struct kv_repr_store_t *repr_store = kv_repr_store_new ();
 
     // Lookup the representation mathching name and saved arguments.
-    struct kv_repr_t *curr_repr = kv_repr_get_by_name (repr_store, name, saved);
+    struct kv_repr_t *curr_repr = kv_repr_get_by_name (repr_store, name);
     assert (curr_repr != NULL);
 
     // Replace the the old repr_store with the new one.
@@ -1968,13 +1967,17 @@ void kv_reload_representations (struct keyboard_view_t *kv, const char *name, bo
     // will be freed here.
     kv_repr_store_destroy (kv->repr_store);
     kv->repr_store = repr_store;
-    kv_set_current_repr (kv, curr_repr);
-    kv_rebuild_repr_combobox (kv, repr_store->curr_repr);
+    kv_set_current_repr (kv, curr_repr, saved);
+    kv_rebuild_repr_combobox (kv, repr_store->curr_repr, saved);
 }
+
+#define kv_curr_repr_is_saved(kv) ((kv)->repr_store->curr_repr->states==(kv)->repr_store->curr_repr->last_state)
+#define repr_is_saved(repr) ((repr)->states==(repr)->last_state)
+#define kv_curr_repr(kv) ((kv)->repr_store->curr_repr->last_state->repr)
 
 void kv_repr_save_current (struct keyboard_view_t *kv, const char *name, bool confirm_overwrite)
 {
-    assert (kv->repr_store->curr_repr->saved == false && "Don't save a representation that isn't an autosave");
+    assert (!kv_curr_repr_is_saved(kv) && "Don't save a representation that isn't an autosave");
 
     string_t repr_path = app_get_repr_path (&app);
     size_t repr_path_len = str_len (&repr_path);
@@ -1992,10 +1995,7 @@ void kv_repr_save_current (struct keyboard_view_t *kv, const char *name, bool co
 
     if (valid_name &&
         (!confirm_overwrite || maybe_get_overwrite_confirmation (str_data (&repr_path)))) {
-        // TODO: @remove_represetation_str use the current representation
-        // instead.
-        char *repr = kv->representation_str == NULL ? kv->repr_store->curr_repr->repr : kv->representation_str;
-        full_file_write (repr, strlen(repr), str_data (&repr_path));
+        full_file_write (kv_curr_repr(kv), strlen(kv_curr_repr(kv)), str_data (&repr_path));
 
         str_put_c (&repr_path, repr_path_len, kv->repr_store->curr_repr->name);
         str_cat_c (&repr_path, ".autosave.lrep");
@@ -2092,21 +2092,16 @@ void save_view_handler (GtkButton *button, gpointer user_data)
     kv_repr_save_current (kv, kv->repr_store->curr_repr->name, false);
 }
 
-string_t kv_repr_get_display_name (struct kv_repr_t *repr)
-{
-    string_t display_name = str_new (repr->name);
-    if (!repr->saved) {
-        str_cat_c (&display_name, "*");
-    }
-    return display_name;
-}
-
-void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr)
+void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr, bool saved)
 {
     assert (repr != NULL);
 
     kv_clear (kv);
-    kv_set_from_string (kv, repr->repr);
+    if (saved) {
+        kv_set_from_string (kv, repr->states->repr);
+    } else {
+        kv_set_from_string (kv, repr->last_state->repr);
+    }
     kv->repr_store->curr_repr = repr;
 
     // Enable/Disable Save button
@@ -2120,7 +2115,7 @@ void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr)
 
     // Enable/Disable Save As button
     if (kv->repr_save_as_button) {
-        if (repr->saved) {
+        if (repr_is_saved(repr)) {
             gtk_widget_set_sensitive (kv->repr_save_as_button, FALSE);
         } else {
             gtk_widget_set_sensitive (kv->repr_save_as_button, TRUE);
@@ -2147,12 +2142,15 @@ void change_repr_handler (GtkComboBox *themes_combobox, gpointer user_data)
         saved = false;
     }
 
-    struct kv_repr_t *repr = kv_repr_get_by_name (app.keyboard_view->repr_store, str_data(&repr_name_str), saved);
-    kv_set_current_repr (app.keyboard_view, repr);
+    struct kv_repr_t *repr = kv_repr_get_by_name (app.keyboard_view->repr_store, str_data(&repr_name_str));
+    kv_set_current_repr (app.keyboard_view, repr, saved);
     str_free (&repr_name_str);
 }
 
-GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *active_repr)
+// NOTE: If saved is true then the active representation of the combobox will
+// not be the one for the autosave. If it is false then it will be the one for
+// the autosave (if there is an autosave).
+GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *active_repr, bool saved)
 {
     assert (active_repr != NULL);
 
@@ -2163,18 +2161,27 @@ GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *a
     add_css_class (layout_combobox, "flat-combobox");
     struct kv_repr_t *curr_repr = kv->repr_store->reprs;
     while (curr_repr != NULL) {
-        string_t display_name = kv_repr_get_display_name (curr_repr);
+        string_t display_name = str_new (curr_repr->name);
 
         combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(layout_combobox), str_data(&display_name));
+
+        if (!repr_is_saved(curr_repr)) {
+            str_cat_c (&display_name, "*");
+            combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(layout_combobox), str_data(&display_name));
+        }
 
         str_free (&display_name);
 
         curr_repr = curr_repr->next;
     }
 
-    string_t display_name = kv_repr_get_display_name (active_repr);
+    string_t display_name = str_new (active_repr->name);
+    if (!saved && !repr_is_saved (active_repr)) {
+        str_cat_c (&display_name, "*");
+    }
     gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), str_data(&display_name));
     str_free (&display_name);
+
     g_signal_connect (G_OBJECT(layout_combobox), "changed", G_CALLBACK (change_repr_handler), NULL);
 
     gtk_widget_show (layout_combobox);
@@ -2334,13 +2341,13 @@ void kv_set_full_toolbar (struct keyboard_view_t *kv, GtkWidget **toolbar)
     gtk_grid_attach (GTK_GRID(*toolbar), save_as_button, i++, 0, 1, 1);
     kv->repr_save_as_button = save_as_button;
 
-    kv->repr_combobox = kv_new_repr_combobox (kv, kv->repr_store->curr_repr);
+    kv->repr_combobox = kv_new_repr_combobox (kv, kv->repr_store->curr_repr, false);
     {
         GtkWidget *wrapper = wrap_gtk_widget(kv->repr_combobox);
         gtk_widget_show_all (wrapper);
         gtk_grid_attach (GTK_GRID(*toolbar), wrapper, i++, 0, 1, 1);
     }
-    kv_set_current_repr (kv, kv->repr_store->curr_repr);
+    kv_set_current_repr (kv, kv->repr_store->curr_repr, false);
 }
 
 // Round i downwards to the nearest multiple of 1/2^n. If i is negative treat it
@@ -3679,27 +3686,42 @@ BUILD_GEOMETRY_FUNC(vertical_extend_test_geometry)
     kv_end_geometry (&ctx);
 }
 
+bool kv_push_state_to_curr_repr (struct keyboard_view_t *kv)
+{
+    bool retval = false;
+
+    mem_pool_temp_marker_t mrkr = mem_pool_begin_temporary_memory (&kv->repr_store->pool);
+
+    char *str = kv_to_string (&kv->repr_store->pool, kv);
+
+    if (strcmp (str, kv_curr_repr(kv)) != 0) {
+        retval = true;
+        kv_repr_push_state (kv->repr_store, kv->repr_store->curr_repr, str);
+
+    } else {
+        mem_pool_end_temporary_memory (mrkr);
+    }
+
+    return retval;
+}
+
 void kv_autosave (struct keyboard_view_t *kv)
 {
     assert (kv->state != KV_PREVIEW);
 
-    char *str = kv_to_string (NULL, kv);
-    if (kv->representation_str == NULL || strcmp (kv->representation_str, str) != 0) {
-        free (kv->representation_str);
-        kv->representation_str = str;
-
+    if (kv_push_state_to_curr_repr (kv)) {
         // Create an autosave
         string_t path = app_get_repr_path (&app);
         str_cat_c (&path, kv->repr_store->curr_repr->name);
         str_cat_c (&path, ".autosave.lrep");
-        full_file_write (str, strlen(str), str_data(&path));
+        full_file_write (kv_curr_repr(kv), strlen(kv_curr_repr(kv)), str_data(&path));
         str_free (&path);
 
-        if (kv->repr_store->curr_repr->saved == true) {
+        if (kv_curr_repr_is_saved (kv)) {
             kv_reload_representations (kv, kv->repr_store->curr_repr->name, false);
         }
 
-        assert (kv->repr_store->curr_repr->saved == false);
+        assert (!kv_curr_repr_is_saved (kv));
     }
 }
 
@@ -3797,8 +3819,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     } else {
                         next_repr = kv->repr_store->reprs;
                     }
-                    kv_set_current_repr (kv, next_repr);
-                    kv_rebuild_repr_combobox (kv, next_repr);
+
+                    kv_set_current_repr (kv, next_repr, false);
+                    kv_rebuild_repr_combobox (kv, next_repr, false);
                 }
             }
 
@@ -4687,8 +4710,8 @@ struct keyboard_view_t* keyboard_view_new_with_gui (GtkWidget *window)
     kv->repr_store = kv_repr_store_new ();
 
     char *active_repr_name = app.selected_repr==NULL ? "Simple" : app.selected_repr;
-    struct kv_repr_t *repr = kv_repr_get_by_name (kv->repr_store, active_repr_name, true);
-    kv_set_current_repr (kv, repr);
+    struct kv_repr_t *repr = kv_repr_get_by_name (kv->repr_store, active_repr_name);
+    kv_set_current_repr (kv, repr, true);
 
     kv->state = KV_PREVIEW;
     kv_update (kv, KV_CMD_SET_MODE_EDIT, NULL);
@@ -4702,6 +4725,5 @@ void keyboard_view_destroy (struct keyboard_view_t *kv)
     mem_pool_destroy (&kv->tooltips_pool);
     mem_pool_destroy (&kv->resize_pool);
     mem_pool_destroy (kv->pool);
-    free (kv->representation_str);
 }
 

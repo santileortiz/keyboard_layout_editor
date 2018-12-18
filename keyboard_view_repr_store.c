@@ -7,19 +7,34 @@ void kv_repr_store_destroy (struct kv_repr_store_t *store)
     mem_pool_destroy (&store->pool);
 }
 
+void kv_repr_push_state (struct kv_repr_store_t *store, struct kv_repr_t *repr, char *str)
+{
+    struct kv_repr_state_t *state =
+        mem_pool_push_size (&store->pool, sizeof(struct kv_repr_state_t*));
+    *state = ZERO_INIT(struct kv_repr_state_t);
+    state->repr = str;
+
+    if (repr->last_state != NULL) {
+        repr->last_state->next = state;
+    } else {
+        repr->states = state;
+    }
+    repr->last_state = state;
+}
+
 void kv_repr_store_push_func (struct kv_repr_store_t *store, char *name, set_geometry_func_t *func)
 {
     struct kv_repr_t *new_repr = mem_pool_push_size (&store->pool, sizeof(struct kv_repr_t));
     *new_repr = ZERO_INIT (struct kv_repr_t);
 
     new_repr->is_internal = true;
-    new_repr->saved = true;
     new_repr->name = pom_strdup (&store->pool, name);
 
     struct keyboard_view_t *kv = kv_new ();
 
     func (kv);
-    new_repr->repr = kv_to_string (&store->pool, kv);
+    char *str = kv_to_string (&store->pool, kv);
+    kv_repr_push_state (store, new_repr, str);
     keyboard_view_destroy (kv);
 
     if (store->last_repr != NULL) {
@@ -41,24 +56,20 @@ void kv_repr_store_push_file (struct kv_repr_store_t *store, char *path)
 
     char *fname;
     path_split (NULL, path, NULL, &fname);
-    if (g_str_has_suffix(fname, ".autosave.lrep")) {
-        res.saved = false;
-        res.name = remove_multiple_extensions (&store->pool, fname, 2);
-
-    } else if (g_str_has_suffix(fname, ".lrep")) {
-        res.saved = true;
-        res.name = remove_extension (&store->pool, fname);
-
-    } else {
+    if (g_str_has_suffix(fname, ".autosave.lrep") || !g_str_has_suffix(fname, ".lrep")) {
         // Invalid file extension don't push anything.
         invalid_file = true;
+    } else {
+        res.name = remove_extension (&store->pool, fname);
     }
+
     free (fname);
 
     if (!invalid_file) {
         // TODO: Check that parsing of this file will actually succeed and if
         // not set invalid_file = true.
-        res.repr = full_file_read (&store->pool, path);
+        char *str = full_file_read (&store->pool, path);
+        kv_repr_push_state (store, &res, str);
 
         struct kv_repr_t *new_repr = mem_pool_push_size (&store->pool, sizeof(struct kv_repr_t));
         *new_repr = res;
@@ -109,37 +120,80 @@ struct kv_repr_store_t* kv_repr_store_new ()
     string_t repr_path = app_get_repr_path (&app);
     size_t repr_path_len = str_len (&repr_path);
 
-    DIR *d = opendir (str_data(&repr_path));
-    if (d == NULL) {
-        printf ("Error opening %s: %s\n", str_data(&repr_path), strerror(errno));
-    }
+    // Load all saved representations (ignore autosave files)
+    {
+        DIR *d = opendir (str_data(&repr_path));
+        if (d != NULL) {
+            struct dirent *entry_info;
+            while (read_dir (d, &entry_info)) {
+                if (entry_info->d_name[0] != '.' &&
+                    !g_str_has_suffix (entry_info->d_name, ".autosave.lrep") &&
+                    g_str_has_suffix (entry_info->d_name, ".lrep")) {
 
-    struct dirent *entry_info;
-    while (read_dir (d, &entry_info)) {
-        if (entry_info->d_name[0] != '.') {
-            str_put_c (&repr_path, repr_path_len, entry_info->d_name);
-            kv_repr_store_push_file (store, str_data(&repr_path));
+                    str_put_c (&repr_path, repr_path_len, entry_info->d_name);
+                    kv_repr_store_push_file (store, str_data(&repr_path));
+                }
+            }
+
+            closedir (d);
+
+        } else {
+            printf ("Error opening %s: %s\n", str_data(&repr_path), strerror(errno));
         }
     }
 
-    store->curr_repr = store->reprs;
+    // Push autosaves as a state into the corresponding representation
+    // FIXME: This is O(n^2) @performance
+    {
+        str_data(&repr_path)[repr_path_len] = '\0';
 
-    closedir (d);
+        DIR *d = opendir (str_data(&repr_path));
+        if (d != NULL) {
+            struct dirent *entry_info;
+            while (read_dir (d, &entry_info)) {
+                if (entry_info->d_name[0] != '.' &&
+                    g_str_has_suffix (entry_info->d_name, ".autosave.lrep")) {
+
+                    char *name = remove_multiple_extensions (NULL, entry_info->d_name, 2);
+                    struct kv_repr_t *repr = kv_repr_get_by_name (store, name);
+
+                    if (repr != NULL) {
+                        str_put_c (&repr_path, repr_path_len, entry_info->d_name);
+                        char *str = full_file_read (&store->pool, str_data(&repr_path));
+                        kv_repr_push_state (store, repr, str);
+
+                    } else {
+                        // TODO: Should we remove this dangling autosave?
+                        printf ("Autosave for non existant representation \"%s\".\n", name);
+                    }
+
+                    free (name);
+                }
+            }
+
+            closedir (d);
+
+        } else {
+            printf ("Error opening %s: %s\n", str_data(&repr_path), strerror(errno));
+        }
+    }
+
     str_free (&repr_path);
+
+    store->curr_repr = store->reprs;
 
     return store;
 }
 
-struct kv_repr_t* kv_repr_get_by_name (struct kv_repr_store_t *store, const char *name, bool saved)
+struct kv_repr_t* kv_repr_get_by_name (struct kv_repr_store_t *store, const char *name)
 {
     struct kv_repr_t *curr_repr = store->reprs;
     while (curr_repr != NULL) {
-        if (strcmp (name, curr_repr->name) == 0 && curr_repr->saved == saved) {
+        if (strcmp (name, curr_repr->name) == 0) {
             break;
         }
         curr_repr = curr_repr->next;
     }
     return curr_repr;
-
 }
 

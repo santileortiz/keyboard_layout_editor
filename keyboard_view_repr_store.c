@@ -51,8 +51,9 @@ void kv_repr_store_push_file (struct kv_repr_store_t *store, char *path)
 
     mem_pool_temp_marker_t mrkr = mem_pool_begin_temporary_memory (&store->pool);
 
-    struct kv_repr_t res = ZERO_INIT (struct kv_repr_t);
-    res.is_internal = false;
+    struct kv_repr_t *new_repr = mem_pool_push_size (&store->pool, sizeof(struct kv_repr_t));
+    *new_repr = ZERO_INIT (struct kv_repr_t);
+    new_repr->is_internal = false;
 
     char *fname;
     path_split (NULL, path, NULL, &fname);
@@ -60,7 +61,7 @@ void kv_repr_store_push_file (struct kv_repr_store_t *store, char *path)
         // Invalid file extension don't push anything.
         invalid_file = true;
     } else {
-        res.name = remove_extension (&store->pool, fname);
+        new_repr->name = remove_extension (&store->pool, fname);
     }
 
     free (fname);
@@ -69,10 +70,7 @@ void kv_repr_store_push_file (struct kv_repr_store_t *store, char *path)
         // TODO: Check that parsing of this file will actually succeed and if
         // not set invalid_file = true.
         char *str = full_file_read (&store->pool, path);
-        kv_repr_push_state (store, &res, str);
-
-        struct kv_repr_t *new_repr = mem_pool_push_size (&store->pool, sizeof(struct kv_repr_t));
-        *new_repr = res;
+        kv_repr_push_state (store, new_repr, str);
 
         if (store->last_repr != NULL) {
             store->last_repr->next = new_repr;

@@ -3383,6 +3383,7 @@ void kv_autosave (struct keyboard_view_t *kv)
 {
     assert (kv->state != KV_PREVIEW);
 
+    bool was_saved = kv_curr_repr_is_saved (kv);
     if (kv_push_state_to_curr_repr (kv)) {
         // Create an autosave
         string_t path = app_get_repr_path (&app);
@@ -3391,7 +3392,7 @@ void kv_autosave (struct keyboard_view_t *kv)
         full_file_write (kv_curr_repr(kv), strlen(kv_curr_repr(kv)), str_data(&path));
         str_free (&path);
 
-        if (kv_curr_repr_is_saved (kv)) {
+        if (was_saved) {
             kv_reload_representations (kv, kv->repr_store->curr_repr->name, false);
         }
 

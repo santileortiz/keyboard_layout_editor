@@ -315,6 +315,7 @@ struct keyboard_view_t {
 
 // These come from keyboard_view_as_string.c
 char* kv_to_string (mem_pool_t *pool, struct keyboard_view_t *kv);
+void kv_print (struct keyboard_view_t *kv);
 void kv_set_from_string (struct keyboard_view_t *kv, char *str);
 
 static inline
@@ -3486,17 +3487,22 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             // Cycle to next geometry if Ctrl+T was pressed
             if (e->type == GDK_KEY_PRESS) {
                 GdkEventKey *event = (GdkEventKey*)e;
-                if (event->state & GDK_CONTROL_MASK && event->hardware_keycode - 8 == KEY_T) {
+                if (event->state & GDK_CONTROL_MASK) {
+                    if (event->hardware_keycode - 8 == KEY_T) {
 
-                    struct kv_repr_t *next_repr;
-                    if (kv->repr_store->curr_repr->next != NULL) {
-                        next_repr = kv->repr_store->curr_repr->next;
-                    } else {
-                        next_repr = kv->repr_store->reprs;
+                        struct kv_repr_t *next_repr;
+                        if (kv->repr_store->curr_repr->next != NULL) {
+                            next_repr = kv->repr_store->curr_repr->next;
+                        } else {
+                            next_repr = kv->repr_store->reprs;
+                        }
+
+                        kv_set_current_repr (kv, next_repr, false);
+                        kv_rebuild_repr_combobox (kv, next_repr, false);
+
+                    } else if (event->hardware_keycode - 8 == KEY_P) {
+                        kv_print (kv);
                     }
-
-                    kv_set_current_repr (kv, next_repr, false);
-                    kv_rebuild_repr_combobox (kv, next_repr, false);
                 }
             }
 

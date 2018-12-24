@@ -13,7 +13,7 @@
 // tradeoffs were made between flexibility and ease of use, for instance, curved
 // keyboards can't be represented by this data structure as doing so would
 // transform the toolset pretty much into a general vector editor, and that is
-// way out of the scope of the application in terms of complexity both at in
+// way out of the scope of the application in terms of complexity both in
 // implementation and ease of use.
 //
 // The main data structure is a liked list of rows (row_t), each of which
@@ -45,7 +45,7 @@
 // a second value called user glue. This one is stored per key, so in a multirow
 // key it is located in the multirow parent. The user glue is added on top of
 // the computed internal glue, which means it is defined to be the glue of the
-// supporting segment.
+// supporting segment(s).
 //
 // The toolset provided to edit the keyboard geometries was chosen to be small and
 // simple, but with enough tools to be able to describe most geometries a user may

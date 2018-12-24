@@ -566,7 +566,7 @@ int main (int argc, char *argv[])
             app.selected_repr = full_file_read (NULL, str_data(&settings_file_path));
             // Make the string end at the first line break
             char *c = app.selected_repr;
-            while (c) {
+            while (*c) {
                 if (*c == '\n') {
                     *c = '\0';
                     break;

@@ -3141,7 +3141,7 @@ void kv_set_add_key_state (struct keyboard_view_t *kv, double event_x, double ev
             kv->added_key_user_glue = 0;
         } else {
             kv->added_key_ptr = sgmt_ptr;
-            kv->added_key_user_glue = sgmt->internal_glue - 1;
+            kv->added_key_user_glue = MAX(0, get_sgmt_total_glue(sgmt) - 1);
         }
 
     } else if (kv->locate_stat == LOCATE_HIT_GLUE) {

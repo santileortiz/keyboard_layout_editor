@@ -1920,9 +1920,11 @@ void kv_rebuild_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *act
     replace_wrapped_widget (&kv->repr_combobox, new_combobox);
 }
 
+// Resturns if we should execute an action that would overwrite path, if path
+// does not exist then we return true.
 bool maybe_get_overwrite_confirmation (char *path)
 {
-    bool overwrite = false;
+    bool write = true;
     if (path_exists (path)) {
         char *fname;
         path_split (NULL, path, NULL, &fname);
@@ -1942,15 +1944,15 @@ bool maybe_get_overwrite_confirmation (char *path)
                                 NULL);
 
         int response = gtk_dialog_run (GTK_DIALOG(dialog));
-        if (response == GTK_RESPONSE_ACCEPT) {
-            overwrite = true;
+        if (response == GTK_RESPONSE_CANCEL) {
+            write = false;
         }
         gtk_widget_destroy (dialog);
 
         free (fname);
     }
 
-    return overwrite;
+    return write;
 }
 
 void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr, bool saved);
@@ -1996,8 +1998,8 @@ void kv_repr_save_current (struct keyboard_view_t *kv, const char *name, bool co
 
     if (valid_name &&
         (!confirm_overwrite || maybe_get_overwrite_confirmation (str_data (&repr_path)))) {
-        full_file_write (kv_curr_repr(kv), strlen(kv_curr_repr(kv)), str_data (&repr_path));
 
+        full_file_write (kv_curr_repr(kv), strlen(kv_curr_repr(kv)), str_data (&repr_path));
         str_put_c (&repr_path, repr_path_len, kv->repr_store->curr_repr->name);
         str_cat_c (&repr_path, ".autosave.lrep");
         if (unlink (str_data (&repr_path)) != 0) {
@@ -2088,8 +2090,6 @@ void save_view_as_handler (GtkButton *button, gpointer user_data)
 void save_view_handler (GtkButton *button, gpointer user_data)
 {
     struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
-
-    // NOTE: name must not be freed
     kv_repr_save_current (kv, kv->repr_store->curr_repr->name, false);
 }
 
@@ -2107,7 +2107,7 @@ void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr, bo
 
     // Enable/Disable Save button
     if (kv->repr_save_button) {
-        if (repr->is_internal) {
+        if (repr->is_internal || repr_is_saved(repr)) {
             gtk_widget_set_sensitive (kv->repr_save_button, FALSE);
         } else {
             gtk_widget_set_sensitive (kv->repr_save_button, TRUE);

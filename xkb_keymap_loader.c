@@ -17,7 +17,7 @@ char* reconstruct_installed_custom_layout (mem_pool_t *pool, const char *layout_
     node = xml_get_child (node, "layoutList");
     node = xml_get_child (node, "layout");
     bool found = false;
-    xmlNodePtr data_node;
+    xmlNodePtr data_node = NULL;
     while (node != NULL && !found) {
         data_node = xml_get_child (node, "configItem");
         if (data_node != NULL) {

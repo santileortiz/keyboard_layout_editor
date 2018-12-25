@@ -571,7 +571,7 @@ struct sgmt_t* kv_allocate_key (struct keyboard_view_t *kv)
 }
 
 float get_sgmt_width (struct sgmt_t *sgmt) {
-    float width;
+    float width = 0;
     if (sgmt->type == KEY_MULTIROW_SEGMENT) {
         struct sgmt_t *curr_key = sgmt->next_multirow;
         do {
@@ -1365,7 +1365,7 @@ void cr_non_rectangular_key_path (cairo_t *cr, double x, double y, double margin
     // Line sweep from top to bottom that both draws the right vertical path and
     // adds points for the left vertical path into a buffer to be drawn later.
     struct sgmt_t *next_segment = key->next_multirow;
-    double next_left, next_right;
+    double next_left = 0, next_right = 0;
     while (!is_multirow_parent (next_segment)) {
         y += row->height*kv->default_key_size;
         if (next_segment->type == KEY_MULTIROW_SEGMENT_SIZED) {
@@ -1527,7 +1527,7 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
                             strcpy (buff, "Fn");
                         }
 
-                        xkb_keysym_t keysym;
+                        xkb_keysym_t keysym = XKB_KEY_NoSymbol;
                         if (buff[0] == '\0') {
                             int buff_len = 0;
                             keysym = xkb_state_key_get_one_sym(kv->xkb_state, curr_key->kc + 8);
@@ -1819,7 +1819,7 @@ float kv_get_sgmt_x_pos (struct keyboard_view_t *kv, struct sgmt_t *sgmt)
     double kbd_x, kbd_y;
     keyboard_view_get_margins (kv, &kbd_x, &kbd_y);
 
-    float x;
+    float x = 0;
     struct row_t *curr_row = kv->first_row;
     while (curr_row != NULL) {
         struct sgmt_t *curr_key = curr_row->first_key;

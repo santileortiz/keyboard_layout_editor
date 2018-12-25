@@ -623,6 +623,44 @@ int main (int argc, char *argv[])
         if (app.keyboard_view != NULL) {
             keyboard_view_destroy (app.keyboard_view);
         }
+
+#ifndef NDEBUG
+        // When debugging the keyboard view, we usually create a test case that
+        // fails, we execute an action and see how it behaves, then after
+        // closing, changing code and compiling, we want to repeat the process
+        // again. To make this test cycle faster, debug builds delete all
+        // autosaves when the application is closed.
+        //
+        // TODO: Maybe only delete autosaves created in the current session, and
+        // leave preexisting autosaves untouched.
+        {
+            string_t repr_path = app_get_repr_path (&app);
+            size_t repr_path_len = str_len (&repr_path);
+
+            DIR *d = opendir (str_data(&repr_path));
+            if (d != NULL) {
+                struct dirent *entry_info;
+                while (read_dir (d, &entry_info)) {
+                    if (entry_info->d_name[0] != '.' &&
+                        g_str_has_suffix (entry_info->d_name, ".autosave.lrep")) {
+
+                        str_put_c (&repr_path, repr_path_len, entry_info->d_name);
+                        if (unlink (str_data (&repr_path)) != 0) {
+                            printf ("Error deleting autosave: %s\n", strerror(errno));
+                        }
+                    }
+                }
+
+                closedir (d);
+
+            } else {
+                printf ("Error opening %s: %s\n", str_data(&repr_path), strerror(errno));
+            }
+
+            str_free (&repr_path);
+        }
+#endif
+
     }
 
     xmlCleanupParser();

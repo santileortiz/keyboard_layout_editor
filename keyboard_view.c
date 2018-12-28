@@ -4392,7 +4392,11 @@ struct keyboard_view_t* keyboard_view_new_with_gui (GtkWidget *window)
 
     char *active_repr_name = app.selected_repr==NULL ? "Simple" : app.selected_repr;
     struct kv_repr_t *repr = kv_repr_get_by_name (kv->repr_store, active_repr_name);
-    kv_set_current_repr (kv, repr, true);
+    // NOTE: This may be null if for some reason the avtive representation
+    // stored in the settings file was deleted.
+    if (repr != NULL) {
+        kv_set_current_repr (kv, repr, true);
+    }
 
     kv->state = KV_PREVIEW;
     kv_update (kv, KV_CMD_SET_MODE_EDIT, NULL);

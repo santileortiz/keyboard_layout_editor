@@ -336,7 +336,7 @@ void kv_repr_store_destroy (struct kv_repr_store_t *store)
 void kv_repr_push_state (struct kv_repr_store_t *store, struct kv_repr_t *repr, char *str)
 {
     struct kv_repr_state_t *state =
-        mem_pool_push_size (&store->pool, sizeof(struct kv_repr_state_t*));
+        mem_pool_push_size (&store->pool, sizeof(struct kv_repr_state_t));
     *state = ZERO_INIT(struct kv_repr_state_t);
     state->repr = str;
 

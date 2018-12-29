@@ -453,7 +453,9 @@ void kv_set_from_string (struct keyboard_view_t *kv, char *str)
                 break;
 
             } else {
-                printf ("Error: expected key segment or ';'\n");
+                scnr.error = true;
+                scnr.error_message = "Error: expected key segment or ';'\n";
+                break;
             }
         }
 

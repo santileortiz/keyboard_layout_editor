@@ -13,6 +13,8 @@ struct kle_app_t {
 
     char *user_dir;
     char *selected_repr;
+
+    GResource *gresource;
 };
 
 gboolean grab_input (GtkButton *button, gpointer user_data);

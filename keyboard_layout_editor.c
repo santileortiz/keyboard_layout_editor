@@ -544,7 +544,7 @@ int main (int argc, char *argv[])
         init_keycode_names ();
         gtk_init(&argc, &argv);
 
-        gresource_get_resource ();
+        app.gresource = gresource_get_resource ();
         gtk_icon_theme_add_resource_path (gtk_icon_theme_get_default (),
                                           "/com/github/santileortiz/iconoscope/icons");
 

@@ -428,6 +428,26 @@ void kv_repr_store_push_file (struct kv_repr_store_t *store, char *path)
     }
 }
 
+void kv_push_representation_str (struct kv_repr_store_t *store,
+                                 const char *name, const char *repr, bool is_internal)
+{
+    struct kv_repr_t *new_repr = mem_pool_push_size (&store->pool, sizeof(struct kv_repr_t));
+    *new_repr = ZERO_INIT (struct kv_repr_t);
+    new_repr->is_internal = is_internal;
+
+    // TODO: Check that parsing of _repr_ will succeed.
+    char *str = pom_strdup (&store->pool, repr);
+    kv_repr_push_state (store, new_repr, str);
+    new_repr->name = pom_strdup (&store->pool, name);
+
+    if (store->last_repr != NULL) {
+        store->last_repr->next = new_repr;
+    } else {
+        store->reprs = new_repr;
+    }
+    store->last_repr = new_repr;
+}
+
 #define kv_repr_store_push_func_simple(store,func_name) \
     kv_repr_store_push_func(store, #func_name, func_name);
 
@@ -442,8 +462,33 @@ struct kv_repr_store_t* kv_repr_store_new ()
     }
 
     kv_repr_store_push_func (store, "Simple", kv_build_default_geometry);
-    // TODO: Get Full.lrep file from gresource
-    //kv_push_representation_str (kv, "Full", full_str);
+
+    // Load internal representations from GResource
+    {
+        string_t path = str_new ("/com/github/santileortiz/iconoscope/data/repr/");
+        size_t path_len = str_len (&path);
+        GError *error = NULL;
+        char **fnames = g_resource_enumerate_children (app.gresource,
+                                                       str_data(&path),
+                                                       G_RESOURCE_LOOKUP_FLAGS_NONE,
+                                                       &error);
+        while (*fnames) {
+            if (!g_str_has_suffix(*fnames, ".autosave.lrep") && g_str_has_suffix(*fnames, ".lrep")) {
+
+                str_put_c (&path, path_len, *fnames);
+                GBytes *bytes = g_resources_lookup_data (str_data(&path), G_RESOURCE_LOOKUP_FLAGS_NONE, &error);
+                gsize bytes_size;
+                const char *str = g_bytes_get_data (bytes, &bytes_size);
+                char *name = remove_extension (NULL, *fnames);
+
+                kv_push_representation_str (store, name, str, true);
+                free (name);
+            }
+            fnames++;
+        }
+
+        str_free (&path);
+    }
 
 #ifndef NDEBUG
     // Push debug geometries

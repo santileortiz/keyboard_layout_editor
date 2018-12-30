@@ -12,4 +12,7 @@
         <file alias="vshrink-key-symbolic.svg">data/icons/16/vshrink-key-symbolic.svg</file>
         <file alias="resize-row-symbolic.svg">data/icons/16/resize-row-symbolic.svg</file>
     </gresource>
+    <gresource prefix="/com/github/santileortiz/iconoscope">
+        <file>data/repr/Full.lrep</file>
+    </gresource>
 </gresources>

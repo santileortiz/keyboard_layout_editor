@@ -112,7 +112,7 @@ BUILD_GEOMETRY_FUNC(kv_build_default_geometry)
     kv_end_geometry (&ctx);
 }
 
-BUILD_GEOMETRY_FUNC(multirow_test_geometry)
+BUILD_GEOMETRY_FUNC(multirow_test)
 {
     struct geometry_edit_ctx_t ctx;
     kv_geometry_ctx_init_append (kv, &ctx);
@@ -190,7 +190,7 @@ BUILD_GEOMETRY_FUNC(edge_resize_leave_original_pos_2)
     kv_end_geometry (&ctx);
 }
 
-BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_1)
+BUILD_GEOMETRY_FUNC(edge_resize_test_1)
 {
     struct geometry_edit_ctx_t ctx;
     kv_geometry_ctx_init_append (kv, &ctx);
@@ -216,7 +216,7 @@ BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_1)
     kv_end_geometry (&ctx);
 }
 
-BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_2)
+BUILD_GEOMETRY_FUNC(edge_resize_test_2)
 {
     struct geometry_edit_ctx_t ctx;
     kv_geometry_ctx_init_append (kv, &ctx);
@@ -251,7 +251,7 @@ BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_2)
     kv_end_geometry (&ctx);
 }
 
-BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_3)
+BUILD_GEOMETRY_FUNC(edge_resize_test_3)
 {
     struct geometry_edit_ctx_t ctx;
     kv_geometry_ctx_init_append (kv, &ctx);
@@ -291,7 +291,7 @@ BUILD_GEOMETRY_FUNC(edge_resize_test_geometry_3)
     kv_end_geometry (&ctx);
 }
 
-BUILD_GEOMETRY_FUNC(adjust_left_edge_test_geometry)
+BUILD_GEOMETRY_FUNC(adjust_left_edge_test)
 {
     struct geometry_edit_ctx_t ctx;
     kv_geometry_ctx_init_append (kv, &ctx);
@@ -447,13 +447,13 @@ struct kv_repr_store_t* kv_repr_store_new ()
 
 #ifndef NDEBUG
     // Push debug geometries
-    kv_repr_store_push_func_simple (store, multirow_test_geometry);
+    kv_repr_store_push_func_simple (store, multirow_test);
     kv_repr_store_push_func_simple (store, edge_resize_leave_original_pos_1);
     kv_repr_store_push_func_simple (store, edge_resize_leave_original_pos_2);
-    kv_repr_store_push_func_simple (store, edge_resize_test_geometry_1);
-    kv_repr_store_push_func_simple (store, edge_resize_test_geometry_2);
-    kv_repr_store_push_func_simple (store, edge_resize_test_geometry_3);
-    kv_repr_store_push_func_simple (store, adjust_left_edge_test_geometry);
+    kv_repr_store_push_func_simple (store, edge_resize_test_1);
+    kv_repr_store_push_func_simple (store, edge_resize_test_2);
+    kv_repr_store_push_func_simple (store, edge_resize_test_3);
+    kv_repr_store_push_func_simple (store, adjust_left_edge_test);
     kv_repr_store_push_func_simple (store, vertical_extend_test_1);
     kv_repr_store_push_func_simple (store, vertical_extend_test_2);
 #endif

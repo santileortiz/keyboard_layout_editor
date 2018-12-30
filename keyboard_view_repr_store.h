@@ -28,4 +28,5 @@ struct kv_repr_store_t {
 struct kv_repr_store_t* kv_repr_store_new ();
 void kv_repr_store_destroy (struct kv_repr_store_t *store);
 struct kv_repr_t* kv_repr_get_by_name (struct kv_repr_store_t *store, const char *name);
-void kv_repr_push_state (struct kv_repr_store_t *store, struct kv_repr_t *repr, char *str);
+void kv_repr_push_state (struct kv_repr_store_t *store, struct kv_repr_t *repr, const char *str);
+void kv_repr_push_state_no_dup (struct kv_repr_store_t *store, struct kv_repr_t *repr, char *str);

@@ -3371,7 +3371,7 @@ bool kv_push_state_to_curr_repr (struct keyboard_view_t *kv)
 
     if (strcmp (str, kv_curr_repr(kv)) != 0) {
         retval = true;
-        kv_repr_push_state (kv->repr_store, kv->repr_store->curr_repr, str);
+        kv_repr_push_state_no_dup (kv->repr_store, kv->repr_store->curr_repr, str);
 
     } else {
         mem_pool_end_temporary_memory (mrkr);

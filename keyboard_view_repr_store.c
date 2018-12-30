@@ -349,7 +349,8 @@ void kv_repr_store_destroy (struct kv_repr_store_t *store)
     mem_pool_destroy (&store->pool);
 }
 
-void kv_repr_push_state (struct kv_repr_store_t *store, struct kv_repr_t *repr, char *str)
+// NOTE: Only call this is _str_ is already allocated into _store_->pool
+void kv_repr_push_state_no_dup (struct kv_repr_store_t *store, struct kv_repr_t *repr, char *str)
 {
     struct kv_repr_state_t *state =
         mem_pool_push_size (&store->pool, sizeof(struct kv_repr_state_t));
@@ -364,6 +365,12 @@ void kv_repr_push_state (struct kv_repr_store_t *store, struct kv_repr_t *repr, 
     repr->last_state = state;
 }
 
+void kv_repr_push_state (struct kv_repr_store_t *store, struct kv_repr_t *repr, const char *str)
+{
+    char *dup_str = pom_strdup (&store->pool, str);
+    kv_repr_push_state_no_dup (store, repr, dup_str);
+}
+
 void kv_repr_store_push_func (struct kv_repr_store_t *store, char *name, set_geometry_func_t *func)
 {
     struct kv_repr_t *new_repr = mem_pool_push_size (&store->pool, sizeof(struct kv_repr_t));
@@ -376,8 +383,27 @@ void kv_repr_store_push_func (struct kv_repr_store_t *store, char *name, set_geo
 
     func (kv);
     char *str = kv_to_string (&store->pool, kv);
-    kv_repr_push_state (store, new_repr, str);
+    kv_repr_push_state_no_dup (store, new_repr, str);
     keyboard_view_destroy (kv);
+
+    if (store->last_repr != NULL) {
+        store->last_repr->next = new_repr;
+    } else {
+        store->reprs = new_repr;
+    }
+    store->last_repr = new_repr;
+}
+
+void kv_push_representation_str (struct kv_repr_store_t *store,
+                                 const char *name, const char *str, bool is_internal)
+{
+    struct kv_repr_t *new_repr = mem_pool_push_size (&store->pool, sizeof(struct kv_repr_t));
+    *new_repr = ZERO_INIT (struct kv_repr_t);
+    new_repr->is_internal = is_internal;
+
+    // TODO: Check that parsing of _repr_ will succeed.
+    kv_repr_push_state (store, new_repr, str);
+    new_repr->name = pom_strdup (&store->pool, name);
 
     if (store->last_repr != NULL) {
         store->last_repr->next = new_repr;
@@ -389,63 +415,22 @@ void kv_repr_store_push_func (struct kv_repr_store_t *store, char *name, set_geo
 
 void kv_repr_store_push_file (struct kv_repr_store_t *store, char *path)
 {
-    bool invalid_file = false;
-
-    mem_pool_temp_marker_t mrkr = mem_pool_begin_temporary_memory (&store->pool);
-
-    struct kv_repr_t *new_repr = mem_pool_push_size (&store->pool, sizeof(struct kv_repr_t));
-    *new_repr = ZERO_INIT (struct kv_repr_t);
-    new_repr->is_internal = false;
-
+    mem_pool_t pool_l = {0};
     char *fname;
-    path_split (NULL, path, NULL, &fname);
-    if (g_str_has_suffix(fname, ".autosave.lrep") || !g_str_has_suffix(fname, ".lrep")) {
-        // Invalid file extension don't push anything.
-        invalid_file = true;
-    } else {
-        new_repr->name = remove_extension (&store->pool, fname);
-    }
+    path_split (&pool_l, path, NULL, &fname);
 
-    free (fname);
+    if (!g_str_has_suffix(fname, ".autosave.lrep") && g_str_has_suffix(fname, ".lrep")) {
+        char *name = remove_extension (&pool_l, fname);
+        char *str = full_file_read (&pool_l, path);
 
-    if (!invalid_file) {
-        // TODO: Check that parsing of this file will actually succeed and if
-        // not set invalid_file = true.
-        char *str = full_file_read (&store->pool, path);
-        kv_repr_push_state (store, new_repr, str);
-
-        if (store->last_repr != NULL) {
-            store->last_repr->next = new_repr;
-        } else {
-            store->reprs = new_repr;
-        }
-        store->last_repr = new_repr;
+        kv_push_representation_str (store, name, str, false);
 
     } else {
         // The push failed, restore pool as it whas when we started.
         printf ("File representation load failed: %s\n", path);
-        mem_pool_end_temporary_memory (mrkr);
     }
-}
 
-void kv_push_representation_str (struct kv_repr_store_t *store,
-                                 const char *name, const char *repr, bool is_internal)
-{
-    struct kv_repr_t *new_repr = mem_pool_push_size (&store->pool, sizeof(struct kv_repr_t));
-    *new_repr = ZERO_INIT (struct kv_repr_t);
-    new_repr->is_internal = is_internal;
-
-    // TODO: Check that parsing of _repr_ will succeed.
-    char *str = pom_strdup (&store->pool, repr);
-    kv_repr_push_state (store, new_repr, str);
-    new_repr->name = pom_strdup (&store->pool, name);
-
-    if (store->last_repr != NULL) {
-        store->last_repr->next = new_repr;
-    } else {
-        store->reprs = new_repr;
-    }
-    store->last_repr = new_repr;
+    mem_pool_destroy (&pool_l);
 }
 
 #define kv_repr_store_push_func_simple(store,func_name) \
@@ -546,7 +531,7 @@ struct kv_repr_store_t* kv_repr_store_new ()
                     if (repr != NULL) {
                         str_put_c (&repr_path, repr_path_len, entry_info->d_name);
                         char *str = full_file_read (&store->pool, str_data(&repr_path));
-                        kv_repr_push_state (store, repr, str);
+                        kv_repr_push_state_no_dup (store, repr, str);
 
                     } else {
                         // TODO: Should we remove this dangling autosave?

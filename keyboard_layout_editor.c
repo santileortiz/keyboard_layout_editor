@@ -494,7 +494,7 @@ void transition_to_welcome_with_custom_layouts (char **custom_layouts, int num_c
     assert (num_custom_layouts > 0);
     GtkWidget *child = gtk_bin_get_child (GTK_BIN (app.window));
     gtk_widget_destroy (child);
-    window_resize_centered (app.window, 1320, 570);
+    window_resize_centered (app.window, 1430, 570);
     build_welcome_screen_custom_layouts (custom_layouts, num_custom_layouts);
 }
 
@@ -587,7 +587,7 @@ int main (int argc, char *argv[])
         gtk_window_set_gravity (GTK_WINDOW(app.window), GDK_GRAVITY_CENTER);
 
         if (num_custom_layouts > 0) {
-            gtk_window_resize (GTK_WINDOW(app.window), 1320, 570);
+            gtk_window_resize (GTK_WINDOW(app.window), 1430, 570);
             build_welcome_screen_custom_layouts (custom_layouts, num_custom_layouts);
         } else {
             gtk_window_resize (GTK_WINDOW(app.window), 900, 570);

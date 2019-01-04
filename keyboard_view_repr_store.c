@@ -334,6 +334,21 @@ BUILD_GEOMETRY_FUNC(vertical_extend_test_2)
     kv_geometry_ctx_init_append (kv, &ctx);
 
     kv_new_row_h (&ctx, 1);
+    struct sgmt_t *m = kv_add_key_full (&ctx, KEY_1, 1, 0);
+
+    kv_new_row_h (&ctx, 1);
+    kv_add_multirow_sized_sgmt (&ctx, m, 0.5, MULTIROW_ALIGN_LEFT);
+    kv_add_key_full (&ctx, KEY_2, 1, 2);
+
+    kv_end_geometry (&ctx);
+}
+
+BUILD_GEOMETRY_FUNC(vertical_extend_test_3)
+{
+    struct geometry_edit_ctx_t ctx;
+    kv_geometry_ctx_init_append (kv, &ctx);
+
+    kv_new_row_h (&ctx, 1);
     kv_add_key_full (&ctx, KEY_1, 1, 0);
     kv_add_key_full (&ctx, KEY_2, 1, 1.5);
 
@@ -486,6 +501,7 @@ struct kv_repr_store_t* kv_repr_store_new ()
     kv_repr_store_push_func_simple (store, adjust_left_edge_test);
     kv_repr_store_push_func_simple (store, vertical_extend_test_1);
     kv_repr_store_push_func_simple (store, vertical_extend_test_2);
+    kv_repr_store_push_func_simple (store, vertical_extend_test_3);
 #endif
 
     string_t repr_path = app_get_repr_path (&app);

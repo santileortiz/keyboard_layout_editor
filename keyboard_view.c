@@ -3775,8 +3775,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 enum locate_sgmt_status_t new_sgmt_pos = top ? LOCATE_OUTSIDE_TOP : LOCATE_OUTSIDE_BOTTOM;
                 if (row != NULL) { new_sgmt_pos = LOCATE_HIT_KEY; }
 
-                float new_sgmt_glue = 0;
-                float x_last = kv_get_sgmt_x_pos (kv, sgmt);
                 struct sgmt_t **new_sgmt_ptr = NULL;
                 if (new_sgmt_pos == LOCATE_HIT_KEY) {
                     // Set new_sgmt_ptr to the location of the pointer such that
@@ -3784,6 +3782,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     // edge is beyond the left edge of sgmt. The new segment
                     // will tentatively be inserted before **new_sgmt_ptr.
                     new_sgmt_ptr = &row->first_key;
+                    float x_last = kv_get_sgmt_x_pos (kv, sgmt);
                     float x = left_margin;
                     while (*new_sgmt_ptr != NULL) {
                         float w = get_sgmt_total_glue(*new_sgmt_ptr) + get_sgmt_width (*new_sgmt_ptr);
@@ -3815,8 +3814,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                         x_prev += get_sgmt_total_glue(curr_sgmt) + get_sgmt_width (curr_sgmt);
                         curr_sgmt = curr_sgmt->next_sgmt;
                     }
-
-                    new_sgmt_glue = MAX (0, bin_floor ((x_last - left_margin)/kv->default_key_size - x_prev, KV_STEP_PRECISION));
                 }
 
                 struct sgmt_t *new_sgmt = kv_insert_new_sgmt (kv, new_sgmt_pos, new_sgmt_ptr);
@@ -3841,6 +3838,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 // If the new segment is added to an existing row, then the user
                 // glue for the clicked key needs to be recalculated.
                 if (new_sgmt_pos == LOCATE_HIT_KEY) {
+                    float sgmt_old_glue = get_sgmt_total_glue (sgmt);
+
                     // Reset the user glue for the clicked key to 0.
                     struct sgmt_t *parent = kv_get_multirow_parent (new_sgmt);
                     parent->user_glue = 0;
@@ -3848,9 +3847,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     // Compute the internal glue when user_glue = 0.
                     kv_compute_glue (kv);
 
-                    // Se clicked key's user glue to the difference between the
-                    // new total glue for new_sgmt and the one we want it to have.
-                    parent->user_glue = new_sgmt_glue - get_sgmt_total_glue(new_sgmt);
+                    // Set clicked key's user glue to the difference between the
+                    // new total glue for sgmt and the one it had before.
+                    parent->user_glue = MAX (0, sgmt_old_glue - get_sgmt_total_glue(sgmt));
                 }
 
                 kv_compute_glue (kv);

@@ -3827,27 +3827,33 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     new_sgmt->width = sgmt->width;
                     new_sgmt->kc = sgmt->kc;
                     new_sgmt->type = sgmt->type;
+                    new_sgmt->user_glue = sgmt->user_glue;
                     sgmt->type = KEY_MULTIROW_SEGMENT;
                 } else {
                     new_sgmt_prev = sgmt;
                     new_sgmt->type = KEY_MULTIROW_SEGMENT;
                 }
 
+                // Add new_sgmt to the multirow cyclic linked list
                 new_sgmt->next_multirow = new_sgmt_prev->next_multirow;
                 new_sgmt_prev->next_multirow = new_sgmt;
-                kv_adjust_sgmt_glue (kv, new_sgmt->next_sgmt, -get_sgmt_width(sgmt));
-                kv_compute_glue (kv);
 
-                // Update the user glue of sgmt to keep it in place
-                if (new_sgmt_pos == LOCATE_OUTSIDE_TOP) {
-                    new_sgmt->user_glue = sgmt->user_glue;
-                } else if (new_sgmt_pos == LOCATE_HIT_KEY) {
-                    // We call kv_compute_glue() twice because we implicitly changed
-                    // sgmt's user glue to 0 and we need the correct internal glue
-                    // to be able to now set it to new_sgmt_glue.
-                    kv_adjust_sgmt_glue (kv, new_sgmt, new_sgmt_glue);
+                // If the new segment is added to an existing row, then the user
+                // glue for the clicked key needs to be recalculated.
+                if (new_sgmt_pos == LOCATE_HIT_KEY) {
+                    // Reset the user glue for the clicked key to 0.
+                    struct sgmt_t *parent = kv_get_multirow_parent (new_sgmt);
+                    parent->user_glue = 0;
+
+                    // Compute the internal glue when user_glue = 0.
                     kv_compute_glue (kv);
+
+                    // Se clicked key's user glue to the difference between the
+                    // new total glue for new_sgmt and the one we want it to have.
+                    parent->user_glue = new_sgmt_glue - get_sgmt_total_glue(new_sgmt);
                 }
+
+                kv_compute_glue (kv);
 
                 kv_autosave (kv);
 

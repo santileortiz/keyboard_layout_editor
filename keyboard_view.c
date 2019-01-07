@@ -132,6 +132,8 @@ enum keyboard_view_label_mode_t {
 enum key_render_type_t {
     KEY_DEFAULT,
     KEY_PRESSED,
+    // TODO: I think KEY_UNASSIGNED is useless if we define a keycode of 0 to
+    // mean this. Remove it?
     KEY_UNASSIGNED,
     KEY_MULTIROW_SEGMENT, // Inherits glue and width from parent
     KEY_MULTIROW_SEGMENT_SIZED
@@ -1520,6 +1522,7 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
             // Compute the label for the key
             char buff[64];
             buff[0] = '\0';
+
             if (curr_key->type == KEY_DEFAULT || curr_key->type == KEY_PRESSED) {
                 switch (kv->label_mode) {
                     case KV_KEYSYM_LABELS:
@@ -3973,6 +3976,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     // through keys_by_kc (the selected key wil take it's place
                     // there), then it would remain pressed unless we do this.
                     key_event_key->type = KEY_UNASSIGNED;
+                    key_event_key->kc = 0;
                 }
 
                 // If selected_key has a keycode assigned, remove it's pointer

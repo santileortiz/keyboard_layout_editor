@@ -19,6 +19,7 @@
 struct kle_app_t app;
 
 #include "keyboard_view_repr_store.h"
+#include "keyboard_view_as_string.h"
 #include "keyboard_view.c"
 #include "keyboard_view_repr_store.c"
 #include "keyboard_view_as_string.c"

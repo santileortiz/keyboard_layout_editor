@@ -315,11 +315,6 @@ struct keyboard_view_t {
     GdkRectangle debug_rect;
 };
 
-// These come from keyboard_view_as_string.c
-char* kv_to_string (mem_pool_t *pool, struct keyboard_view_t *kv);
-void kv_print (struct keyboard_view_t *kv);
-void kv_set_from_string (struct keyboard_view_t *kv, char *str);
-
 static inline
 bool kv_is_view_empty (struct keyboard_view_t *kv)
 {
@@ -3402,6 +3397,7 @@ void kv_autosave (struct keyboard_view_t *kv)
 
         assert (!kv_curr_repr_is_saved (kv));
     }
+
 }
 
 // FIXME: I was unable to easily find the height of the toolbar to ignore clicks

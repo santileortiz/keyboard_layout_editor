@@ -2,7 +2,7 @@
  * Copiright (C) 2018 Santiago León O.
  */
 
-char* kv_to_string (mem_pool_t *pool, struct keyboard_view_t *kv)
+char* kv_to_string_full (mem_pool_t *pool, struct keyboard_view_t *kv, bool full)
 {
     // Set posix locale so the decimal separator is always .
     char *old_locale;
@@ -64,6 +64,33 @@ char* kv_to_string (mem_pool_t *pool, struct keyboard_view_t *kv)
                     str_cat_c (&str, buff);
                 }
 
+                if (full) {
+                    switch (sgmt->type) {
+                        case KEY_DEFAULT:
+                            break;
+
+                        case KEY_PRESSED:
+                            str_cat_c (&str, ", P");
+                            break;
+
+                        case KEY_UNASSIGNED:
+                            str_cat_c (&str, ", U");
+                            break;
+
+                        case KEY_MULTIROW_SEGMENT:
+                            str_cat_c (&str, ", MSEG");
+                            break;
+
+                        case KEY_MULTIROW_SEGMENT_SIZED:
+                            str_cat_c (&str, ", MSIZ");
+                            break;
+
+                        default:
+                            str_cat_c (&str, ", ?");
+                            break;
+                    }
+                }
+
                 str_cat_c (&str, ")");
 
             } else if (is_multirow_parent (sgmt)) {
@@ -83,10 +110,37 @@ char* kv_to_string (mem_pool_t *pool, struct keyboard_view_t *kv)
                     str_cat_c (&str, buff);
                 }
 
-                if (sgmt->internal_glue != 0) {
-                    str_cat_c (&str, ", IG: ");
-                    snprintf (buff, ARRAY_SIZE(buff), "%g", sgmt->internal_glue);
-                    str_cat_c (&str, buff);
+                if (full) {
+                    if (sgmt->internal_glue != 0) {
+                        str_cat_c (&str, ", IG: ");
+                        snprintf (buff, ARRAY_SIZE(buff), "%g", sgmt->internal_glue);
+                        str_cat_c (&str, buff);
+                    }
+
+                    switch (sgmt->type) {
+                        case KEY_DEFAULT:
+                            break;
+
+                        case KEY_PRESSED:
+                            str_cat_c (&str, ", P");
+                            break;
+
+                        case KEY_UNASSIGNED:
+                            str_cat_c (&str, ", U");
+                            break;
+
+                        case KEY_MULTIROW_SEGMENT:
+                            str_cat_c (&str, ", MSEG");
+                            break;
+
+                        case KEY_MULTIROW_SEGMENT_SIZED:
+                            str_cat_c (&str, ", MSIZ");
+                            break;
+
+                        default:
+                            str_cat_c (&str, ", ?");
+                            break;
+                    }
                 }
 
                 str_cat_c (&str, ")");
@@ -110,7 +164,7 @@ char* kv_to_string (mem_pool_t *pool, struct keyboard_view_t *kv)
                     }
                 }
 
-                if (sgmt->internal_glue != 0) {
+                if (full && sgmt->internal_glue != 0) {
                     if (sgmt->type == KEY_MULTIROW_SEGMENT_SIZED) {
                         str_cat_c (&str, ", ");
                     }
@@ -146,7 +200,7 @@ char* kv_to_string (mem_pool_t *pool, struct keyboard_view_t *kv)
 void kv_print (struct keyboard_view_t *kv)
 {
     mem_pool_t pool = ZERO_INIT (mem_pool_t);
-    printf ("%s\n", kv_to_string (&pool, kv));
+    printf ("%s\n", kv_to_string_debug (&pool, kv));
     mem_pool_destroy (&pool);
 }
 
@@ -298,20 +352,6 @@ void parse_full_key_arguments (struct scanner_t *scnr, int *kc, float *width, fl
         }
     }
 
-    // Internal glue is parsed but ignored as the API to create keyboard layouts
-    // does not allow setting it. Instead it expects the user to call
-    // kv_compute_glue(). I currently think this is the right thing because I
-    // don't want to bother the user of the API with something that can be
-    // computed. Maybe it should be removed from the string format, although it
-    // can be useful for debug purposes.
-    // @parser_ignores_internal_glue
-    if (scanner_str (scnr, ", IG:")) {
-        float internal_glue;
-        if (!scanner_float (scnr, &internal_glue)) {
-            scanner_set_error (scnr, "Expected user glue.\n");
-        }
-    }
-
     if (!scanner_char (scnr, ')')) {
         scanner_set_error (scnr, "Missing ')'\n");
     }
@@ -345,22 +385,6 @@ void parse_key_sgmt_arguments (struct scanner_t *scnr, float *width, enum multir
             scanner_set_error (scnr, "Expected segment alignment.\n");
         }
 
-        // @parser_ignores_internal_glue
-        if (scanner_char (scnr, ',')) {
-            float user_glue;
-            if (!scanner_str (scnr, "IG:") || !scanner_float (scnr, &user_glue)) {
-                scanner_set_error (scnr, "Expected internal glue value.\n");
-            }
-        }
-
-    } else {
-        // @parser_ignores_internal_glue
-        if (scanner_str (scnr, "IG:")){
-            float user_glue;
-            if (!scanner_float (scnr, &user_glue)) {
-                scanner_set_error (scnr, "Expected internal glue value.\n");
-            }
-        }
     }
 
     if (!scanner_char (scnr, ')')) {
@@ -368,6 +392,8 @@ void parse_key_sgmt_arguments (struct scanner_t *scnr, float *width, enum multir
     }
 }
 
+// NOTE: This only parses strings created by calling kv_to_string().
+// @keyboard_string_formats
 void kv_set_from_string (struct keyboard_view_t *kv, char *str)
 {
     kv_clear (kv);

@@ -73,10 +73,6 @@ char* kv_to_string_full (mem_pool_t *pool, struct keyboard_view_t *kv, bool full
                             str_cat_c (&str, ", P");
                             break;
 
-                        case KEY_UNASSIGNED:
-                            str_cat_c (&str, ", U");
-                            break;
-
                         case KEY_MULTIROW_SEGMENT:
                             str_cat_c (&str, ", MSEG");
                             break;
@@ -123,10 +119,6 @@ char* kv_to_string_full (mem_pool_t *pool, struct keyboard_view_t *kv, bool full
 
                         case KEY_PRESSED:
                             str_cat_c (&str, ", P");
-                            break;
-
-                        case KEY_UNASSIGNED:
-                            str_cat_c (&str, ", U");
                             break;
 
                         case KEY_MULTIROW_SEGMENT:

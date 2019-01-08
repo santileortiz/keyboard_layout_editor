@@ -132,9 +132,6 @@ enum keyboard_view_label_mode_t {
 enum key_render_type_t {
     KEY_DEFAULT,
     KEY_PRESSED,
-    // TODO: I think KEY_UNASSIGNED is useless if we define a keycode of 0 to
-    // mean this. Remove it?
-    KEY_UNASSIGNED,
     KEY_MULTIROW_SEGMENT, // Inherits glue and width from parent
     KEY_MULTIROW_SEGMENT_SIZED
 };
@@ -319,6 +316,20 @@ static inline
 bool kv_is_view_empty (struct keyboard_view_t *kv)
 {
     return kv->first_row == NULL;
+}
+
+// Previously key_render_type_t had a KEY_UNASSIGNED value, to allow the keycode
+// 0 to be valid, even though most of the code implicitly assumed a keycode of 0
+// to mean unassigned. I have decided to remove the redundant key type, as it
+// looks like making keycode 0 mean unassigned is safe, I don't think a keyboard
+// will ever emit it, if it turns out I'm wrong, and some keyboards do emit
+// this, then we will have to go back to the unassigned type and be sure to use
+// it everywhere, in particular we will need a way to represent it in the string
+// format, maybe by using a keycode of -1 to mean unassigned.
+static inline
+bool is_unassigned (struct sgmt_t *key)
+{
+    return key->kc == 0;
 }
 
 static inline
@@ -1518,7 +1529,7 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
             char buff[64];
             buff[0] = '\0';
 
-            if (curr_key->type == KEY_DEFAULT || curr_key->type == KEY_PRESSED) {
+            if (!is_unassigned (curr_key)) {
                 switch (kv->label_mode) {
                     case KV_KEYSYM_LABELS:
                         if (curr_key->kc == KEY_FN) {
@@ -1574,7 +1585,7 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
                     key_color = RGB_HEX(0xe34442);
 
                 } else if (curr_key->type == KEY_PRESSED ||
-                           (curr_key->type != KEY_UNASSIGNED && curr_key->kc == kv->clicked_kc)) {
+                           (!is_unassigned(curr_key) && curr_key->kc == kv->clicked_kc)) {
                     key_color = RGB_HEX(0x90de4d);
 
                 } else {
@@ -3010,7 +3021,6 @@ struct sgmt_t* kv_create_multirow_split (struct keyboard_view_t *kv,
                                         struct sgmt_t ***new_key_ptr)
 {
     struct sgmt_t *new_key = kv_allocate_key (kv);
-    new_key->type = KEY_UNASSIGNED;
 
     if (add_split_after) {
         struct sgmt_t *sgmt = start_sgmt;
@@ -3237,7 +3247,6 @@ struct sgmt_t* kv_insert_new_sgmt (struct keyboard_view_t *kv,
 
     // Allocate the new key
     struct sgmt_t *new_key = kv_allocate_key (kv);
-    new_key->type = KEY_UNASSIGNED;
     new_key->width = 1;
 
     // Insert the new key
@@ -3315,7 +3324,6 @@ struct sgmt_t* kv_add_key_full (struct geometry_edit_ctx_t *ctx,
     if (0 < keycode && keycode < KEY_CNT) {
         kv->keys_by_kc[keycode] = new_key;
     } else {
-        new_key->type = KEY_UNASSIGNED;
         keycode = 0;
     }
     new_key->kc = keycode;
@@ -3543,7 +3551,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                     if (!is_multirow_key (button_event_key)) {
                         kv->new_key = kv_allocate_key (kv);
-                        kv->new_key->type = KEY_UNASSIGNED;
 
                         if (kv->edit_right_edge) {
                             kv->new_key->next_sgmt = button_event_key->next_sgmt;
@@ -3971,13 +3978,16 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     // NOTE: Because key_event_key won't be accessible again
                     // through keys_by_kc (the selected key wil take it's place
                     // there), then it would remain pressed unless we do this.
-                    key_event_key->type = KEY_UNASSIGNED;
                     key_event_key->kc = 0;
+
+                    // key_event_key will be pressed, because it will move, we
+                    // need to release it so it doesn't get stuck.
+                    key_event_key->type = KEY_DEFAULT;
                 }
 
                 // If selected_key has a keycode assigned, remove it's pointer
                 // from keys_by_kc because it will change position.
-                if (kv->selected_key->type == KEY_PRESSED || kv->selected_key->type == KEY_DEFAULT) {
+                if (!is_unassigned(kv->selected_key)) {
                     kv->keys_by_kc[kv->selected_key->kc] = NULL;
                 }
 

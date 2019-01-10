@@ -2005,7 +2005,19 @@ void kv_repr_save_current (struct keyboard_view_t *kv, const char *name, bool co
         valid_name = false;
     }
 
+    bool exist_internal_repr_with_same_name = false;
+    {
+        struct kv_repr_t *curr_repr = kv->repr_store->reprs;
+        while (curr_repr != NULL) {
+            if (curr_repr->is_internal && strcmp (curr_repr->name, name) == 0) {
+                exist_internal_repr_with_same_name = true;
+            }
+            curr_repr = curr_repr->next;
+        }
+    }
+
     if (valid_name &&
+        !exist_internal_repr_with_same_name &&
         (!confirm_overwrite || maybe_get_overwrite_confirmation (str_data (&repr_path)))) {
 
         full_file_write (kv_curr_repr(kv), strlen(kv_curr_repr(kv)), str_data (&repr_path));
@@ -2017,6 +2029,9 @@ void kv_repr_save_current (struct keyboard_view_t *kv, const char *name, bool co
 
         kv_reload_representations (kv, name, true);
     }
+
+    // TODO: Show a message if exist_internal_repr_with_same_name is true,
+    // explaining what happened.
 
     str_free (&repr_path);
 }

@@ -2030,8 +2030,23 @@ void kv_repr_save_current (struct keyboard_view_t *kv, const char *name, bool co
         kv_reload_representations (kv, name, true);
     }
 
-    // TODO: Show a message if exist_internal_repr_with_same_name is true,
-    // explaining what happened.
+    if (exist_internal_repr_with_same_name) {
+        GtkWidget *dialog =
+            gtk_message_dialog_new (GTK_WINDOW(app.window),
+                                    GTK_DIALOG_DESTROY_WITH_PARENT,
+                                    GTK_MESSAGE_WARNING,
+                                    GTK_BUTTONS_CLOSE,
+                                    "Can't overwrite internal representations");
+
+        gtk_message_dialog_format_secondary_text (
+            GTK_MESSAGE_DIALOG(dialog),
+            "There is an internal representation named \"%s\". Please choose another name.",
+            name
+            );
+
+        gtk_dialog_run (GTK_DIALOG (dialog));
+        gtk_widget_destroy (dialog);
+    }
 
     str_free (&repr_path);
 }

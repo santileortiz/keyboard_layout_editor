@@ -95,13 +95,13 @@ enum keyboard_view_state_t {
     KV_PREVIEW,
     KV_EDIT,
     KV_EDIT_KEYCODE_KEYPRESS,
+    //KV_EDIT_KEYCODE_LOOKUP,
     KV_EDIT_KEY_SPLIT,
     KV_EDIT_KEY_SPLIT_NON_RECTANGULAR,
     KV_EDIT_KEY_RESIZE,
     KV_EDIT_KEY_RESIZE_SEGMENT,
     KV_EDIT_KEY_RESIZE_ROW,
     KV_EDIT_KEY_PUSH_RIGHT
-    //KV_EDIT_KEYCODE_LOOKUP,
 };
 
 enum keyboard_view_commands_t {
@@ -113,6 +113,8 @@ enum keyboard_view_commands_t {
 
 enum keyboard_view_tools_t {
     KV_TOOL_KEYCODE_KEYPRESS,
+    KV_TOOL_KEYCODE_KEYPRESS_MULTIPLE,
+    KV_TOOL_KEYCODE_LOOKUP,
     KV_TOOL_SPLIT_KEY,
     KV_TOOL_DELETE_KEY,
     KV_TOOL_RESIZE_KEY,
@@ -1870,6 +1872,16 @@ void keycode_keypress_handler (GtkButton *button, gpointer user_data)
     app.keyboard_view->active_tool = KV_TOOL_KEYCODE_KEYPRESS;
 }
 
+void keycode_multiple_keypress_handler (GtkButton *button, gpointer user_data)
+{
+    app.keyboard_view->active_tool = KV_TOOL_KEYCODE_KEYPRESS_MULTIPLE;
+}
+
+void keycode_lookup_keypress_handler (GtkButton *button, gpointer user_data)
+{
+    app.keyboard_view->active_tool = KV_TOOL_KEYCODE_LOOKUP;
+}
+
 void split_key_handler (GtkButton *button, gpointer user_data)
 {
     app.keyboard_view->active_tool = KV_TOOL_SPLIT_KEY;
@@ -2317,10 +2329,20 @@ void kv_set_full_toolbar (struct keyboard_view_t *kv, GtkWidget **toolbar)
                                                       G_CALLBACK (stop_edit_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), stop_edit_button, i++, 0, 1, 1);
 
-    GtkWidget *keycode_keypress = toolbar_button_new ("set-keycode-symbolic",
+    GtkWidget *keycode_keypress = toolbar_button_new ("set-keycode-single-symbolic",
                                                       "Assign keycode by pressing key",
                                                       G_CALLBACK (keycode_keypress_handler), NULL);
     gtk_grid_attach (GTK_GRID(*toolbar), keycode_keypress, i++, 0, 1, 1);
+
+    GtkWidget *keycode_keypress_multiple = toolbar_button_new ("set-keycode-multiple-symbolic",
+                                                      "Assign keycodes by sequentially pressing multiple keys",
+                                                      G_CALLBACK (keycode_multiple_keypress_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), keycode_keypress_multiple, i++, 0, 1, 1);
+
+    GtkWidget *keycode_lookup = toolbar_button_new ("set-keycode-lookup-symbolic",
+                                                      "Assign keycode by name",
+                                                      G_CALLBACK (keycode_lookup_keypress_handler), NULL);
+    gtk_grid_attach (GTK_GRID(*toolbar), keycode_lookup, i++, 0, 1, 1);
 
     GtkWidget *add_key_button = toolbar_button_new ("add-key-symbolic",
                                                     "Add key",

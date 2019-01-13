@@ -95,6 +95,7 @@ enum keyboard_view_state_t {
     KV_PREVIEW,
     KV_EDIT,
     KV_EDIT_KEYCODE_KEYPRESS,
+    KV_EDIT_KEYCODE_MULYIPLE_KEYPRESS,
     //KV_EDIT_KEYCODE_LOOKUP,
     KV_EDIT_KEY_SPLIT,
     KV_EDIT_KEY_SPLIT_NON_RECTANGULAR,
@@ -3585,6 +3586,13 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 grab_input (NULL, NULL);
                 kv->state = KV_EDIT_KEYCODE_KEYPRESS;
 
+            } else if (kv->active_tool == KV_TOOL_KEYCODE_KEYPRESS_MULTIPLE &&
+                       e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+                // @select_is_release_based
+                kv->selected_key = button_event_key;
+                grab_input (NULL, NULL);
+                kv->state = KV_EDIT_KEYCODE_MULYIPLE_KEYPRESS;
+
             } else if (kv->active_tool == KV_TOOL_SPLIT_KEY &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 GdkEventButton *event = (GdkEventButton*)e;
@@ -4055,6 +4063,65 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 ungrab_input (NULL, NULL);
                 kv_autosave (kv);
                 kv->state = KV_EDIT;
+
+            } else if (e->type == GDK_BUTTON_RELEASE) { // @select_is_release_based
+                if (button_event_key == NULL || button_event_key == kv->selected_key) {
+                    ungrab_input (NULL, NULL);
+                    kv->selected_key = NULL;
+                    kv->state = KV_EDIT;
+                } else {
+                    // Edit the newly clicked key.
+                    kv->selected_key = button_event_key;
+                }
+            }
+            break;
+
+        case KV_EDIT_KEYCODE_MULYIPLE_KEYPRESS:
+            if (e->type == GDK_KEY_PRESS) {
+                // If the keycode was already assigned, unassign it from that
+                // key.
+                if (key_event_key != NULL) {
+                    // NOTE: Because key_event_key won't be accessible again
+                    // through keys_by_kc (the selected key wil take it's place
+                    // there), then it would remain pressed unless we do this.
+                    key_event_key->kc = 0;
+
+                    // key_event_key will be pressed, because it will move, we
+                    // need to release it so it doesn't get stuck.
+                    key_event_key->type = KEY_DEFAULT;
+                }
+
+                // If selected_key has a keycode assigned, remove it's pointer
+                // from keys_by_kc because it will change position.
+                if (!is_unassigned(kv->selected_key)) {
+                    kv->keys_by_kc[kv->selected_key->kc] = NULL;
+                }
+
+                // Update selected_key info
+                kv->selected_key->kc = key_event_kc-8;
+                kv->selected_key->type = KEY_DEFAULT;
+
+                // Put a pointer to selected_key in the correct position in
+                // keys_by_kc.
+                kv->keys_by_kc[key_event_kc-8] = kv->selected_key;
+
+                struct sgmt_t *next_selected_key = NULL;
+                if (kv->selected_key->next_sgmt == NULL) {
+                    struct row_t *row = kv_get_row (kv, kv->selected_key);
+                    if (row->next_row != NULL) {
+                        next_selected_key = kv_get_multirow_parent(row->next_row->first_key);
+                    }
+
+                } else {
+                    next_selected_key = kv_get_multirow_parent(kv->selected_key->next_sgmt);
+                }
+
+                kv->selected_key = next_selected_key;
+                if (next_selected_key == NULL) {
+                    ungrab_input (NULL, NULL);
+                    kv->state = KV_EDIT;
+                }
+                kv_autosave (kv);
 
             } else if (e->type == GDK_BUTTON_RELEASE) { // @select_is_release_based
                 if (button_event_key == NULL || button_event_key == kv->selected_key) {

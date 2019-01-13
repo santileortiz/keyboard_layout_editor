@@ -291,8 +291,10 @@ void set_header_icon_button_gcallback (GtkWidget **button, const char *icon_name
 // TODO: @requires:GTK_3.20
 // TODO: Get better icon for this. I'm thinking a gripper grabbing/ungrabbing a
 // key.
+//#define DISABLE_GRABS
 gboolean grab_input (GtkButton *button, gpointer user_data)
 {
+#ifndef DISABLE_GRABS
     GdkDisplay *disp = gdk_display_get_default ();
     app.gdk_seat = gdk_display_get_default_seat (disp);
     GdkWindow *gdk_window = gtk_widget_get_window (app.window);
@@ -304,15 +306,18 @@ gboolean grab_input (GtkButton *button, gpointer user_data)
     if (status == GDK_GRAB_SUCCESS) {
         set_header_icon_button (&app.keyboard_grabbing_button, "media-playback-stop", ungrab_input);
     }
+#endif
     return G_SOURCE_REMOVE;
 }
 
 // TODO: @requires:GTK_3.20
 gboolean ungrab_input (GtkButton *button, gpointer user_data)
 {
+#ifndef DISABLE_GRABS
     set_header_icon_button (&app.keyboard_grabbing_button, "process-completed", grab_input);
     gdk_seat_ungrab (app.gdk_seat);
     app.gdk_seat = NULL;
+#endif
     return G_SOURCE_REMOVE;
 }
 

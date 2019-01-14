@@ -1977,7 +1977,7 @@ bool maybe_get_overwrite_confirmation (char *path)
     return write;
 }
 
-void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr, bool saved);
+void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr);
 void kv_reload_representations (struct keyboard_view_t *kv, const char *name, bool saved)
 {
     // Reload representations into a new repr_store
@@ -1992,7 +1992,7 @@ void kv_reload_representations (struct keyboard_view_t *kv, const char *name, bo
     // will be freed here.
     kv_repr_store_destroy (kv->repr_store);
     kv->repr_store = repr_store;
-    kv_set_current_repr (kv, curr_repr, saved);
+    kv_set_current_repr (kv, curr_repr);
     kv_rebuild_repr_combobox (kv, repr_store->curr_repr, saved);
 }
 
@@ -2145,16 +2145,22 @@ void save_view_handler (GtkButton *button, gpointer user_data)
     kv_repr_save_current (kv, kv->repr_store->curr_repr->name, false);
 }
 
-void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr, bool saved)
+// Replaces the keyboard data structure with the current representation. If
+// _saved_ is false then we try to load an unsaved autosave if there is one.
+void kv_load_current_repr (struct keyboard_view_t *kv, bool saved)
+{
+    kv_clear (kv);
+    if (saved) {
+        kv_set_from_string (kv, kv->repr_store->curr_repr->states->repr);
+    } else {
+        kv_set_from_string (kv, kv->repr_store->curr_repr->last_state->repr);
+    }
+}
+
+void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr)
 {
     assert (repr != NULL);
 
-    kv_clear (kv);
-    if (saved) {
-        kv_set_from_string (kv, repr->states->repr);
-    } else {
-        kv_set_from_string (kv, repr->last_state->repr);
-    }
     kv->repr_store->curr_repr = repr;
 
     // Enable/Disable Save button
@@ -2196,7 +2202,8 @@ void change_repr_handler (GtkComboBox *themes_combobox, gpointer user_data)
     }
 
     struct kv_repr_t *repr = kv_repr_get_by_name (app.keyboard_view->repr_store, str_data(&repr_name_str));
-    kv_set_current_repr (app.keyboard_view, repr, saved);
+    kv_set_current_repr (app.keyboard_view, repr);
+    kv_load_current_repr (app.keyboard_view, saved);
     str_free (&repr_name_str);
 }
 
@@ -2410,7 +2417,8 @@ void kv_set_full_toolbar (struct keyboard_view_t *kv, GtkWidget **toolbar)
         gtk_widget_show_all (wrapper);
         gtk_grid_attach (GTK_GRID(*toolbar), wrapper, i++, 0, 1, 1);
     }
-    kv_set_current_repr (kv, kv->repr_store->curr_repr, false);
+    kv_set_current_repr (kv, kv->repr_store->curr_repr);
+    kv_load_current_repr (kv, false);
 }
 
 // Round i downwards to the nearest multiple of 1/2^n. If i is negative treat it
@@ -3557,7 +3565,8 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                             next_repr = kv->repr_store->reprs;
                         }
 
-                        kv_set_current_repr (kv, next_repr, false);
+                        kv_set_current_repr (kv, next_repr);
+                        kv_load_current_repr (kv, false);
                         kv_rebuild_repr_combobox (kv, next_repr, false);
 
                     } else if (event->hardware_keycode - 8 == KEY_P) {
@@ -4529,7 +4538,8 @@ struct keyboard_view_t* keyboard_view_new_with_gui (GtkWidget *window)
     // NOTE: This may be null if for some reason the avtive representation
     // stored in the settings file was deleted.
     if (repr != NULL) {
-        kv_set_current_repr (kv, repr, true);
+        kv_set_current_repr (kv, repr);
+        kv_load_current_repr (kv, true);
     }
 
     kv->state = KV_PREVIEW;

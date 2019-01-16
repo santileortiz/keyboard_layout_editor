@@ -95,7 +95,7 @@ enum keyboard_view_state_t {
     KV_PREVIEW,
     KV_EDIT,
     KV_EDIT_KEYCODE_KEYPRESS,
-    KV_EDIT_KEYCODE_MULYIPLE_KEYPRESS,
+    KV_EDIT_KEYCODE_MULTIPLE_KEYPRESS,
     //KV_EDIT_KEYCODE_LOOKUP,
     KV_EDIT_KEY_SPLIT,
     KV_EDIT_KEY_SPLIT_NON_RECTANGULAR,
@@ -243,6 +243,9 @@ struct keyboard_view_t {
     // xkbcommon state
     struct xkb_keymap *xkb_keymap;
     struct xkb_state *xkb_state;
+
+    // KEYCODE_LOOKUP state
+    GtkWidget *keycode_lookup_popover;
 
     // KEY_SPLIT state
     struct sgmt_t *new_key;
@@ -1928,6 +1931,22 @@ void push_right_handler (GtkButton *button, gpointer user_data)
     app.keyboard_view->active_tool = KV_TOOL_PUSH_RIGHT;
 }
 
+void keycode_lookup_set_handler (GtkButton *button, gpointer user_data)
+{
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    gtk_widget_destroy (kv->keycode_lookup_popover);
+    kv->selected_key = NULL;
+    gtk_widget_queue_draw (kv->widget);
+}
+
+void keycode_lookup_cancel_handler (GtkButton *button, gpointer user_data)
+{
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    gtk_widget_destroy (kv->keycode_lookup_popover);
+    kv->selected_key = NULL;
+    gtk_widget_queue_draw (kv->widget);
+}
+
 void repr_save_as_popover_cancel_handler (GtkButton *button, gpointer user_data)
 {
     struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
@@ -3600,7 +3619,46 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 // @select_is_release_based
                 kv->selected_key = button_event_key;
                 grab_input (NULL, NULL);
-                kv->state = KV_EDIT_KEYCODE_MULYIPLE_KEYPRESS;
+                kv->state = KV_EDIT_KEYCODE_MULTIPLE_KEYPRESS;
+
+            } else if (kv->active_tool == KV_TOOL_KEYCODE_LOOKUP &&
+                       e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+                // @select_is_release_based
+                GtkWidget *name_labeled_entry = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+                GtkWidget *entry = gtk_entry_new ();
+                {
+                    gtk_widget_grab_focus (GTK_WIDGET(entry));
+
+                    gtk_container_add (GTK_CONTAINER(name_labeled_entry), gtk_label_new ("Keycode name:"));
+                    gtk_container_add (GTK_CONTAINER(name_labeled_entry), entry);
+                }
+
+                GtkWidget *cancel_button = gtk_button_new_with_label ("Cancel");
+                g_signal_connect (G_OBJECT(cancel_button), "clicked", G_CALLBACK(keycode_lookup_cancel_handler), kv);
+                GtkWidget *save_button = gtk_button_new_with_label ("Set");
+                g_signal_connect (G_OBJECT(save_button), "clicked", G_CALLBACK(keycode_lookup_set_handler), kv);
+                add_css_class (save_button, "suggested-action");
+
+                GtkWidget *grid = gtk_grid_new ();
+                gtk_widget_set_margin_start (GTK_WIDGET(grid), 12);
+                gtk_widget_set_margin_end (GTK_WIDGET(grid), 12);
+                gtk_widget_set_margin_top (GTK_WIDGET(grid), 12);
+                gtk_widget_set_margin_bottom (GTK_WIDGET(grid), 12);
+                gtk_grid_set_row_spacing (GTK_GRID(grid), 12);
+                gtk_grid_set_column_spacing (GTK_GRID(grid), 12);
+                gtk_grid_attach (GTK_GRID(grid), name_labeled_entry, 0, 0, 2, 1);
+                gtk_grid_attach (GTK_GRID(grid), cancel_button, 0, 1, 1, 1);
+                gtk_grid_attach (GTK_GRID(grid), save_button, 1, 1, 1, 1);
+
+                kv->keycode_lookup_popover = gtk_popover_new (kv->widget);
+                gtk_container_add (GTK_CONTAINER(kv->keycode_lookup_popover), grid);
+                gtk_popover_set_position (GTK_POPOVER(kv->keycode_lookup_popover), GTK_POS_BOTTOM);
+                gtk_popover_set_pointing_to (GTK_POPOVER(kv->keycode_lookup_popover), &button_event_key_rect);
+                gtk_widget_show_all (kv->keycode_lookup_popover);
+
+                gtk_widget_grab_focus (GTK_WIDGET(entry));
+
+                kv->selected_key = button_event_key;
 
             } else if (kv->active_tool == KV_TOOL_SPLIT_KEY &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
@@ -4085,7 +4143,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             }
             break;
 
-        case KV_EDIT_KEYCODE_MULYIPLE_KEYPRESS:
+        case KV_EDIT_KEYCODE_MULTIPLE_KEYPRESS:
             if (e->type == GDK_KEY_PRESS) {
                 // If the keycode was already assigned, unassign it from that
                 // key.

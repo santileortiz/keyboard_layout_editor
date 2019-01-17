@@ -96,7 +96,7 @@ enum keyboard_view_state_t {
     KV_EDIT,
     KV_EDIT_KEYCODE_KEYPRESS,
     KV_EDIT_KEYCODE_MULTIPLE_KEYPRESS,
-    //KV_EDIT_KEYCODE_LOOKUP,
+    KV_EDIT_KEYCODE_LOOKUP,
     KV_EDIT_KEY_SPLIT,
     KV_EDIT_KEY_SPLIT_NON_RECTANGULAR,
     KV_EDIT_KEY_RESIZE,
@@ -1931,20 +1931,34 @@ void push_right_handler (GtkButton *button, gpointer user_data)
     app.keyboard_view->active_tool = KV_TOOL_PUSH_RIGHT;
 }
 
+void keycode_lookup_on_popup_close (GtkWidget *object, gpointer user_data)
+{
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    kv->state = KV_EDIT;
+    kv->selected_key = NULL;
+    gtk_widget_queue_draw (kv->widget);
+}
+
+void keycode_lookup_cancel (struct keyboard_view_t *kv)
+{
+    gtk_widget_destroy (kv->keycode_lookup_popover);
+}
+
+void keycode_lookup_set (struct keyboard_view_t *kv)
+{
+    gtk_widget_destroy (kv->keycode_lookup_popover);
+}
+
 void keycode_lookup_set_handler (GtkButton *button, gpointer user_data)
 {
     struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
-    gtk_widget_destroy (kv->keycode_lookup_popover);
-    kv->selected_key = NULL;
-    gtk_widget_queue_draw (kv->widget);
+    keycode_lookup_set (kv);
 }
 
 void keycode_lookup_cancel_handler (GtkButton *button, gpointer user_data)
 {
     struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
-    gtk_widget_destroy (kv->keycode_lookup_popover);
-    kv->selected_key = NULL;
-    gtk_widget_queue_draw (kv->widget);
+    keycode_lookup_cancel (kv);
 }
 
 void repr_save_as_popover_cancel_handler (GtkButton *button, gpointer user_data)
@@ -3655,10 +3669,13 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 gtk_popover_set_position (GTK_POPOVER(kv->keycode_lookup_popover), GTK_POS_BOTTOM);
                 gtk_popover_set_pointing_to (GTK_POPOVER(kv->keycode_lookup_popover), &button_event_key_rect);
                 gtk_widget_show_all (kv->keycode_lookup_popover);
+                //g_signal_connect (G_OBJECT(kv->keycode_lookup_popover), "destroy", G_CALLBACK(keycode_lookup_on_popup_destroy), kv);
+                g_signal_connect (G_OBJECT(kv->keycode_lookup_popover), "closed", G_CALLBACK(keycode_lookup_on_popup_close), kv);
 
                 gtk_widget_grab_focus (GTK_WIDGET(entry));
 
                 kv->selected_key = button_event_key;
+                kv->state = KV_EDIT_KEYCODE_LOOKUP;
 
             } else if (kv->active_tool == KV_TOOL_SPLIT_KEY &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
@@ -4198,6 +4215,21 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 } else {
                     // Edit the newly clicked key.
                     kv->selected_key = button_event_key;
+                }
+            }
+            break;
+
+        case KV_EDIT_KEYCODE_LOOKUP:
+            if (e->type == GDK_KEY_RELEASE) {
+                GdkEventKey *event = (GdkEventKey*)e;
+                if (event->hardware_keycode - 8 == KEY_ESC) {
+                    keycode_lookup_cancel (kv);
+
+                } else if (event->hardware_keycode - 8 == KEY_ENTER) {
+                    keycode_lookup_set (kv);
+
+                } else {
+                    // TODO: Update search entry
                 }
             }
             break;

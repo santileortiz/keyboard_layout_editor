@@ -246,6 +246,7 @@ struct keyboard_view_t {
 
     // KEYCODE_LOOKUP state
     GtkWidget *keycode_lookup_popover;
+    GtkWidget *keycode_lookup_search_entry;
 
     // KEY_SPLIT state
     struct sgmt_t *new_key;
@@ -1961,6 +1962,13 @@ void keycode_lookup_cancel_handler (GtkButton *button, gpointer user_data)
     keycode_lookup_cancel (kv);
 }
 
+void keycode_lookup_search_changed (GtkEditable *search_entry, gpointer user_data)
+{
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    // TODO: @todo_keycode_lookup
+    //gtk_list_box_invalidate_filter (GTK_LIST_BOX(kv->keycode_lookup_keycode_list));
+}
+
 void repr_save_as_popover_cancel_handler (GtkButton *button, gpointer user_data)
 {
     struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
@@ -3638,19 +3646,26 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             } else if (kv->active_tool == KV_TOOL_KEYCODE_LOOKUP &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 // @select_is_release_based
-                GtkWidget *name_labeled_entry = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
-                GtkWidget *entry = gtk_entry_new ();
-                {
-                    gtk_widget_grab_focus (GTK_WIDGET(entry));
 
-                    gtk_container_add (GTK_CONTAINER(name_labeled_entry), gtk_label_new ("Keycode name:"));
-                    gtk_container_add (GTK_CONTAINER(name_labeled_entry), entry);
-                }
+                kv->keycode_lookup_search_entry = gtk_search_entry_new ();
+                gtk_entry_set_placeholder_text (GTK_ENTRY(kv->keycode_lookup_search_entry),
+                                                "Search keycode name");
+                g_signal_connect (G_OBJECT(kv->keycode_lookup_search_entry),
+                                  "changed",
+                                  G_CALLBACK (keycode_lookup_search_changed),
+                                  kv);
 
                 GtkWidget *cancel_button = gtk_button_new_with_label ("Cancel");
-                g_signal_connect (G_OBJECT(cancel_button), "clicked", G_CALLBACK(keycode_lookup_cancel_handler), kv);
+                g_signal_connect (G_OBJECT(cancel_button),
+                                  "clicked",
+                                  G_CALLBACK(keycode_lookup_cancel_handler),
+                                  kv);
+
                 GtkWidget *save_button = gtk_button_new_with_label ("Set");
-                g_signal_connect (G_OBJECT(save_button), "clicked", G_CALLBACK(keycode_lookup_set_handler), kv);
+                g_signal_connect (G_OBJECT(save_button),
+                                  "clicked",
+                                  G_CALLBACK(keycode_lookup_set_handler),
+                                  kv);
                 add_css_class (save_button, "suggested-action");
 
                 GtkWidget *grid = gtk_grid_new ();
@@ -3660,7 +3675,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 gtk_widget_set_margin_bottom (GTK_WIDGET(grid), 12);
                 gtk_grid_set_row_spacing (GTK_GRID(grid), 12);
                 gtk_grid_set_column_spacing (GTK_GRID(grid), 12);
-                gtk_grid_attach (GTK_GRID(grid), name_labeled_entry, 0, 0, 2, 1);
+                gtk_grid_attach (GTK_GRID(grid), kv->keycode_lookup_search_entry, 0, 0, 2, 1);
                 gtk_grid_attach (GTK_GRID(grid), cancel_button, 0, 1, 1, 1);
                 gtk_grid_attach (GTK_GRID(grid), save_button, 1, 1, 1, 1);
 
@@ -3671,8 +3686,6 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 gtk_widget_show_all (kv->keycode_lookup_popover);
                 //g_signal_connect (G_OBJECT(kv->keycode_lookup_popover), "destroy", G_CALLBACK(keycode_lookup_on_popup_destroy), kv);
                 g_signal_connect (G_OBJECT(kv->keycode_lookup_popover), "closed", G_CALLBACK(keycode_lookup_on_popup_close), kv);
-
-                gtk_widget_grab_focus (GTK_WIDGET(entry));
 
                 kv->selected_key = button_event_key;
                 kv->state = KV_EDIT_KEYCODE_LOOKUP;
@@ -4229,6 +4242,18 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                     keycode_lookup_set (kv);
 
                 } else {
+
+                    if (!gtk_widget_has_focus (kv->keycode_lookup_search_entry)) {
+                        gtk_widget_grab_focus (kv->keycode_lookup_search_entry);
+
+                        gunichar uni = gdk_keyval_to_unicode (event->keyval);
+                        char str[7];
+                        int len = g_unichar_to_utf8 (uni, str);
+                        gint pos = gtk_editable_get_position (GTK_EDITABLE (kv->keycode_lookup_search_entry));
+                        gtk_editable_insert_text (GTK_EDITABLE (kv->keycode_lookup_search_entry),
+                                                  str, len, &pos);
+                        gtk_editable_set_position (GTK_EDITABLE (kv->keycode_lookup_search_entry), pos);
+                    }
                     // TODO: Update search entry
                 }
             }

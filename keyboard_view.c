@@ -1938,6 +1938,37 @@ void push_right_handler (GtkButton *button, gpointer user_data)
     app.keyboard_view->active_tool = KV_TOOL_PUSH_RIGHT;
 }
 
+void kv_keycode_reassign_selected_key (struct keyboard_view_t *kv, uint16_t new_kc)
+{
+    // If the keycode was already assigned, unassign it from that
+    // key.
+    struct sgmt_t *new_kc_key = kv->keys_by_kc[new_kc-8];
+    if (new_kc_key != NULL) {
+        // NOTE: Because key_event_key won't be accessible again
+        // through keys_by_kc (the selected key wil take it's place
+        // there), then it would remain pressed unless we do this.
+        new_kc_key->kc = 0;
+
+        // key_event_key will be pressed, because it will move, we
+        // need to release it so it doesn't get stuck.
+        new_kc_key->type = KEY_DEFAULT;
+    }
+
+    // If selected_key has a keycode assigned, remove it's pointer
+    // from keys_by_kc because it will change position.
+    if (!is_unassigned(kv->selected_key)) {
+        kv->keys_by_kc[kv->selected_key->kc] = NULL;
+    }
+
+    // Update selected_key info
+    kv->selected_key->kc = new_kc-8;
+    kv->selected_key->type = KEY_DEFAULT;
+
+    // Put a pointer to selected_key in the correct position in
+    // keys_by_kc.
+    kv->keys_by_kc[new_kc-8] = kv->selected_key;
+}
+
 void keycode_lookup_on_popup_close (GtkWidget *object, gpointer user_data)
 {
     struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
@@ -1953,8 +1984,20 @@ void keycode_lookup_cancel (struct keyboard_view_t *kv)
 
 void keycode_lookup_set (struct keyboard_view_t *kv)
 {
+    GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX(kv->keycode_lookup_keycode_list));
+    GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
+    const char *keycode_name = gtk_label_get_text (GTK_LABEL(row_label));
+
+    // TODO: Don't iterate the array? @performance
+    uint16_t i;
+    for (i=1; i<KEY_CNT; i++) {
+        if (keycode_names[i] != NULL && strcmp (keycode_name, keycode_names[i]) == 0) {
+            break;
+        }
+    }
+
+    kv_keycode_reassign_selected_key (kv, i + 8);
     gtk_widget_destroy (kv->keycode_lookup_popover);
-    // TODO: todo_keycode_lookup
 }
 
 void keycode_lookup_set_handler (GtkButton *button, gpointer user_data)
@@ -4190,33 +4233,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
         case KV_EDIT_KEYCODE_KEYPRESS:
             if (e->type == GDK_KEY_PRESS) {
-                // If the keycode was already assigned, unassign it from that
-                // key.
-                if (key_event_key != NULL) {
-                    // NOTE: Because key_event_key won't be accessible again
-                    // through keys_by_kc (the selected key wil take it's place
-                    // there), then it would remain pressed unless we do this.
-                    key_event_key->kc = 0;
-
-                    // key_event_key will be pressed, because it will move, we
-                    // need to release it so it doesn't get stuck.
-                    key_event_key->type = KEY_DEFAULT;
-                }
-
-                // If selected_key has a keycode assigned, remove it's pointer
-                // from keys_by_kc because it will change position.
-                if (!is_unassigned(kv->selected_key)) {
-                    kv->keys_by_kc[kv->selected_key->kc] = NULL;
-                }
-
-                // Update selected_key info
-                kv->selected_key->kc = key_event_kc-8;
-                kv->selected_key->type = KEY_DEFAULT;
-
-                // Put a pointer to selected_key in the correct position in
-                // keys_by_kc.
-                kv->keys_by_kc[key_event_kc-8] = kv->selected_key;
-
+                kv_keycode_reassign_selected_key (kv, key_event_kc);
                 kv->selected_key = NULL;
                 ungrab_input (NULL, NULL);
                 kv_autosave (kv);
@@ -4236,32 +4253,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
         case KV_EDIT_KEYCODE_MULTIPLE_KEYPRESS:
             if (e->type == GDK_KEY_PRESS) {
-                // If the keycode was already assigned, unassign it from that
-                // key.
-                if (key_event_key != NULL) {
-                    // NOTE: Because key_event_key won't be accessible again
-                    // through keys_by_kc (the selected key wil take it's place
-                    // there), then it would remain pressed unless we do this.
-                    key_event_key->kc = 0;
-
-                    // key_event_key will be pressed, because it will move, we
-                    // need to release it so it doesn't get stuck.
-                    key_event_key->type = KEY_DEFAULT;
-                }
-
-                // If selected_key has a keycode assigned, remove it's pointer
-                // from keys_by_kc because it will change position.
-                if (!is_unassigned(kv->selected_key)) {
-                    kv->keys_by_kc[kv->selected_key->kc] = NULL;
-                }
-
-                // Update selected_key info
-                kv->selected_key->kc = key_event_kc-8;
-                kv->selected_key->type = KEY_DEFAULT;
-
-                // Put a pointer to selected_key in the correct position in
-                // keys_by_kc.
-                kv->keys_by_kc[key_event_kc-8] = kv->selected_key;
+                kv_keycode_reassign_selected_key (kv, key_event_kc);
 
                 struct sgmt_t *next_selected_key = NULL;
                 if (kv->selected_key->next_sgmt == NULL) {

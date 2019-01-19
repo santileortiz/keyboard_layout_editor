@@ -386,6 +386,31 @@ void replace_wrapped_widget_deferred (GtkWidget **original, GtkWidget *new_widge
     *original = new_widget;
 }
 
+// This is the only way I found to disable horizontal scrolling in a scrolled
+// window. I think calling gtk_adjustment_set_upper() 'should' work, but it
+// doesn't.
+void _gtk_scrolled_window_disable_hscroll_cb (GtkAdjustment *adjustment, gpointer user_data)
+{
+    if (gtk_adjustment_get_value (adjustment) != 0) {
+        gtk_adjustment_set_value (adjustment, 0);
+    }
+}
+
+void gtk_scrolled_window_disable_hscroll (GtkScrolledWindow *scrolled_window)
+{
+    gtk_scrolled_window_set_policy (scrolled_window, GTK_POLICY_EXTERNAL, GTK_POLICY_AUTOMATIC);
+    GtkAdjustment *hadj = gtk_scrolled_window_get_hadjustment (scrolled_window);
+#if 1
+    g_signal_connect (G_OBJECT(hadj),
+                      "value-changed",
+                      G_CALLBACK (_gtk_scrolled_window_disable_hscroll_cb),
+                      NULL);
+#else
+    // FIXME: Why U not work!?
+    gtk_adjustment_set_upper (hadj, 0);
+#endif
+}
+
 void combo_box_text_append_text_with_id (GtkComboBoxText *combobox, const gchar *text)
 {
     gtk_combo_box_text_append (combobox, text, text);

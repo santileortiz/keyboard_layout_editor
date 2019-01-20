@@ -1552,6 +1552,7 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
                         xkb_keysym_t keysym = XKB_KEY_NoSymbol;
                         if (buff[0] == '\0') {
                             int buff_len = 0;
+                            // @keycode_offset
                             keysym = xkb_state_key_get_one_sym(kv->xkb_state, curr_key->kc + 8);
                             buff_len = xkb_keysym_to_utf8(keysym, buff, sizeof(buff) - 1);
                             buff[buff_len] = '\0';
@@ -1942,7 +1943,7 @@ void kv_keycode_reassign_selected_key (struct keyboard_view_t *kv, uint16_t new_
 {
     // If the keycode was already assigned, unassign it from that
     // key.
-    struct sgmt_t *new_kc_key = kv->keys_by_kc[new_kc-8];
+    struct sgmt_t *new_kc_key = kv->keys_by_kc[new_kc];
     if (new_kc_key != NULL) {
         // NOTE: Because key_event_key won't be accessible again
         // through keys_by_kc (the selected key wil take it's place
@@ -1961,12 +1962,12 @@ void kv_keycode_reassign_selected_key (struct keyboard_view_t *kv, uint16_t new_
     }
 
     // Update selected_key info
-    kv->selected_key->kc = new_kc-8;
+    kv->selected_key->kc = new_kc;
     kv->selected_key->type = KEY_DEFAULT;
 
     // Put a pointer to selected_key in the correct position in
     // keys_by_kc.
-    kv->keys_by_kc[new_kc-8] = kv->selected_key;
+    kv->keys_by_kc[new_kc] = kv->selected_key;
 }
 
 void keycode_lookup_on_popup_close (GtkWidget *object, gpointer user_data)
@@ -1996,7 +1997,7 @@ void keycode_lookup_set (struct keyboard_view_t *kv)
         }
     }
 
-    kv_keycode_reassign_selected_key (kv, i + 8);
+    kv_keycode_reassign_selected_key (kv, i);
     gtk_widget_destroy (kv->keycode_lookup_popover);
 }
 
@@ -3620,25 +3621,32 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                                                   &button_event_key_ptr);
     }
 
+    // We use keycode macros (names) taken from the kernel, which are the ones
+    // shown by evtest. There is an offset of 8 between these keycodes and the ones
+    // used by xkb and gtk. For this reason we must remember to add 8 whenever we
+    // are sending a keycode to one of these libraries and subtract 8 when using a
+    // keycode coming from them.
+    // @keycode_offset
+
     uint16_t key_event_kc = 0;
     struct sgmt_t *key_event_key = NULL;
     if (e->type == GDK_KEY_PRESS || e->type == GDK_KEY_RELEASE) {
-        key_event_kc = ((GdkEventKey*)e)->hardware_keycode;
-        key_event_key = kv->keys_by_kc[key_event_kc-8];
+        key_event_kc = ((GdkEventKey*)e)->hardware_keycode - 8;
+        key_event_key = kv->keys_by_kc[key_event_kc];
     }
 
     if (e->type == GDK_KEY_PRESS) {
         if (key_event_key != NULL) {
             key_event_key->type = KEY_PRESSED;
         }
-        xkb_state_update_key(kv->xkb_state, key_event_kc, XKB_KEY_DOWN);
+        xkb_state_update_key(kv->xkb_state, key_event_kc + 8, XKB_KEY_DOWN);
     }
 
     if (e->type == GDK_KEY_RELEASE) {
         if (key_event_key != NULL) {
             key_event_key->type = KEY_DEFAULT;
         }
-        xkb_state_update_key(kv->xkb_state, key_event_kc, XKB_KEY_UP);
+        xkb_state_update_key(kv->xkb_state, key_event_kc + 8, XKB_KEY_UP);
     }
 
     switch (kv->state) {
@@ -3651,11 +3659,13 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->state = KV_EDIT;
 
             } else if (e->type == GDK_BUTTON_PRESS && button_event_key != NULL) {
-                xkb_state_update_key(kv->xkb_state, button_event_key->kc+8, XKB_KEY_DOWN);
+                // @keycode_offset
+                xkb_state_update_key(kv->xkb_state, button_event_key->kc + 8, XKB_KEY_DOWN);
                 kv->clicked_kc = button_event_key->kc;
 
             } else if (e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
-                xkb_state_update_key(kv->xkb_state, kv->clicked_kc+8, XKB_KEY_UP);
+                // @keycode_offset
+                xkb_state_update_key(kv->xkb_state, kv->clicked_kc + 8, XKB_KEY_UP);
                 kv->clicked_kc = 0;
             }
             break;
@@ -4321,7 +4331,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv_autosave (kv);
 
             } else if (e->type == GDK_KEY_PRESS) {
-                if (key_event_kc - 8 == KEY_ESC) {
+                if (key_event_kc == KEY_ESC) {
                     if (!kv->edit_right_edge) {
                         kv->split_key->user_glue = kv->new_key->user_glue;
                     }
@@ -4346,7 +4356,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv_autosave (kv);
 
             } else if (e->type == GDK_KEY_PRESS) {
-                if (key_event_kc - 8 == KEY_ESC) {
+                if (key_event_kc == KEY_ESC) {
                     if (!kv->edit_right_edge) {
                         kv->split_key->user_glue = kv->original_user_glue;
                     }
@@ -4385,7 +4395,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv_autosave (kv);
 
             } else if (e->type == GDK_KEY_PRESS) {
-                if (key_event_kc - 8 == KEY_ESC) {
+                if (key_event_kc == KEY_ESC) {
                     kv_change_edge_width (kv, kv->edge_prev_sgmt, kv->edge_start, kv->edge_end_sgmt,
                                           kv->edit_right_edge, kv->do_glue_adjust,
                                           kv->edge_glue, kv->edge_glue_len,
@@ -4421,7 +4431,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv_autosave (kv);
 
             } else if (e->type == GDK_KEY_PRESS) {
-                if (key_event_kc - 8 == KEY_ESC) {
+                if (key_event_kc == KEY_ESC) {
                     kv_change_sgmt_width (kv, kv->resized_segment_prev, kv->resized_segment,
                                           kv->edit_right_edge, kv->do_glue_adjust,
                                           kv->resized_segment_row, kv->resized_segment_glue_plus_w,
@@ -4451,7 +4461,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv_autosave (kv);
 
             } else if (e->type == GDK_KEY_PRESS) {
-                if (key_event_kc - 8 == KEY_ESC) {
+                if (key_event_kc == KEY_ESC) {
                     kv->resized_row->height = kv->original_size;
                     kv->state = KV_EDIT;
                 }
@@ -4475,7 +4485,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv_autosave (kv);
 
             } else if (e->type == GDK_KEY_PRESS) {
-                if (key_event_kc - 8 == KEY_ESC) {
+                if (key_event_kc == KEY_ESC) {
                     kv->push_right_key->user_glue = kv->original_size;
                     kv->state = KV_EDIT;
                     kv_compute_glue (kv);
@@ -4558,6 +4568,7 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
 
         } else { // KV_KEYSYM_LABELS
             char buff[64];
+            // @keycode_offset
             xkb_keysym_t keysym = xkb_state_key_get_one_sym(app.keyboard_view->xkb_state, key->kc + 8);
             xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
             gtk_tooltip_set_text (tooltip, buff);

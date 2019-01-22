@@ -4720,8 +4720,10 @@ struct keyboard_view_t* keyboard_view_new_with_gui (GtkWidget *window)
         kv_load_current_repr (kv, true);
     }
 
+#if 0
     kv->state = KV_PREVIEW;
     kv_update (kv, KV_CMD_SET_MODE_EDIT, NULL);
+#endif
 
     return kv;
 }

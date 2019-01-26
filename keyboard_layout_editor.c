@@ -379,9 +379,6 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
     gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
     gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
 
-    GtkWidget *delete_layout_button = new_icon_button ("list-remove", delete_layout_handler);
-    gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), delete_layout_button);
-
     app.keyboard_grabbing_button = new_icon_button ("process-completed", grab_input);
     gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), app.keyboard_grabbing_button);
 
@@ -390,26 +387,48 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
 
     app.keyboard_view = keyboard_view_new_with_gui (app.window);
 
-    GtkWidget *scrolled_custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
-    set_custom_layouts_list (&app.custom_layout_list, custom_layouts, num_custom_layouts);
-    gtk_container_add (GTK_CONTAINER (scrolled_custom_layout_list), app.custom_layout_list);
-    gtk_widget_show (scrolled_custom_layout_list);
+    GtkWidget *layout_list = gtk_frame_new (NULL);
+    {
+        GtkWidget *scrolled_custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
+        set_custom_layouts_list (&app.custom_layout_list, custom_layouts, num_custom_layouts);
+        gtk_container_add (GTK_CONTAINER (scrolled_custom_layout_list), app.custom_layout_list);
+
+        GtkWidget *remove_layout_button =
+            gtk_button_new_from_icon_name ("list-remove-symbolic",
+                                           GTK_ICON_SIZE_SMALL_TOOLBAR);
+        gtk_widget_set_tooltip_text (remove_layout_button, "Uninstall the selected layout from the system");
+        g_signal_connect (G_OBJECT(remove_layout_button), "clicked", G_CALLBACK(delete_layout_handler), NULL);
+
+        GtkWidget *install_layout_button =
+            gtk_button_new_from_icon_name ("list-add-symbolic",
+                                           GTK_ICON_SIZE_SMALL_TOOLBAR);
+        gtk_widget_set_tooltip_text (install_layout_button, "Install a custom layout from an .xkb file");
+        g_signal_connect (G_OBJECT(install_layout_button), "clicked", G_CALLBACK(install_layout_handler), NULL);
+
+        GtkWidget *bar = gtk_action_bar_new ();
+        add_css_class (bar, "inline-toolbar");
+        gtk_action_bar_pack_start (GTK_ACTION_BAR(bar), install_layout_button);
+        gtk_action_bar_pack_start (GTK_ACTION_BAR(bar), remove_layout_button);
+
+        GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+        gtk_container_add (GTK_CONTAINER(box), scrolled_custom_layout_list);
+        gtk_container_add (GTK_CONTAINER(box), bar);
+
+        gtk_container_add (GTK_CONTAINER(layout_list), box);
+        gtk_widget_show_all (layout_list);
+    }
 
     GtkWidget *new_layout_button =
         intro_button_new ("document-new", "New Layout", "Create a layout based on an existing one.");
     GtkWidget *open_layout_button =
         intro_button_new ("document-open", "Open Layout", "Open an existing .xkb file.");
-    GtkWidget *install_layout_button =
-        intro_button_new ("document-save", "Install Layout", "Install an .xkb file into the system.");
-    g_signal_connect (G_OBJECT(install_layout_button), "clicked", G_CALLBACK (install_layout_handler), NULL);
 
     GtkWidget *sidebar = gtk_grid_new ();
     gtk_grid_set_row_spacing (GTK_GRID(sidebar), 12);
     add_custom_css (sidebar, ".grid, grid { margin: 12px; }");
-    gtk_grid_attach (GTK_GRID(sidebar), scrolled_custom_layout_list, 0, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(sidebar), layout_list, 0, 0, 1, 1);
     gtk_grid_attach (GTK_GRID(sidebar), new_layout_button, 0, 1, 1, 1);
     gtk_grid_attach (GTK_GRID(sidebar), open_layout_button, 0, 2, 1, 1);
-    gtk_grid_attach (GTK_GRID(sidebar), install_layout_button, 0, 3, 1, 1);
     gtk_widget_show (sidebar);
 
     GtkWidget *paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);

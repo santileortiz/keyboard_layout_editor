@@ -405,10 +405,20 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
         gtk_widget_set_tooltip_text (install_layout_button, "Install a custom layout from an .xkb file");
         g_signal_connect (G_OBJECT(install_layout_button), "clicked", G_CALLBACK(install_layout_handler), NULL);
 
+        GtkWidget *edit_layout_button =
+            gtk_button_new_from_icon_name ("edit-symbolic",
+                                           GTK_ICON_SIZE_SMALL_TOOLBAR);
+        gtk_widget_set_tooltip_text (edit_layout_button, "Edit the selected layout");
+        // TODO: Make the edit button do something!
+
+        // TODO: Add an "update" button that reinstalls a layout if there are
+        // changes between it's source file and the installed version.
+
         GtkWidget *bar = gtk_action_bar_new ();
         add_css_class (bar, "inline-toolbar");
         gtk_action_bar_pack_start (GTK_ACTION_BAR(bar), install_layout_button);
         gtk_action_bar_pack_start (GTK_ACTION_BAR(bar), remove_layout_button);
+        gtk_action_bar_pack_end (GTK_ACTION_BAR(bar), edit_layout_button);
 
         GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
         gtk_container_add (GTK_CONTAINER(box), scrolled_custom_layout_list);

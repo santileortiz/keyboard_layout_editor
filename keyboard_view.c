@@ -93,6 +93,7 @@
 
 enum keyboard_view_state_t {
     KV_PREVIEW,
+
     KV_EDIT,
     KV_EDIT_KEYCODE_KEYPRESS,
     KV_EDIT_KEYCODE_MULTIPLE_KEYPRESS,
@@ -108,8 +109,7 @@ enum keyboard_view_state_t {
 enum keyboard_view_commands_t {
     KV_CMD_NONE,
     KV_CMD_SET_MODE_PREVIEW,
-    KV_CMD_SET_MODE_EDIT,
-    KV_CMD_SPLIT_KEY
+    KV_CMD_SET_MODE_EDIT
 };
 
 enum keyboard_view_tools_t {
@@ -130,6 +130,11 @@ enum keyboard_view_tools_t {
 enum keyboard_view_label_mode_t {
     KV_KEYSYM_LABELS,
     KV_KEYCODE_LABELS,
+};
+
+enum keyboard_view_preview_mode_t {
+    KV_PREVIEW_TEST,
+    KV_PREVIEW_KEYS
 };
 
 enum key_render_type_t {
@@ -317,8 +322,10 @@ struct keyboard_view_t {
     float default_key_size; // In pixels
     int clicked_kc;
     struct sgmt_t *selected_key;
+    struct sgmt_t *last_clicked_key;
     enum keyboard_view_state_t state;
     enum keyboard_view_label_mode_t label_mode;
+    enum keyboard_view_preview_mode_t preview_mode;
     enum keyboard_view_tools_t active_tool;
 
     GdkRectangle debug_rect;
@@ -1594,7 +1601,10 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
 
             dvec4 key_color;
             if (curr_key->type != KEY_MULTIROW_SEGMENT) {
-                if (kv->selected_key != NULL && curr_key == kv->selected_key) {
+                if (kv->preview_mode == KV_PREVIEW_KEYS && curr_key == kv->last_clicked_key) {
+                    key_color = RGB_HEX(0x7f7fff);
+
+                } else if (kv->selected_key != NULL && curr_key == kv->selected_key) {
                     buff[0] = '\0';
                     key_color = RGB_HEX(0xe34442);
 
@@ -3635,18 +3645,27 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         key_event_key = kv->keys_by_kc[key_event_kc];
     }
 
-    if (e->type == GDK_KEY_PRESS) {
-        if (key_event_key != NULL) {
-            key_event_key->type = KEY_PRESSED;
+    if (kv->preview_mode == KV_PREVIEW_TEST) {
+        if (e->type == GDK_KEY_PRESS) {
+            if (key_event_key != NULL) {
+                key_event_key->type = KEY_PRESSED;
+            }
+            xkb_state_update_key(kv->xkb_state, key_event_kc + 8, XKB_KEY_DOWN);
         }
-        xkb_state_update_key(kv->xkb_state, key_event_kc + 8, XKB_KEY_DOWN);
-    }
 
-    if (e->type == GDK_KEY_RELEASE) {
-        if (key_event_key != NULL) {
-            key_event_key->type = KEY_DEFAULT;
+        if (e->type == GDK_KEY_RELEASE) {
+            if (key_event_key != NULL) {
+                key_event_key->type = KEY_DEFAULT;
+            }
+            xkb_state_update_key(kv->xkb_state, key_event_kc + 8, XKB_KEY_UP);
         }
-        xkb_state_update_key(kv->xkb_state, key_event_kc + 8, XKB_KEY_UP);
+
+    } else if (kv->preview_mode == KV_PREVIEW_KEYS) {
+        if (e->type == GDK_BUTTON_RELEASE) {
+            kv->last_clicked_key = button_event_key;
+            // TODO: Update UI when selected key changes
+            // app_set_key (app, key_event_kc);
+        }
     }
 
     switch (kv->state) {
@@ -3658,15 +3677,17 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 kv->label_mode = KV_KEYCODE_LABELS;
                 kv->state = KV_EDIT;
 
-            } else if (e->type == GDK_BUTTON_PRESS && button_event_key != NULL) {
-                // @keycode_offset
-                xkb_state_update_key(kv->xkb_state, button_event_key->kc + 8, XKB_KEY_DOWN);
-                kv->clicked_kc = button_event_key->kc;
+            } else if (kv->preview_mode == KV_PREVIEW_TEST) {
+                if (e->type == GDK_BUTTON_PRESS && button_event_key != NULL) {
+                    // @keycode_offset
+                    xkb_state_update_key(kv->xkb_state, button_event_key->kc + 8, XKB_KEY_DOWN);
+                    kv->clicked_kc = button_event_key->kc;
 
-            } else if (e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
-                // @keycode_offset
-                xkb_state_update_key(kv->xkb_state, kv->clicked_kc + 8, XKB_KEY_UP);
-                kv->clicked_kc = 0;
+                } else if (e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
+                    // @keycode_offset
+                    xkb_state_update_key(kv->xkb_state, kv->clicked_kc + 8, XKB_KEY_UP);
+                    kv->clicked_kc = 0;
+                }
             }
             break;
 

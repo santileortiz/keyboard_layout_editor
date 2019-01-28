@@ -299,6 +299,10 @@ void edit_layout_handler (GtkButton *button, gpointer user_data)
         gtk_grid_attach (GTK_GRID(grid), per_level_data, 0, 2, 2, 1);
 
         gtk_stack_add_titled (GTK_STACK(stack), grid, "keys", "Keys");
+
+        app.keyboard_view->preview_mode = KV_PREVIEW_KEYS;
+        app.keyboard_view->last_clicked_key = app.keyboard_view->first_row->first_key;
+        gtk_widget_queue_draw (app.keyboard_view->widget);
     }
 
     {

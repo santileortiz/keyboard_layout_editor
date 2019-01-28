@@ -6,8 +6,6 @@ struct kle_app_t {
     char* argv_0;
     GtkWidget *window;
     struct keyboard_view_t *keyboard_view;
-    GtkWidget *custom_layout_list;
-    GtkWidget *keyboard_grabbing_button;
     GdkSeat *gdk_seat;
     bool no_custom_layouts_welcome_view;
 
@@ -15,6 +13,11 @@ struct kle_app_t {
     char *selected_repr;
 
     GResource *gresource;
+
+    // UI widgets that change
+    GtkWidget *custom_layout_list;
+    GtkWidget *keyboard_grabbing_button;
+    GtkWidget *sidebar;
 };
 
 gboolean grab_input (GtkButton *button, gpointer user_data);

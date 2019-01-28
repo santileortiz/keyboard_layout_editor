@@ -260,6 +260,64 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
     return G_SOURCE_REMOVE;
 }
 
+void edit_layout_handler (GtkButton *button, gpointer user_data)
+{
+    GtkWidget *stack = gtk_stack_new ();
+    {
+
+        GtkWidget *grid = gtk_grid_new ();
+        labeled_text_new_in_grid (GTK_GRID(grid), "Keycode:", "1 (KEY_ESC)", 0, 0);
+
+        GtkWidget *types_combobox;
+        labeled_combobox_new_in_grid (GTK_GRID(grid), "Type:", 0, 1, &types_combobox);
+        combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), "ONE_LEVEL");
+        combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), "TWO_LEVEL");
+        combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), "ALPHABETIC");
+
+        GtkWidget *per_level_data = gtk_grid_new ();
+        gtk_widget_set_margins (per_level_data, 6);
+        GtkWidget *symbol_title = title_label_new ("Symbol");
+        gtk_widget_set_halign (symbol_title, GTK_ALIGN_CENTER);
+        gtk_widget_set_margins (symbol_title, 6);
+        GtkWidget *action_title = title_label_new ("Action");
+        gtk_widget_set_halign (action_title, GTK_ALIGN_CENTER);
+        gtk_widget_set_margins (action_title, 6);
+        gtk_grid_attach (GTK_GRID(per_level_data), symbol_title, 1, 0, 1, 1);
+        gtk_grid_attach (GTK_GRID(per_level_data), action_title, 2, 0, 1, 1);
+
+        GtkWidget *level_label = title_label_new ("Level 1");
+        gtk_widget_set_margins (level_label, 6);
+        GtkWidget *symbol_entry = gtk_entry_new ();
+        gtk_entry_set_width_chars (GTK_ENTRY(symbol_entry), 5);
+        gtk_widget_set_margins (symbol_entry, 6);
+        GtkWidget *action_entry = gtk_entry_new ();
+        gtk_widget_set_margins (action_entry, 6);
+        gtk_grid_attach (GTK_GRID(per_level_data), level_label, 0, 1, 1, 1);
+        gtk_grid_attach (GTK_GRID(per_level_data), symbol_entry, 1, 1, 1, 1);
+        gtk_grid_attach (GTK_GRID(per_level_data), action_entry, 2, 1, 1, 1);
+
+        gtk_grid_attach (GTK_GRID(grid), per_level_data, 0, 2, 2, 1);
+
+        gtk_stack_add_titled (GTK_STACK(stack), grid, "keys", "Keys");
+    }
+
+    {
+        GtkWidget *types_stack = gtk_label_new ("Types");
+        gtk_stack_add_titled (GTK_STACK(stack), types_stack, "types", "Types");
+    }
+
+    GtkWidget *stack_buttons = gtk_stack_switcher_new ();
+    gtk_widget_set_halign (stack_buttons, GTK_ALIGN_CENTER);
+    gtk_widget_set_margins (stack_buttons, 12);
+    gtk_stack_switcher_set_stack (GTK_STACK_SWITCHER(stack_buttons), GTK_STACK(stack));
+
+    GtkWidget *grid = gtk_grid_new ();
+    gtk_widget_set_halign (grid, GTK_ALIGN_CENTER);
+    gtk_grid_attach (GTK_GRID(grid), stack_buttons, 0, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(grid), stack, 0, 1, 1, 1);
+    replace_wrapped_widget (&app.sidebar, grid);
+}
+
 gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
     gtk_main_quit ();
@@ -409,7 +467,7 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
             gtk_button_new_from_icon_name ("edit-symbolic",
                                            GTK_ICON_SIZE_SMALL_TOOLBAR);
         gtk_widget_set_tooltip_text (edit_layout_button, "Edit the selected layout");
-        // TODO: Make the edit button do something!
+        g_signal_connect (G_OBJECT(edit_layout_button), "clicked", G_CALLBACK(edit_layout_handler), NULL);
 
         // TODO: Add an "update" button that reinstalls a layout if there are
         // changes between it's source file and the installed version.
@@ -433,13 +491,12 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
     GtkWidget *open_layout_button =
         intro_button_new ("document-open", "Open Layout", "Open an existing .xkb file.");
 
-    GtkWidget *sidebar = gtk_grid_new ();
-    gtk_grid_set_row_spacing (GTK_GRID(sidebar), 12);
-    add_custom_css (sidebar, ".grid, grid { margin: 12px; }");
-    gtk_grid_attach (GTK_GRID(sidebar), layout_list, 0, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID(sidebar), new_layout_button, 0, 1, 1, 1);
-    gtk_grid_attach (GTK_GRID(sidebar), open_layout_button, 0, 2, 1, 1);
-    gtk_widget_show (sidebar);
+    app.sidebar = gtk_grid_new ();
+    gtk_grid_set_row_spacing (GTK_GRID(app.sidebar), 12);
+    add_custom_css (app.sidebar, ".grid, grid { margin: 12px; }");
+    gtk_grid_attach (GTK_GRID(app.sidebar), layout_list, 0, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(app.sidebar), new_layout_button, 0, 1, 1, 1);
+    gtk_grid_attach (GTK_GRID(app.sidebar), open_layout_button, 0, 2, 1, 1);
 
     GtkWidget *paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
     // FIXME: The following CSS is used to work around 2 issues with
@@ -452,10 +509,10 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
                     "    min-width: 2px;"
                     "    min-height: 2px;"
                     "}");
-    gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
+    gtk_paned_pack1 (GTK_PANED(paned), wrap_gtk_widget(app.sidebar), FALSE, FALSE);
     gtk_paned_pack2 (GTK_PANED(paned), app.keyboard_view->widget, TRUE, TRUE);
     gtk_container_add(GTK_CONTAINER(app.window), paned);
-    gtk_widget_show (paned);
+    gtk_widget_show_all (paned);
 }
 
 // Build a welcome screen with only introductory buttons and no list or preview

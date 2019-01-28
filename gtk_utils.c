@@ -307,7 +307,7 @@ void round_path_close (struct round_path_ctx *ctx)
 // The only issue I've found is that containers like GtkPaned or GtkGrid use
 // special _add methods with different declaration than gtk_container_add().
 // It's very common to move widgets accross different kinds of containers, which
-// adds the burden of having to kneo where in the code we assumed something was
+// adds the burden of having to know where in the code we assumed something was
 // stored in a GtkGrid or a GtkPaned etc. What I do to alieviate this pain is
 // wrap widgets that will be replaced into a GtkBox with wrap_gtk_widget() and
 // then use replace_wrapped_widget() to replace it.
@@ -315,12 +315,13 @@ void round_path_close (struct round_path_ctx *ctx)
 // Doing this ties the lifespan of an GInitiallyUnowned object to the lifespan
 // of the parent. Sometimes this is not desired, in those cases we must call
 // g_object_ref_sink() (NOT g_object_ref(), because as far as I understand it
-// will set refcount to 2 and never free them). Fortunatelly cases where this is
-// required will print lots of Critical warnings or crash the application so
-// they are easy to detect and fix, a memory leak is harder to detect/fix.
+// will set refcount to 2 and never free them). Fortunatelly cases where we are
+// a longer lifespan is expected will print lots of Critical warnings or crash
+// the application so they are easy to detect and fix, a memory leak is harder
+// to detect/fix.
 //
 // NOTE: The approach of storing a pointer to the parent widget not only doubles
-// the number of pointers that need to be stored for a replacable widget, but
+// the number of pointers that need to be stored for a replaceable widget, but
 // also doesn't work because we can't know the true parent of a widget. For
 // instance, GtkScrolledWindow wraps its child in a GtkViewPort.
 //
@@ -414,5 +415,68 @@ void gtk_scrolled_window_disable_hscroll (GtkScrolledWindow *scrolled_window)
 void combo_box_text_append_text_with_id (GtkComboBoxText *combobox, const gchar *text)
 {
     gtk_combo_box_text_append (combobox, text, text);
+}
+
+void gtk_widget_set_margins (GtkWidget *widget, int size)
+{
+    gtk_widget_set_margin_top (widget, size);
+    gtk_widget_set_margin_bottom (widget, size);
+    gtk_widget_set_margin_start (widget, size);
+    gtk_widget_set_margin_end (widget, size);
+}
+
+GtkWidget *title_label_new (char *label)
+{
+    GtkWidget *label_w = gtk_label_new (label);
+    gtk_widget_set_halign (label_w, GTK_ALIGN_END);
+    add_css_class (label_w, "h4");
+    gtk_widget_set_margins (label_w, 6);
+
+    return label_w;
+}
+
+void labeled_text_new (char *label, char *value, GtkWidget **label_widget, GtkWidget **value_widget)
+{
+    GtkWidget *label_w = title_label_new (label);
+    if (label_widget != NULL) { *label_widget = label_w; }
+
+    GtkWidget *value_w = gtk_label_new (value);
+    gtk_label_set_ellipsize (GTK_LABEL(value_w), PANGO_ELLIPSIZE_END);
+    gtk_widget_set_halign (value_w, GTK_ALIGN_START);
+    gtk_label_set_selectable (GTK_LABEL(value_w), TRUE);
+    add_css_class (value_w, "h5");
+    gtk_widget_set_margins (value_w, 6);
+    if (value_widget != NULL) { *value_widget = value_w; }
+}
+
+void labeled_text_new_in_grid (GtkGrid *grid, char *label, char *value, int x, int y)
+{
+    GtkWidget *label_w, *value_w;
+    labeled_text_new (label, value, &label_w, &value_w);
+
+    gtk_grid_attach (grid, label_w, x, y, 1, 1);
+    gtk_grid_attach (grid, value_w, x+1, y, 1, 1);
+}
+
+void labeled_combobox_new (char *label, GtkWidget **label_widget, GtkWidget **combobox_widget)
+{
+    GtkWidget *label_w = title_label_new (label);
+    if (label_widget != NULL) { *label_widget = label_w; }
+
+    GtkWidget *combobox_w = gtk_combo_box_text_new ();
+    gtk_widget_set_halign (combobox_w, GTK_ALIGN_START);
+    gtk_widget_set_margins (combobox_w, 6);
+    if (combobox_widget != NULL) { *combobox_widget = combobox_w; }
+}
+
+void labeled_combobox_new_in_grid (GtkGrid *grid, char *label, int x, int y, GtkWidget **combobox_widget)
+{
+    assert (combobox_widget != NULL && "You really need the combobox to fill it.");
+
+    GtkWidget *label_w;
+    labeled_combobox_new (label, &label_w, combobox_widget);
+
+    gtk_grid_attach (grid, label_w, x, y, 1, 1);
+    gtk_grid_attach (grid, *combobox_widget, x+1, y, 1, 1);
 }
 

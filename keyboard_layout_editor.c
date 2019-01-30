@@ -25,6 +25,8 @@ struct kle_app_t app;
 #include "keyboard_view_repr_store.c"
 #include "keyboard_view_as_string.c"
 
+#include "keyboard_layout.c"
+
 static inline
 void str_cat_full_path (string_t *str, char *path)
 {
@@ -307,6 +309,8 @@ void edit_layout_handler (GtkButton *button, gpointer user_data)
 {
     GtkWidget *stack = gtk_stack_new ();
     {
+        app.keymap = keyboard_layout_new_default ();
+
         app.keyboard_view->preview_mode = KV_PREVIEW_KEYS;
         app.keyboard_view->last_clicked_key = app.keyboard_view->first_row->first_key;
         gtk_widget_queue_draw (app.keyboard_view->widget);

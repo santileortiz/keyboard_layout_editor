@@ -14,6 +14,8 @@ struct kle_app_t {
 
     GResource *gresource;
 
+    struct keyboard_layout_t *keymap;
+
     // UI widgets that change
     GtkWidget *custom_layout_list;
     GtkWidget *keyboard_grabbing_button;

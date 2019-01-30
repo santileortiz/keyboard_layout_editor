@@ -260,49 +260,59 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
     return G_SOURCE_REMOVE;
 }
 
+GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
+{
+    mem_pool_t pool_l = {0};
+
+    GtkWidget *grid = gtk_grid_new ();
+    char *keycode_str = pprintf (&pool_l, "%d (%s)", kc, keycode_names[kc]);
+    labeled_text_new_in_grid (GTK_GRID(grid), "Keycode:", keycode_str, 0, 0);
+
+    GtkWidget *types_combobox;
+    labeled_combobox_new_in_grid (GTK_GRID(grid), "Type:", 0, 1, &types_combobox);
+    combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), "ONE_LEVEL");
+    combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), "TWO_LEVEL");
+    combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), "ALPHABETIC");
+
+    GtkWidget *per_level_data = gtk_grid_new ();
+    gtk_widget_set_margins (per_level_data, 6);
+    GtkWidget *symbol_title = title_label_new ("Symbol");
+    gtk_widget_set_halign (symbol_title, GTK_ALIGN_CENTER);
+    gtk_widget_set_margins (symbol_title, 6);
+    GtkWidget *action_title = title_label_new ("Action");
+    gtk_widget_set_halign (action_title, GTK_ALIGN_CENTER);
+    gtk_widget_set_margins (action_title, 6);
+    gtk_grid_attach (GTK_GRID(per_level_data), symbol_title, 1, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(per_level_data), action_title, 2, 0, 1, 1);
+
+    GtkWidget *level_label = title_label_new ("Level 1");
+    gtk_widget_set_margins (level_label, 6);
+    GtkWidget *symbol_entry = gtk_entry_new ();
+    gtk_entry_set_width_chars (GTK_ENTRY(symbol_entry), 5);
+    gtk_widget_set_margins (symbol_entry, 6);
+    GtkWidget *action_entry = gtk_entry_new ();
+    gtk_widget_set_margins (action_entry, 6);
+    gtk_grid_attach (GTK_GRID(per_level_data), level_label, 0, 1, 1, 1);
+    gtk_grid_attach (GTK_GRID(per_level_data), symbol_entry, 1, 1, 1, 1);
+    gtk_grid_attach (GTK_GRID(per_level_data), action_entry, 2, 1, 1, 1);
+
+    gtk_grid_attach (GTK_GRID(grid), per_level_data, 0, 2, 2, 1);
+
+    mem_pool_destroy (&pool_l);
+
+    return grid;
+}
+
 void edit_layout_handler (GtkButton *button, gpointer user_data)
 {
     GtkWidget *stack = gtk_stack_new ();
     {
-
-        GtkWidget *grid = gtk_grid_new ();
-        labeled_text_new_in_grid (GTK_GRID(grid), "Keycode:", "1 (KEY_ESC)", 0, 0);
-
-        GtkWidget *types_combobox;
-        labeled_combobox_new_in_grid (GTK_GRID(grid), "Type:", 0, 1, &types_combobox);
-        combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), "ONE_LEVEL");
-        combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), "TWO_LEVEL");
-        combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), "ALPHABETIC");
-
-        GtkWidget *per_level_data = gtk_grid_new ();
-        gtk_widget_set_margins (per_level_data, 6);
-        GtkWidget *symbol_title = title_label_new ("Symbol");
-        gtk_widget_set_halign (symbol_title, GTK_ALIGN_CENTER);
-        gtk_widget_set_margins (symbol_title, 6);
-        GtkWidget *action_title = title_label_new ("Action");
-        gtk_widget_set_halign (action_title, GTK_ALIGN_CENTER);
-        gtk_widget_set_margins (action_title, 6);
-        gtk_grid_attach (GTK_GRID(per_level_data), symbol_title, 1, 0, 1, 1);
-        gtk_grid_attach (GTK_GRID(per_level_data), action_title, 2, 0, 1, 1);
-
-        GtkWidget *level_label = title_label_new ("Level 1");
-        gtk_widget_set_margins (level_label, 6);
-        GtkWidget *symbol_entry = gtk_entry_new ();
-        gtk_entry_set_width_chars (GTK_ENTRY(symbol_entry), 5);
-        gtk_widget_set_margins (symbol_entry, 6);
-        GtkWidget *action_entry = gtk_entry_new ();
-        gtk_widget_set_margins (action_entry, 6);
-        gtk_grid_attach (GTK_GRID(per_level_data), level_label, 0, 1, 1, 1);
-        gtk_grid_attach (GTK_GRID(per_level_data), symbol_entry, 1, 1, 1, 1);
-        gtk_grid_attach (GTK_GRID(per_level_data), action_entry, 2, 1, 1, 1);
-
-        gtk_grid_attach (GTK_GRID(grid), per_level_data, 0, 2, 2, 1);
-
-        gtk_stack_add_titled (GTK_STACK(stack), grid, "keys", "Keys");
-
         app.keyboard_view->preview_mode = KV_PREVIEW_KEYS;
         app.keyboard_view->last_clicked_key = app.keyboard_view->first_row->first_key;
         gtk_widget_queue_draw (app.keyboard_view->widget);
+
+        app.keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->last_clicked_key->kc);
+        gtk_stack_add_titled (GTK_STACK(stack), wrap_gtk_widget(app.keys_sidebar), "keys", "Keys");
     }
 
     {

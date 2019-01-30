@@ -18,9 +18,11 @@ struct kle_app_t {
     GtkWidget *custom_layout_list;
     GtkWidget *keyboard_grabbing_button;
     GtkWidget *sidebar;
+    GtkWidget *keys_sidebar;
 };
 
 gboolean grab_input (GtkButton *button, gpointer user_data);
 gboolean ungrab_input (GtkButton *button, gpointer user_data);
+GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc);
 
 string_t app_get_repr_path (struct kle_app_t *app);

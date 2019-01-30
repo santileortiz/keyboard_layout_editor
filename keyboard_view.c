@@ -3663,8 +3663,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
     } else if (kv->preview_mode == KV_PREVIEW_KEYS) {
         if (e->type == GDK_BUTTON_RELEASE) {
             kv->last_clicked_key = button_event_key;
-            // TODO: Update UI when selected key changes
-            // app_set_key (app, key_event_kc);
+
+            GtkWidget *keys_sidebar = app_keys_sidebar_new (&app, button_event_key->kc);
+            replace_wrapped_widget (&app.keys_sidebar, keys_sidebar);
         }
     }
 

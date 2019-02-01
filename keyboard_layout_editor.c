@@ -272,33 +272,48 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
 
     GtkWidget *types_combobox;
     labeled_combobox_new_in_grid (GTK_GRID(grid), "Type:", 0, 1, &types_combobox);
-    combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), "ONE_LEVEL");
-    combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), "TWO_LEVEL");
-    combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), "ALPHABETIC");
 
-    GtkWidget *per_level_data = gtk_grid_new ();
-    gtk_widget_set_margins (per_level_data, 6);
-    GtkWidget *symbol_title = title_label_new ("Symbol");
-    gtk_widget_set_halign (symbol_title, GTK_ALIGN_CENTER);
-    gtk_widget_set_margins (symbol_title, 6);
-    GtkWidget *action_title = title_label_new ("Action");
-    gtk_widget_set_halign (action_title, GTK_ALIGN_CENTER);
-    gtk_widget_set_margins (action_title, 6);
-    gtk_grid_attach (GTK_GRID(per_level_data), symbol_title, 1, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID(per_level_data), action_title, 2, 0, 1, 1);
+    struct key_type_t *curr_type = app->keymap->types;
+    while (curr_type != NULL) {
+        combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), curr_type->name);
+        curr_type = curr_type->next;
+    }
+    combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), "None");
 
-    GtkWidget *level_label = title_label_new ("Level 1");
-    gtk_widget_set_margins (level_label, 6);
-    GtkWidget *symbol_entry = gtk_entry_new ();
-    gtk_entry_set_width_chars (GTK_ENTRY(symbol_entry), 5);
-    gtk_widget_set_margins (symbol_entry, 6);
-    GtkWidget *action_entry = gtk_entry_new ();
-    gtk_widget_set_margins (action_entry, 6);
-    gtk_grid_attach (GTK_GRID(per_level_data), level_label, 0, 1, 1, 1);
-    gtk_grid_attach (GTK_GRID(per_level_data), symbol_entry, 1, 1, 1, 1);
-    gtk_grid_attach (GTK_GRID(per_level_data), action_entry, 2, 1, 1, 1);
+    struct key_t *key = app->keymap->keys[kc];
+    if (key != NULL && key->type != NULL) {
+        gtk_combo_box_set_active_id (GTK_COMBO_BOX(types_combobox), key->type->name);
 
-    gtk_grid_attach (GTK_GRID(grid), per_level_data, 0, 2, 2, 1);
+        GtkWidget *per_level_data = gtk_grid_new ();
+        gtk_widget_set_margins (per_level_data, 6);
+        GtkWidget *symbol_title = title_label_new ("Symbol");
+        gtk_widget_set_halign (symbol_title, GTK_ALIGN_CENTER);
+        gtk_widget_set_margins (symbol_title, 6);
+        GtkWidget *action_title = title_label_new ("Action");
+        gtk_widget_set_halign (action_title, GTK_ALIGN_CENTER);
+        gtk_widget_set_margins (action_title, 6);
+        gtk_grid_attach (GTK_GRID(per_level_data), symbol_title, 1, 0, 1, 1);
+        gtk_grid_attach (GTK_GRID(per_level_data), action_title, 2, 0, 1, 1);
+
+        for (int i=0; i<key->type->num_levels; i++) {
+            char *level_str = pprintf (&pool_l, "Level %i", i+1);
+            GtkWidget *level_label = title_label_new (level_str);
+            gtk_widget_set_margins (level_label, 6);
+            GtkWidget *symbol_entry = gtk_entry_new ();
+            gtk_entry_set_width_chars (GTK_ENTRY(symbol_entry), 5);
+            gtk_widget_set_margins (symbol_entry, 6);
+            GtkWidget *action_entry = gtk_entry_new ();
+            gtk_widget_set_margins (action_entry, 6);
+            gtk_grid_attach (GTK_GRID(per_level_data), level_label, 0, i+1, 1, 1);
+            gtk_grid_attach (GTK_GRID(per_level_data), symbol_entry, 1, i+1, 1, 1);
+            gtk_grid_attach (GTK_GRID(per_level_data), action_entry, 2, i+1, 1, 1);
+        }
+
+        gtk_grid_attach (GTK_GRID(grid), per_level_data, 0, 2, 2, 1);
+
+    } else {
+        gtk_combo_box_set_active_id (GTK_COMBO_BOX(types_combobox), "None");
+    }
 
     mem_pool_destroy (&pool_l);
 

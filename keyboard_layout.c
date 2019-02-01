@@ -35,7 +35,7 @@ struct key_action_t {
 
 struct key_level_t {
     char symbol[5]; // NULL terminated UTF-8 character
-    string_t action;
+    struct key_action_t action;
 };
 
 struct key_t {
@@ -51,11 +51,76 @@ struct keyboard_layout_t {
     struct key_t *keys[KEY_CNT];
 };
 
+struct key_type_t* keyboard_layout_new_type (struct keyboard_layout_t *keymap, char *name)
+{
+    struct key_type_t *new_type = mem_pool_push_size (&keymap->pool, sizeof(struct key_type_t));
+    *new_type = ZERO_INIT (struct key_type_t);
+
+    // TODO: For now, types will not be destroyed, if they do, the name will
+    // leak space inside the keymap's pool.
+    new_type->name = pom_strdup (&keymap->pool, name);
+
+    new_type->next = keymap->types;
+    keymap->types = new_type;
+
+    return new_type;
+}
+
+void keyboar_layout_type_set_level (struct key_type_t *type, int level, key_modifier_mask_t modifiers)
+{
+    assert (level > 0 && "Levels must be grater than 0");
+
+    type->modifiers[level-1] = modifiers;
+    type->num_levels = MAX (type->num_levels, level);
+}
+
+struct key_t* keyboard_layout_new_key (struct keyboard_layout_t *keymap, int kc, struct key_type_t *type)
+{
+    struct key_t *key = keymap->keys[kc];
+    if (key == NULL) {
+        key = mem_pool_push_size (&keymap->pool, sizeof (struct key_t));
+        key->kc = kc;
+        keymap->keys[kc] = key;
+    }
+
+    key->type = type;
+
+    return key;
+}
+
+void keyboard_layout_key_set_level (struct key_t *key, int level, char *symbol, struct key_action_t *action)
+{
+    struct key_level_t *lvl = &key->levels[level];
+    strcpy (lvl->symbol, symbol);
+
+    if (action != NULL) {
+        lvl->action = *action;
+    }
+}
+
 struct keyboard_layout_t* keyboard_layout_new_default (void)
 {
-    mem_pool_t bootstrap = {0};
+    mem_pool_t bootstrap = ZERO_INIT (mem_pool_t);
     struct keyboard_layout_t *keymap = mem_pool_push_size (&bootstrap, sizeof(struct keyboard_layout_t));
+    *keymap = ZERO_INIT (struct keyboard_layout_t);
     keymap->pool = bootstrap;
+
+    struct key_type_t *type_one_level;
+    type_one_level = keyboard_layout_new_type (keymap, "ONE_LEVEL");
+    keyboar_layout_type_set_level (type_one_level, 1, 0);
+
+    struct key_type_t *type;
+    type = keyboard_layout_new_type (keymap, "TWO_LEVEL");
+    keyboar_layout_type_set_level (type, 1, 0);
+    keyboar_layout_type_set_level (type, 2, 0);
+
+    type = keyboard_layout_new_type (keymap, "ALPHABETIC");
+    keyboar_layout_type_set_level (type, 1, 0);
+    keyboar_layout_type_set_level (type, 2, 0);
+    keyboar_layout_type_set_level (type, 3, 0);
+
+    struct key_t *key = keyboard_layout_new_key (keymap, KEY_ESC, type);
+    keyboard_layout_key_set_level (key, 1, "E", NULL);
 
     return keymap;
 }

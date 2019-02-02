@@ -224,6 +224,11 @@ enum locate_sgmt_status_t {
 // be careful about that!.
 #define KV_STEP_PRECISION 3
 
+// Color palette
+dvec4 color_blue = RGB_HEX(0x7f7fff);
+dvec4 color_red = RGB_HEX(0xe34442);
+dvec4 color_green = RGB_HEX(0x90de4d);
+
 struct keyboard_view_t {
     mem_pool_t *pool;
 
@@ -1602,15 +1607,15 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
             dvec4 key_color;
             if (curr_key->type != KEY_MULTIROW_SEGMENT) {
                 if (kv->preview_mode == KV_PREVIEW_KEYS && curr_key == kv->last_clicked_key) {
-                    key_color = RGB_HEX(0x7f7fff);
+                    key_color = color_blue;
 
                 } else if (kv->selected_key != NULL && curr_key == kv->selected_key) {
                     buff[0] = '\0';
-                    key_color = RGB_HEX(0xe34442);
+                    key_color = color_red;
 
                 } else if (curr_key->type == KEY_PRESSED ||
                            (!is_unassigned(curr_key) && curr_key->kc == kv->clicked_kc)) {
-                    key_color = RGB_HEX(0x90de4d);
+                    key_color = color_green;
 
                 } else {
                     key_color = RGB(1,1,1);

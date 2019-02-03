@@ -429,6 +429,7 @@ GtkWidget *title_label_new (char *label)
 {
     GtkWidget *label_w = gtk_label_new (label);
     gtk_widget_set_halign (label_w, GTK_ALIGN_END);
+    gtk_widget_set_hexpand (label_w, TRUE);
     add_css_class (label_w, "h4");
     gtk_widget_set_margins (label_w, 6);
 
@@ -443,6 +444,7 @@ void labeled_text_new (char *label, char *value, GtkWidget **label_widget, GtkWi
     GtkWidget *value_w = gtk_label_new (value);
     gtk_label_set_ellipsize (GTK_LABEL(value_w), PANGO_ELLIPSIZE_END);
     gtk_widget_set_halign (value_w, GTK_ALIGN_START);
+    gtk_widget_set_hexpand (value_w, TRUE);
     gtk_label_set_selectable (GTK_LABEL(value_w), TRUE);
     add_css_class (value_w, "h5");
     gtk_widget_set_margins (value_w, 6);
@@ -465,6 +467,7 @@ void labeled_combobox_new (char *label, GtkWidget **label_widget, GtkWidget **co
 
     GtkWidget *combobox_w = gtk_combo_box_text_new ();
     gtk_widget_set_halign (combobox_w, GTK_ALIGN_START);
+    gtk_widget_set_hexpand (combobox_w, TRUE);
     gtk_widget_set_margins (combobox_w, 6);
     if (combobox_widget != NULL) { *combobox_widget = combobox_w; }
 }

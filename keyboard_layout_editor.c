@@ -267,6 +267,7 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
     mem_pool_t pool_l = {0};
 
     GtkWidget *grid = gtk_grid_new ();
+    gtk_widget_set_size_request (grid, app->sidebar_min_width, 0);
     char *keycode_str = pprintf (&pool_l, "%d (%s)", kc, keycode_names[kc]);
     labeled_text_new_in_grid (GTK_GRID(grid), "Keycode:", keycode_str, 0, 0);
 
@@ -323,6 +324,7 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
 void edit_layout_handler (GtkButton *button, gpointer user_data)
 {
     GtkWidget *stack = gtk_stack_new ();
+    gtk_widget_set_halign (stack, GTK_ALIGN_CENTER);
     {
         app.keymap = keyboard_layout_new_default ();
 
@@ -459,6 +461,11 @@ void handle_grab_broken (GdkEvent *event, gpointer data)
     }
 }
 
+void on_sidebar_allocated (GtkWidget *widget, GdkRectangle *allocation, gpointer user_data)
+{
+    app.sidebar_min_width = allocation->width;
+}
+
 // Build a welcome screen that shows installed layouts and a preview when
 // selected from a list.
 void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_layouts)
@@ -525,6 +532,7 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
         intro_button_new ("document-open", "Open Layout", "Open an existing .xkb file.");
 
     app.sidebar = gtk_grid_new ();
+    g_signal_connect (app.sidebar, "size-allocate", G_CALLBACK(on_sidebar_allocated), NULL);
     gtk_grid_set_row_spacing (GTK_GRID(app.sidebar), 12);
     add_custom_css (app.sidebar, ".grid, grid { margin: 12px; }");
     gtk_grid_attach (GTK_GRID(app.sidebar), layout_list, 0, 0, 1, 1);

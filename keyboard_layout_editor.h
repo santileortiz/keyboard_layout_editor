@@ -16,6 +16,8 @@ struct kle_app_t {
 
     struct keyboard_layout_t *keymap;
 
+    int sidebar_min_width;
+
     // UI widgets that change
     GtkWidget *custom_layout_list;
     GtkWidget *keyboard_grabbing_button;

@@ -34,7 +34,32 @@ struct key_action_t {
 };
 
 struct key_level_t {
-    char symbol[5]; // NULL terminated UTF-8 character
+    // Keysym encoding can be very confusing. Here we will use keysyms as
+    // defined in Appendix A of "X11 Window System Protocol". Code wise, macro
+    // definitions for these can come from several places, we will use the ones
+    // found in <libxkbcommon>/xkbcommon/xkbcommon-keysyms.h, these are prefixed
+    // by XKB_KEY_ but they are automatically generated from Xlib's macros that
+    // are prefixed with XK_, as far as I can tell they are interchangeable.
+    //
+    // Encoding of keysyms is complex because it has to define values for keys
+    // that don't have Unicode representation (like arrow keys, volume keys, F1,
+    // Del, etc.). Also, X11's protocol specification comes from a pre-unicode
+    // era, which made some legacy encodings to be included as blocks in X11's
+    // keysym encoding, for backwards compatibility reasons these are still
+    // available in the macro definitions.
+    //
+    // In broad terms, X11's specification encodes all non control unicode
+    // codepoints from U+0000 to U+10FFFF. Instead of unicode control characters
+    // X11 defines a block of "function keysyms" which include keys not
+    // available in Unicode, like Alt, Control, Shift, arrows, hiragana and
+    // katakana toggling among others. Wether control unicode characters can be
+    // assigned to a key or not is entirely dependent on the implementation of
+    // the X11 protocol, I think libxkbcommon "may" allow them but I haven't
+    // tested this. Also, as a caveat not all keys we may consider function keys
+    // are in X11's "function keysyms" block, some of them (like volume control
+    // keysyms) are in the "vendor keysyms" block, for legacy reasons I guess.
+    xkb_keysym_t keysym;
+
     struct key_action_t action;
 };
 
@@ -88,10 +113,10 @@ struct key_t* keyboard_layout_new_key (struct keyboard_layout_t *keymap, int kc,
     return key;
 }
 
-void keyboard_layout_key_set_level (struct key_t *key, int level, char *symbol, struct key_action_t *action)
+void keyboard_layout_key_set_level (struct key_t *key, int level, xkb_keysym_t keysym, struct key_action_t *action)
 {
     struct key_level_t *lvl = &key->levels[level];
-    strcpy (lvl->symbol, symbol);
+    lvl->keysym = keysym;
 
     if (action != NULL) {
         lvl->action = *action;
@@ -120,7 +145,7 @@ struct keyboard_layout_t* keyboard_layout_new_default (void)
     keyboar_layout_type_set_level (type, 3, 0);
 
     struct key_t *key = keyboard_layout_new_key (keymap, KEY_ESC, type);
-    keyboard_layout_key_set_level (key, 1, "E", NULL);
+    keyboard_layout_key_set_level (key, 1, XKB_KEY_Escape, NULL);
 
     return keymap;
 }

@@ -115,7 +115,9 @@ struct key_t* keyboard_layout_new_key (struct keyboard_layout_t *keymap, int kc,
 
 void keyboard_layout_key_set_level (struct key_t *key, int level, xkb_keysym_t keysym, struct key_action_t *action)
 {
-    struct key_level_t *lvl = &key->levels[level];
+    assert (level > 0 && "Levels must be grater than 0");
+
+    struct key_level_t *lvl = &key->levels[level-1];
     lvl->keysym = keysym;
 
     if (action != NULL) {
@@ -144,7 +146,7 @@ struct keyboard_layout_t* keyboard_layout_new_default (void)
     keyboar_layout_type_set_level (type, 2, 0);
     keyboar_layout_type_set_level (type, 3, 0);
 
-    struct key_t *key = keyboard_layout_new_key (keymap, KEY_ESC, type);
+    struct key_t *key = keyboard_layout_new_key (keymap, KEY_ESC, type_one_level);
     keyboard_layout_key_set_level (key, 1, XKB_KEY_Escape, NULL);
 
     return keymap;

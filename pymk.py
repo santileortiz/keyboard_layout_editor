@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 from mkpy.utility import *
-import textwrap, re
+import re, textwrap
+import scripts
 
 assert sys.version_info >= (3,2)
 
@@ -38,46 +39,17 @@ def im_gtk2 ():
     ex ('sudo /usr/lib/x86_64-linux-gnu/libgtk2.0-0/gtk-query-immodules-2.0 --update-cache')
 
 def generate_keycode_names ():
-    def find_system_lib (library):
-        """
-        Returns the full path that will be included by gcc for the library.
-        The argument passed to this fuction is expected to be what would be
-        inside <> in a system #include directive.
-        """
-        dummy_fname = ex ('mktemp', ret_stdout=True, echo=False)
-        dummy_c = open (dummy_fname, "w")
-        include_line = "#include <{}>".format (library)
-        dummy_c.write (textwrap.dedent(include_line + """
-            int main () {
-                return 0;
-            }
-            """))
-        dummy_c.close ()
-
-        rules_fname = ex ('mktemp', ret_stdout=True, echo=False)
-        ex ("gcc -M -MF {} -xc {}".format (rules_fname, dummy_fname), echo=False)
-
-        awk_prg = r"""
-        BEGIN {
-            RS="\\";
-            OFS="\n"
-        }
-        {
-            for(i=1;i<=NF;i++)
-                if ($i ~ /^\//) {print $i}
-        }
-        """
-        awk_prg = ex_escape(awk_prg)
-        res = ex ("awk '{}' {}".format(awk_prg, rules_fname), echo=False, ret_stdout=True)
-        return res.split('\n')[2]
+    global g_dry_run
+    if g_dry_run:
+        return
 
     aliases = {}
     kc_names = {}
     names_kc = {}
-    evdev_include = open (find_system_lib ("linux/input-event-codes.h"))
+    evdev_include = open (scripts.find_system_lib ("linux/input-event-codes.h"))
     for line in evdev_include:
         line = line.strip()
-        m = re.search (r'#define\s+(KEY_\S+)\s+(\S+)', line)
+        m = re.search (r'^#define\s+(KEY_\S+)\s+(\S+)', line)
         if m != None:
             try:
                 value = int (m.group (2), 0)
@@ -103,6 +75,57 @@ def generate_keycode_names ():
     for kc, name in sorted(kc_names.items()):
         keycode_names.write ('    keycode_names[{}] = "{}";\n'.format(kc, name))
     keycode_names.write ("}\n")
+
+def generate_keysym_names ():
+    global g_dry_run
+    if g_dry_run:
+        return
+
+    xkbcommon_keysyms_header = open (scripts.find_system_lib ("xkbcommon/xkbcommon-keysyms.h"))
+    keysyms = []
+    regex = re.compile (r'^#define\s+XKB_KEY_(\S+)\s+(\S+)')
+    num_cols = regex.groups
+    col_width = [0]*num_cols
+
+    avg_len = 0
+    for line in xkbcommon_keysyms_header:
+        m = regex.match (line.strip())
+        if m != None:
+            groups = m.groups()
+            for i, val in enumerate(groups):
+                if i == 0:
+                    avg_len += len(val)
+
+                col_width[i] = max(col_width[i], len(val))
+
+            keysyms.append (groups)
+
+    res = []
+    for keysym in keysyms:
+        col = []
+        for i, val in enumerate(keysym):
+            if (i == 0):
+                col.append ('{0:{width}}'.format ('"'+val+'",', width=col_width[i]+3))
+            else:
+                col.append ('{0:{width}}'.format (val, width=col_width[i]))
+
+        res.append ('    {'+''.join (col)+'}')
+
+    out_file = open ("keysym_names.h", "w")
+    out_file.write ("// File automatically generated using './pymk generate_keysym_names'")
+    out_file.write (textwrap.dedent (
+                    r'''
+                    struct named_keysym_t {
+                        const char *name;
+                        xkb_keysym_t keysym;
+                    };
+
+                    static const struct named_keysym_t keysym_names[] = {
+                    '''))
+    out_file.write (',\n'.join(res))
+    out_file.write ('\n};')
+    print (col_width)
+    print (avg_len/len(res))
 
 if __name__ == "__main__":
     # Everything above this line will be executed for each TAB press.

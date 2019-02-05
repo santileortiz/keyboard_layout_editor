@@ -9,6 +9,7 @@
 #include <xkbcommon/xkbcommon.h>
 #include <linux/input-event-codes.h>
 #include "keycode_names.h"
+#include "keysym_names.h"
 
 #include <locale.h>
 
@@ -286,6 +287,7 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
         gtk_combo_box_set_active_id (GTK_COMBO_BOX(types_combobox), key->type->name);
 
         GtkWidget *per_level_data = gtk_grid_new ();
+        gtk_widget_set_halign (per_level_data, GTK_ALIGN_CENTER);
         gtk_widget_set_margins (per_level_data, 6);
         GtkWidget *symbol_title = title_label_new ("Symbol");
         gtk_widget_set_halign (symbol_title, GTK_ALIGN_CENTER);
@@ -296,14 +298,19 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
         gtk_grid_attach (GTK_GRID(per_level_data), symbol_title, 1, 0, 1, 1);
         gtk_grid_attach (GTK_GRID(per_level_data), action_title, 2, 0, 1, 1);
 
+        char keysym_name[64];
         for (int i=0; i<key->type->num_levels; i++) {
             char *level_str = pprintf (&pool_l, "Level %i", i+1);
             GtkWidget *level_label = title_label_new (level_str);
             gtk_widget_set_margins (level_label, 6);
             GtkWidget *symbol_entry = gtk_entry_new ();
-            gtk_entry_set_width_chars (GTK_ENTRY(symbol_entry), 5);
+            gtk_entry_set_width_chars (GTK_ENTRY(symbol_entry), 12); // max: 27 avg: ~11 characters
             gtk_widget_set_margins (symbol_entry, 6);
+            xkb_keysym_get_name (key->levels[i].keysym, keysym_name, ARRAY_SIZE(keysym_name));
+            gtk_entry_set_text (GTK_ENTRY(symbol_entry), keysym_name);
+
             GtkWidget *action_entry = gtk_entry_new ();
+            gtk_entry_set_width_chars (GTK_ENTRY(action_entry), 10);
             gtk_widget_set_margins (action_entry, 6);
             gtk_grid_attach (GTK_GRID(per_level_data), level_label, 0, i+1, 1, 1);
             gtk_grid_attach (GTK_GRID(per_level_data), symbol_entry, 1, i+1, 1, 1);

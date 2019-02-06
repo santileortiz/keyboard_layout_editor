@@ -263,6 +263,12 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
     return G_SOURCE_REMOVE;
 }
 
+void edit_symbol_popup (GtkButton *button, gpointer user_data)
+{
+    // TODO: Implement this!
+    return;
+}
+
 GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
 {
     mem_pool_t pool_l = {0};
@@ -303,17 +309,28 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
             char *level_str = pprintf (&pool_l, "Level %i", i+1);
             GtkWidget *level_label = title_label_new (level_str);
             gtk_widget_set_margins (level_label, 6);
-            GtkWidget *symbol_entry = gtk_entry_new ();
-            gtk_entry_set_width_chars (GTK_ENTRY(symbol_entry), 12); // max: 27 avg: ~11 characters
-            gtk_widget_set_margins (symbol_entry, 6);
+
             xkb_keysym_get_name (key->levels[i].keysym, keysym_name, ARRAY_SIZE(keysym_name));
-            gtk_entry_set_text (GTK_ENTRY(symbol_entry), keysym_name);
+            GtkWidget *symbol_name = gtk_label_new (keysym_name);
+            gtk_widget_set_halign (symbol_name, GTK_ALIGN_CENTER);
+            gtk_widget_set_hexpand (symbol_name, TRUE);
+            gtk_label_set_ellipsize (GTK_LABEL(symbol_name), PANGO_ELLIPSIZE_END);
+            GtkWidget *symbol_edit_button =
+                icon_button_new ("edit-symbolic",
+                                 "Modify assigned symbol",
+                                 G_CALLBACK(edit_symbol_popup), NULL);
+            GtkWidget *symbol_wdgt = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+            gtk_widget_set_halign (symbol_wdgt, GTK_ALIGN_END);
+            gtk_container_add (GTK_CONTAINER(symbol_wdgt), symbol_name);
+            gtk_container_add (GTK_CONTAINER(symbol_wdgt), symbol_edit_button);
+            gtk_widget_set_margins (symbol_wdgt, 6);
+            gtk_widget_set_size_request (symbol_wdgt, 120, 0);
 
             GtkWidget *action_entry = gtk_entry_new ();
             gtk_entry_set_width_chars (GTK_ENTRY(action_entry), 10);
             gtk_widget_set_margins (action_entry, 6);
             gtk_grid_attach (GTK_GRID(per_level_data), level_label, 0, i+1, 1, 1);
-            gtk_grid_attach (GTK_GRID(per_level_data), symbol_entry, 1, i+1, 1, 1);
+            gtk_grid_attach (GTK_GRID(per_level_data), symbol_wdgt, 1, i+1, 1, 1);
             gtk_grid_attach (GTK_GRID(per_level_data), action_entry, 2, i+1, 1, 1);
         }
 

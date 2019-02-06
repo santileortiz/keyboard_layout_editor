@@ -2404,14 +2404,13 @@ void button_allocated (GtkWidget *widget, GdkRectangle *rect, gpointer user_data
     g_free (text);
 }
 
-GtkWidget* toolbar_button_new (const char *icon_name, char *tooltip, GCallback callback, gpointer user_data)
+GtkWidget* icon_button_new (const char *icon_name, char *tooltip, GCallback callback, gpointer user_data)
 {
     assert (icon_name != NULL);
 
     GtkWidget *new_button = gtk_button_new_from_icon_name (icon_name, GTK_ICON_SIZE_SMALL_TOOLBAR);
     gtk_widget_set_valign (new_button, GTK_ALIGN_CENTER);
     gtk_widget_set_halign (new_button, GTK_ALIGN_CENTER);
-    add_css_class (new_button, "flat");
     g_signal_connect (G_OBJECT(new_button), "clicked", callback, user_data);
 
     gtk_widget_set_tooltip_text (new_button, tooltip);
@@ -2420,6 +2419,13 @@ GtkWidget* toolbar_button_new (const char *icon_name, char *tooltip, GCallback c
 
     gtk_widget_show (new_button);
 
+    return new_button;
+}
+
+GtkWidget* toolbar_button_new (const char *icon_name, char *tooltip, GCallback callback, gpointer user_data)
+{
+    GtkWidget *new_button = icon_button_new (icon_name, tooltip, callback, user_data);
+    add_css_class (new_button, "flat");
     return new_button;
 }
 

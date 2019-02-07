@@ -345,8 +345,28 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
     return grid;
 }
 
+void show_all_layouts_handler (GtkButton *button, gpointer   user_data)
+{
+    // TODO: Show the correct welcome view
+}
+
 void edit_layout_handler (GtkButton *button, gpointer user_data)
 {
+    GtkWidget *header_bar = gtk_header_bar_new ();
+    gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
+    gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
+
+    GtkWidget *all_layouts_button = gtk_button_new_with_label ("Show all layouts");
+    add_css_class (all_layouts_button, "back-button");
+    g_signal_connect (all_layouts_button, "clicked", G_CALLBACK (show_all_layouts_handler), NULL);
+    gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), all_layouts_button);
+
+    app.keyboard_grabbing_button = new_icon_button ("process-completed", G_CALLBACK(grab_input));
+    gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), app.keyboard_grabbing_button);
+
+    gtk_window_set_titlebar (GTK_WINDOW(app.window), header_bar);
+    gtk_widget_show_all (header_bar);
+
     GtkWidget *stack = gtk_stack_new ();
     gtk_widget_set_halign (stack, GTK_ALIGN_CENTER);
     {
@@ -383,29 +403,6 @@ gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer use
     return FALSE;
 }
 
-#define new_icon_button(icon_name,click_handler) new_icon_button_gcallback(icon_name,G_CALLBACK(click_handler))
-GtkWidget* new_icon_button_gcallback (const char *icon_name, GCallback click_handler)
-{
-    // TODO: For some reason the highlight circle on this button button has
-    // height 32px but width 30px. Code's circle on header buttons is 30px by 30px.
-    GtkWidget *new_button = gtk_button_new_from_icon_name (icon_name, GTK_ICON_SIZE_LARGE_TOOLBAR);
-    g_signal_connect (new_button, "clicked", G_CALLBACK (click_handler), NULL);
-    gtk_widget_set_halign (new_button, GTK_ALIGN_FILL);
-    gtk_widget_set_valign (new_button, GTK_ALIGN_FILL);
-    gtk_widget_show (new_button);
-    return new_button;
-}
-
-#define set_header_icon_button(wdgt,icon_name,click_handler) \
-    set_header_icon_button_gcallback(wdgt,icon_name,G_CALLBACK(click_handler))
-void set_header_icon_button_gcallback (GtkWidget **button, const char *icon_name, GCallback click_handler)
-{
-    GtkWidget *parent = gtk_widget_get_parent (*button);
-    gtk_container_remove (GTK_CONTAINER(parent), *button);
-    *button = new_icon_button_gcallback (icon_name, click_handler);
-    gtk_header_bar_pack_start (GTK_HEADER_BAR(parent), *button);
-}
-
 // TODO: @requires:GTK_3.20
 // TODO: Get better icon for this. I'm thinking a gripper grabbing/ungrabbing a
 // key.
@@ -422,7 +419,7 @@ gboolean grab_input (GtkButton *button, gpointer user_data)
                                           TRUE, // If this is FALSE we don't get any pointer events, why?
                                           NULL, NULL, NULL, NULL);
     if (status == GDK_GRAB_SUCCESS) {
-        set_header_icon_button (&app.keyboard_grabbing_button, "media-playback-stop", ungrab_input);
+        set_header_icon_button (&app.keyboard_grabbing_button, "media-playback-stop", G_CALLBACK(ungrab_input));
     }
 #endif
     return G_SOURCE_REMOVE;
@@ -432,7 +429,7 @@ gboolean grab_input (GtkButton *button, gpointer user_data)
 gboolean ungrab_input (GtkButton *button, gpointer user_data)
 {
 #ifndef DISABLE_GRABS
-    set_header_icon_button (&app.keyboard_grabbing_button, "process-completed", grab_input);
+    set_header_icon_button (&app.keyboard_grabbing_button, "process-completed", G_CALLBACK(grab_input));
     gdk_seat_ungrab (app.gdk_seat);
     app.gdk_seat = NULL;
 #endif
@@ -452,7 +449,7 @@ void handle_grab_broken (GdkEvent *event, gpointer data)
         if (((GdkEventKey*)event)->keyval == GDK_KEY_Escape) {
             gdk_seat_ungrab (app.gdk_seat);
             app.gdk_seat = NULL;
-            set_header_icon_button (&app.keyboard_grabbing_button, "process-completed", grab_input);
+            set_header_icon_button (&app.keyboard_grabbing_button, "process-completed", G_CALLBACK(grab_input));
         }
     }
 #endif
@@ -479,7 +476,7 @@ void handle_grab_broken (GdkEvent *event, gpointer data)
     // missing an event mask but there is no mask for GdkGrabBroken). I need to
     // test in GNOME.
     if (event->type == GDK_GRAB_BROKEN) {
-        set_header_icon_button (&app.keyboard_grabbing_button, "process-completed", grab_input);
+        set_header_icon_button (&app.keyboard_grabbing_button, "process-completed", G_CALLBACK(grab_input));
     } else {
         gtk_main_do_event (event);
     }
@@ -501,7 +498,7 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
     gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
     gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
 
-    app.keyboard_grabbing_button = new_icon_button ("process-completed", grab_input);
+    app.keyboard_grabbing_button = new_icon_button ("process-completed", G_CALLBACK(grab_input));
     gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), app.keyboard_grabbing_button);
 
     gtk_window_set_titlebar (GTK_WINDOW(app.window), header_bar);

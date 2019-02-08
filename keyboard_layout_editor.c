@@ -361,10 +361,11 @@ void edit_layout_handler (GtkButton *button, gpointer user_data)
     gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
     gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
 
-    GtkWidget *all_layouts_button = gtk_button_new_with_label ("Go Back");
-    add_css_class (all_layouts_button, "back-button");
-    g_signal_connect (all_layouts_button, "clicked", G_CALLBACK (return_to_welcome_handler), NULL);
-    gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), all_layouts_button);
+    GtkWidget *return_to_welcome_button = gtk_button_new_with_label ("Go Back");
+    gtk_widget_set_valign (return_to_welcome_button, GTK_ALIGN_CENTER);
+    add_css_class (return_to_welcome_button, "back-button");
+    g_signal_connect (return_to_welcome_button, "clicked", G_CALLBACK (return_to_welcome_handler), NULL);
+    gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), return_to_welcome_button);
 
     app.keyboard_grabbing_button = new_icon_button ("process-completed", G_CALLBACK(grab_input));
     gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), app.keyboard_grabbing_button);

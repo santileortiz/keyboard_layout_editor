@@ -256,12 +256,7 @@ struct keyboard_view_t {
 
     // KEYCODE_LOOKUP state
     struct fk_popover_t keycode_lookup_popover;
-    GtkWidget *keycode_lookup_search_entry;
-    GtkWidget *keycode_lookup_keycode_list;
-    // NOTE: This is used to detect which is the first visible row and select it
-    // inside the filter function.
-    // @select_first_on_filter_invalidate
-    bool keycode_lookup_is_first_row;
+    struct fk_searchable_list_t keycode_lookup_ui;
 
     // KEY_SPLIT state
     struct sgmt_t *new_key;
@@ -1996,7 +1991,7 @@ void keycode_lookup_on_popup_close (GtkWidget *object, gpointer user_data)
 void kv_autosave (struct keyboard_view_t *kv);
 void keycode_lookup_set (struct keyboard_view_t *kv)
 {
-    GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX(kv->keycode_lookup_keycode_list));
+    GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX(kv->keycode_lookup_ui.list));
     GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
     const char *keycode_name = gtk_label_get_text (GTK_LABEL(row_label));
 
@@ -2016,31 +2011,6 @@ FK_POPOVER_BUTTON_PRESSED_CB (keycode_lookup_set_handler)
 {
     struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
     keycode_lookup_set (kv);
-}
-
-gboolean search_filter (GtkListBoxRow *row, gpointer user_data)
-{
-    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
-    const gchar *search_str = gtk_entry_get_text (GTK_ENTRY(kv->keycode_lookup_search_entry));
-    GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
-    const char *keycode_name = gtk_label_get_text (GTK_LABEL(row_label));
-
-    bool res = strcasestr (keycode_name, search_str) != NULL ? TRUE : FALSE;
-
-    // @select_first_on_filter_invalidate
-    if (res == TRUE && kv->keycode_lookup_is_first_row) {
-        kv->keycode_lookup_is_first_row = false;
-        gtk_list_box_select_row (GTK_LIST_BOX(kv->keycode_lookup_keycode_list), row);
-    }
-
-    return res;
-}
-
-void keycode_lookup_search_changed (GtkEditable *search_entry, gpointer user_data)
-{
-    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
-    kv->keycode_lookup_is_first_row = true;
-    gtk_list_box_invalidate_filter (GTK_LIST_BOX(kv->keycode_lookup_keycode_list));
 }
 
 GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *active_repr, bool saved);
@@ -3725,55 +3695,17 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 // @select_is_release_based
 
-                kv->keycode_lookup_search_entry = gtk_search_entry_new ();
-                gtk_widget_set_margins (kv->keycode_lookup_search_entry, 6);
-                gtk_entry_set_placeholder_text (GTK_ENTRY(kv->keycode_lookup_search_entry),
-                                                "Search keycode by name");
-                g_signal_connect (G_OBJECT(kv->keycode_lookup_search_entry),
-                                  "changed",
-                                  G_CALLBACK (keycode_lookup_search_changed),
-                                  kv);
-
-                kv->keycode_lookup_keycode_list = gtk_list_box_new ();
-                gtk_widget_set_vexpand (kv->keycode_lookup_keycode_list, TRUE);
-                gtk_widget_set_hexpand (kv->keycode_lookup_keycode_list, TRUE);
-                gtk_list_box_set_filter_func (GTK_LIST_BOX(kv->keycode_lookup_keycode_list),
-                                              search_filter, kv, NULL);
-                bool first = true;
+                GtkWidget *search_entry, *list;
+                fk_searchable_list_init (&kv->keycode_lookup_ui,
+                                         "Search keycode by name",
+                                         &search_entry, &list);
                 // NOTE: Keycode 0 (KEY_RESERVED) is currently used for unassigned keys.
                 // @KEY_RESERVED_is_unassigned
-                for (int i=1; i < KEY_CNT; i++)
-                {
-                    if (keycode_names[i] != NULL) {
-                        GtkWidget *row = gtk_label_new (keycode_names[i]);
-                        gtk_container_add (GTK_CONTAINER(kv->keycode_lookup_keycode_list), row);
-                        gtk_widget_set_halign (row, GTK_ALIGN_START);
-
-                        if (first) {
-                            first = false;
-                            GtkWidget *r = gtk_widget_get_parent (row);
-                            gtk_list_box_select_row (GTK_LIST_BOX(kv->keycode_lookup_keycode_list),
-                                                     GTK_LIST_BOX_ROW(r));
-                        }
-
-                        gtk_widget_set_margin_start (row, 6);
-                        gtk_widget_set_margin_end (row, 6);
-                        gtk_widget_set_margin_top (row, 3);
-                        gtk_widget_set_margin_bottom (row, 3);
-                    }
-                }
-                GtkWidget *scrolled_keycode_list = gtk_scrolled_window_new (NULL, NULL);
-                gtk_scrolled_window_disable_hscroll (GTK_SCROLLED_WINDOW(scrolled_keycode_list));
-                gtk_scrolled_window_set_min_content_width (GTK_SCROLLED_WINDOW(scrolled_keycode_list), 200);
-                gtk_scrolled_window_set_min_content_height (GTK_SCROLLED_WINDOW(scrolled_keycode_list), 100);
-                gtk_container_add (GTK_CONTAINER (scrolled_keycode_list), kv->keycode_lookup_keycode_list);
-                GtkWidget *frame = gtk_frame_new (NULL);
-                gtk_widget_set_margins (frame, 6);
-                gtk_container_add (GTK_CONTAINER(frame), scrolled_keycode_list);
+                fk_populate_list (&kv->keycode_lookup_ui, (keycode_names+1)[i], KEY_CNT-1);
 
                 GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
-                gtk_container_add (GTK_CONTAINER(box), kv->keycode_lookup_search_entry);
-                gtk_container_add (GTK_CONTAINER(box), frame);
+                gtk_container_add (GTK_CONTAINER(box), search_entry);
+                gtk_container_add (GTK_CONTAINER(box), list);
 
                 GtkWidget *popover;
                 fk_popover_init (&app.edit_symbol_popover,
@@ -4291,16 +4223,16 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 } else {
 
-                    if (!gtk_widget_has_focus (kv->keycode_lookup_search_entry)) {
-                        gtk_widget_grab_focus (kv->keycode_lookup_search_entry);
+                    if (!gtk_widget_has_focus (kv->keycode_lookup_ui.search_entry)) {
+                        gtk_widget_grab_focus (kv->keycode_lookup_ui.search_entry);
 
                         gunichar uni = gdk_keyval_to_unicode (event->keyval);
                         char str[7];
                         int len = g_unichar_to_utf8 (uni, str);
-                        gint pos = gtk_editable_get_position (GTK_EDITABLE (kv->keycode_lookup_search_entry));
-                        gtk_editable_insert_text (GTK_EDITABLE (kv->keycode_lookup_search_entry),
+                        gint pos = gtk_editable_get_position (GTK_EDITABLE (kv->keycode_lookup_ui.search_entry));
+                        gtk_editable_insert_text (GTK_EDITABLE (kv->keycode_lookup_ui.search_entry),
                                                   str, len, &pos);
-                        gtk_editable_set_position (GTK_EDITABLE (kv->keycode_lookup_search_entry), pos);
+                        gtk_editable_set_position (GTK_EDITABLE (kv->keycode_lookup_ui.search_entry), pos);
                     }
                 }
             }

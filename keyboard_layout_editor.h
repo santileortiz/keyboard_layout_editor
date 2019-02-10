@@ -24,6 +24,7 @@ struct kle_app_t {
     GtkWidget *sidebar;
     GtkWidget *keys_sidebar;
     struct fk_popover_t edit_symbol_popover;
+    struct fk_searchable_list_t keysym_lookup_ui;
 };
 
 gboolean grab_input (GtkButton *button, gpointer user_data);

@@ -17,6 +17,7 @@
 #include "gresource.c"
 #include "gtk_utils.c"
 #include "fk_popover.c"
+#include "fk_searchable_list.c"
 
 #include "keyboard_layout_editor.h"
 struct kle_app_t app;
@@ -262,47 +263,15 @@ FK_POPOVER_BUTTON_PRESSED_CB (set_key_symbol_handler)
 
 void edit_symbol_popup_handler (GtkButton *button, gpointer user_data)
 {
-    GtkWidget *entry = gtk_search_entry_new ();
-    gtk_widget_set_margins (entry, 6);
-    gtk_entry_set_placeholder_text (GTK_ENTRY(entry), "Search keysym by name");
-
-    GtkWidget *list = gtk_list_box_new ();
-    gtk_widget_set_vexpand (list, TRUE);
-    gtk_widget_set_hexpand (list, TRUE);
-    //gtk_list_box_set_filter_func (GTK_LIST_BOX(list), search_filter, kv, NULL);
-
-    bool first = true;
-    for (int i=0; i < ARRAY_SIZE(keysym_names); i++)
-    {
-        if (keysym_names[i].name != NULL) {
-            GtkWidget *row = gtk_label_new (keysym_names[i].name);
-            gtk_container_add (GTK_CONTAINER(list), row);
-            gtk_widget_set_halign (row, GTK_ALIGN_START);
-
-            if (first) {
-                first = false;
-                GtkWidget *r = gtk_widget_get_parent (row);
-                gtk_list_box_select_row (GTK_LIST_BOX(list), GTK_LIST_BOX_ROW(r));
-            }
-
-            gtk_widget_set_margin_start (row, 6);
-            gtk_widget_set_margin_end (row, 6);
-            gtk_widget_set_margin_top (row, 3);
-            gtk_widget_set_margin_bottom (row, 3);
-        }
-    }
-    GtkWidget *scrolled_list = gtk_scrolled_window_new (NULL, NULL);
-    gtk_scrolled_window_disable_hscroll (GTK_SCROLLED_WINDOW(scrolled_list));
-    gtk_scrolled_window_set_min_content_width (GTK_SCROLLED_WINDOW(scrolled_list), 200);
-    gtk_scrolled_window_set_min_content_height (GTK_SCROLLED_WINDOW(scrolled_list), 100);
-    gtk_container_add (GTK_CONTAINER (scrolled_list), list);
-    GtkWidget *frame = gtk_frame_new (NULL);
-    gtk_widget_set_margins (frame, 6);
-    gtk_container_add (GTK_CONTAINER(frame), scrolled_list);
+    GtkWidget *search_entry, *list;
+    fk_searchable_list_init (&app.keysym_lookup_ui,
+                             "Search keysym by name",
+                             &search_entry, &list);
+    fk_populate_list (&app.keysym_lookup_ui, keysym_names[i].name, ARRAY_SIZE(keysym_names));
 
     GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
-    gtk_container_add (GTK_CONTAINER(box), entry);
-    gtk_container_add (GTK_CONTAINER(box), frame);
+    gtk_container_add (GTK_CONTAINER(box), search_entry);
+    gtk_container_add (GTK_CONTAINER(box), list);
 
     fk_popover_init (&app.edit_symbol_popover,
                      GTK_WIDGET(button), NULL,

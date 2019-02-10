@@ -300,22 +300,15 @@ void edit_symbol_popup_handler (GtkButton *button, gpointer user_data)
     gtk_widget_set_margins (frame, 6);
     gtk_container_add (GTK_CONTAINER(frame), scrolled_list);
 
-    GtkWidget *popover, *set_button, *cancel_button;
+    GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+    gtk_container_add (GTK_CONTAINER(box), entry);
+    gtk_container_add (GTK_CONTAINER(box), frame);
+
     fk_popover_init (&app.edit_symbol_popover,
                      GTK_WIDGET(button), NULL,
-                     &popover, &set_button, &cancel_button,
+                     NULL, box,
                      "Set", set_key_symbol_handler,
                      NULL);
-
-    GtkWidget *grid = gtk_grid_new ();
-    gtk_widget_set_margins (grid, 6);
-    gtk_grid_attach (GTK_GRID(grid), entry, 0, 0, 2, 1);
-    gtk_grid_attach (GTK_GRID(grid), frame, 0, 1, 2, 1);
-    gtk_grid_attach (GTK_GRID(grid), cancel_button, 0, 2, 1, 1);
-    gtk_grid_attach (GTK_GRID(grid), set_button, 1, 2, 1, 1);
-
-    gtk_container_add (GTK_CONTAINER(popover), grid);
-    gtk_widget_show_all (popover);
 }
 
 GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)

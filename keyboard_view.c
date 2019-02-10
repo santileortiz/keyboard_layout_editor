@@ -2220,21 +2220,11 @@ void save_view_as_handler (GtkButton *button, gpointer user_data)
         gtk_container_add (GTK_CONTAINER(name_labeled_entry), kv->repr_save_as_popover_entry);
     }
 
-    GtkWidget *popover, *save_button, *cancel_button;
     fk_popover_init (&kv->repr_save_as_popover,
                      GTK_WIDGET(button), NULL,
-                     &popover, &save_button, &cancel_button,
+                     NULL, name_labeled_entry,
                      "Save", repr_save_as_popover_save_handler,
                      kv);
-
-    GtkWidget *grid = gtk_grid_new ();
-    gtk_widget_set_margins (grid, 6);
-    gtk_grid_attach (GTK_GRID(grid), name_labeled_entry, 0, 0, 2, 1);
-    gtk_grid_attach (GTK_GRID(grid), cancel_button, 0, 1, 1, 1);
-    gtk_grid_attach (GTK_GRID(grid), save_button, 1, 1, 1, 1);
-
-    gtk_container_add (GTK_CONTAINER(popover), grid);
-    gtk_widget_show_all (popover);
 
     gtk_widget_grab_focus (GTK_WIDGET(kv->repr_save_as_popover_entry));
 }
@@ -3779,22 +3769,17 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 gtk_widget_set_margins (frame, 6);
                 gtk_container_add (GTK_CONTAINER(frame), scrolled_keycode_list);
 
-                GtkWidget *popover, *set_button, *cancel_button;
+                GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+                gtk_container_add (GTK_CONTAINER(box), kv->keycode_lookup_search_entry);
+                gtk_container_add (GTK_CONTAINER(box), frame);
+
+                GtkWidget *popover;
                 fk_popover_init (&app.edit_symbol_popover,
                                  kv->widget, &button_event_key_rect,
-                                 &popover, &set_button, &cancel_button,
+                                 &popover, box,
                                  "Set", keycode_lookup_set_handler,
                                  kv);
 
-                GtkWidget *grid = gtk_grid_new ();
-                gtk_widget_set_margins (grid, 6);
-                gtk_grid_attach (GTK_GRID(grid), kv->keycode_lookup_search_entry, 0, 0, 2, 1);
-                gtk_grid_attach (GTK_GRID(grid), frame, 0, 1, 2, 1);
-                gtk_grid_attach (GTK_GRID(grid), cancel_button, 0, 2, 1, 1);
-                gtk_grid_attach (GTK_GRID(grid), set_button, 1, 2, 1, 1);
-
-                gtk_container_add (GTK_CONTAINER(popover), grid);
-                gtk_widget_show_all (popover);
                 g_signal_connect (G_OBJECT(popover), "closed",
                                   G_CALLBACK(keycode_lookup_on_popup_close), kv);
 

@@ -31,7 +31,8 @@ void fk_accept_button_handler (GtkWidget *button, gpointer user_data)
 
 void fk_popover_init (struct fk_popover_t *fk_popover,
                       GtkWidget *target_w, GdkRectangle *rect,
-                      GtkWidget **popover, GtkWidget **save_button, GtkWidget **cancel_button,
+                      GtkWidget **popover,
+                      GtkWidget *content,
                       char *accept_label, fk_popover_button_pressed_cb_t *accept_handler,
                       gpointer user_data)
 {
@@ -39,25 +40,33 @@ void fk_popover_init (struct fk_popover_t *fk_popover,
     assert (fk_popover != NULL);
     assert ( accept_handler != NULL && accept_label != NULL);
 
-    GtkWidget *cancel_button_l = gtk_button_new_with_label ("Cancel");
-    gtk_widget_set_margins (cancel_button_l, 6);
-    g_signal_connect (G_OBJECT(cancel_button_l), "clicked", G_CALLBACK(fk_cancel_button_handler), fk_popover);
-    if (cancel_button != NULL) { *cancel_button = cancel_button_l; }
+    GtkWidget *cancel_button = gtk_button_new_with_label ("Cancel");
+    gtk_widget_set_margins (cancel_button, 6);
+    g_signal_connect (G_OBJECT(cancel_button), "clicked", G_CALLBACK(fk_cancel_button_handler), fk_popover);
 
-    GtkWidget *save_button_l = gtk_button_new_with_label (accept_label);
-    gtk_widget_set_margins (save_button_l, 6);
-    g_signal_connect (G_OBJECT(save_button_l), "clicked", G_CALLBACK(fk_accept_button_handler), fk_popover);
-    add_css_class (save_button_l, "suggested-action");
+    GtkWidget *accept_button = gtk_button_new_with_label (accept_label);
+    gtk_widget_set_margins (accept_button, 6);
+    g_signal_connect (G_OBJECT(accept_button), "clicked", G_CALLBACK(fk_accept_button_handler), fk_popover);
+    add_css_class (accept_button, "suggested-action");
     fk_popover->accept_handler = accept_handler;
-    if (save_button != NULL) { *save_button = save_button_l; }
 
-    *popover = gtk_popover_new (target_w);
-    gtk_popover_set_position (GTK_POPOVER(*popover), GTK_POS_BOTTOM);
+    GtkWidget *popover_l = gtk_popover_new (target_w);
+    gtk_popover_set_position (GTK_POPOVER(popover_l), GTK_POS_BOTTOM);
 
     if (rect != NULL) {
-        gtk_popover_set_pointing_to (GTK_POPOVER(*popover), rect);
+        gtk_popover_set_pointing_to (GTK_POPOVER(popover_l), rect);
     }
 
     fk_popover->user_data = user_data;
-    fk_popover->popover = *popover;
+    fk_popover->popover = popover_l;
+
+    GtkWidget *grid = gtk_grid_new ();
+    gtk_widget_set_margins (grid, 6);
+    gtk_grid_attach (GTK_GRID(grid), content, 0, 0, 2, 1);
+    gtk_grid_attach (GTK_GRID(grid), cancel_button, 0, 1, 1, 1);
+    gtk_grid_attach (GTK_GRID(grid), accept_button, 1, 1, 1, 1);
+
+    gtk_container_add (GTK_CONTAINER(popover_l), grid);
+    gtk_widget_show_all (popover_l);
+    if (popover != NULL) { *popover = popover_l; }
 }

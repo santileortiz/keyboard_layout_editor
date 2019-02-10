@@ -1993,6 +1993,7 @@ void keycode_lookup_on_popup_close (GtkWidget *object, gpointer user_data)
     gtk_widget_queue_draw (kv->widget);
 }
 
+void kv_autosave (struct keyboard_view_t *kv);
 void keycode_lookup_set (struct keyboard_view_t *kv)
 {
     GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX(kv->keycode_lookup_keycode_list));
@@ -2008,6 +2009,7 @@ void keycode_lookup_set (struct keyboard_view_t *kv)
     }
 
     kv_keycode_reassign_selected_key (kv, i);
+    kv_autosave (kv);
 }
 
 FK_POPOVER_BUTTON_PRESSED_CB (keycode_lookup_set_handler)

@@ -16,6 +16,7 @@
 #include <gtk/gtk.h>
 #include "gresource.c"
 #include "gtk_utils.c"
+#include "fk_popover.c"
 
 #include "keyboard_layout_editor.h"
 struct kle_app_t app;
@@ -254,9 +255,15 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
     return G_SOURCE_REMOVE;
 }
 
-void edit_symbol_popup (GtkButton *button, gpointer user_data)
+FK_POPOVER_BUTTON_PRESSED_CB (set_key_symbol_handler)
+{
+    //TODO: Implement this!!!
+}
+
+void edit_symbol_popup_handler (GtkButton *button, gpointer user_data)
 {
     GtkWidget *entry = gtk_search_entry_new ();
+    gtk_widget_set_margins (entry, 6);
     gtk_entry_set_placeholder_text (GTK_ENTRY(entry), "Search keysym by name");
 
     GtkWidget *list = gtk_list_box_new ();
@@ -290,27 +297,25 @@ void edit_symbol_popup (GtkButton *button, gpointer user_data)
     gtk_scrolled_window_set_min_content_height (GTK_SCROLLED_WINDOW(scrolled_list), 100);
     gtk_container_add (GTK_CONTAINER (scrolled_list), list);
     GtkWidget *frame = gtk_frame_new (NULL);
+    gtk_widget_set_margins (frame, 6);
     gtk_container_add (GTK_CONTAINER(frame), scrolled_list);
 
-    GtkWidget *cancel_button = gtk_button_new_with_label ("Cancel");
-
-    GtkWidget *save_button = gtk_button_new_with_label ("Set");
-    add_css_class (save_button, "suggested-action");
+    GtkWidget *popover, *set_button, *cancel_button;
+    fk_popover_init (&app.edit_symbol_popover,
+                     GTK_WIDGET(button), NULL,
+                     &popover, &set_button, &cancel_button,
+                     "Set", set_key_symbol_handler,
+                     NULL);
 
     GtkWidget *grid = gtk_grid_new ();
-    gtk_widget_set_margins (grid, 12);
-    gtk_grid_set_row_spacing (GTK_GRID(grid), 12);
-    gtk_grid_set_column_spacing (GTK_GRID(grid), 12);
+    gtk_widget_set_margins (grid, 6);
     gtk_grid_attach (GTK_GRID(grid), entry, 0, 0, 2, 1);
     gtk_grid_attach (GTK_GRID(grid), frame, 0, 1, 2, 1);
     gtk_grid_attach (GTK_GRID(grid), cancel_button, 0, 2, 1, 1);
-    gtk_grid_attach (GTK_GRID(grid), save_button, 1, 2, 1, 1);
+    gtk_grid_attach (GTK_GRID(grid), set_button, 1, 2, 1, 1);
 
-    GtkWidget *popover = gtk_popover_new (GTK_WIDGET(button));
     gtk_container_add (GTK_CONTAINER(popover), grid);
-    gtk_popover_set_position (GTK_POPOVER(popover), GTK_POS_BOTTOM);
     gtk_widget_show_all (popover);
-    return;
 }
 
 GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
@@ -362,7 +367,7 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
             GtkWidget *symbol_edit_button =
                 icon_button_new ("edit-symbolic",
                                  "Modify assigned symbol",
-                                 G_CALLBACK(edit_symbol_popup), NULL);
+                                 G_CALLBACK(edit_symbol_popup_handler), NULL);
             GtkWidget *symbol_wdgt = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
             gtk_widget_set_halign (symbol_wdgt, GTK_ALIGN_END);
             gtk_container_add (GTK_CONTAINER(symbol_wdgt), symbol_name);

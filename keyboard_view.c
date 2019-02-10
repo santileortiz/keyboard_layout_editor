@@ -255,7 +255,7 @@ struct keyboard_view_t {
     struct xkb_state *xkb_state;
 
     // KEYCODE_LOOKUP state
-    GtkWidget *keycode_lookup_popover;
+    struct fk_popover_t keycode_lookup_popover;
     GtkWidget *keycode_lookup_search_entry;
     GtkWidget *keycode_lookup_keycode_list;
     // NOTE: This is used to detect which is the first visible row and select it
@@ -321,7 +321,7 @@ struct keyboard_view_t {
     GtkWidget *repr_combobox;
     GtkWidget *repr_save_button;
     GtkWidget *repr_save_as_button;
-    GtkWidget *repr_save_as_popover;
+    struct fk_popover_t repr_save_as_popover;
     GtkWidget *repr_save_as_popover_entry;
 
     float default_key_size; // In pixels
@@ -1993,11 +1993,6 @@ void keycode_lookup_on_popup_close (GtkWidget *object, gpointer user_data)
     gtk_widget_queue_draw (kv->widget);
 }
 
-void keycode_lookup_cancel (struct keyboard_view_t *kv)
-{
-    gtk_widget_destroy (kv->keycode_lookup_popover);
-}
-
 void keycode_lookup_set (struct keyboard_view_t *kv)
 {
     GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX(kv->keycode_lookup_keycode_list));
@@ -2013,19 +2008,12 @@ void keycode_lookup_set (struct keyboard_view_t *kv)
     }
 
     kv_keycode_reassign_selected_key (kv, i);
-    gtk_widget_destroy (kv->keycode_lookup_popover);
 }
 
-void keycode_lookup_set_handler (GtkButton *button, gpointer user_data)
+FK_POPOVER_BUTTON_PRESSED_CB (keycode_lookup_set_handler)
 {
     struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
     keycode_lookup_set (kv);
-}
-
-void keycode_lookup_cancel_handler (GtkButton *button, gpointer user_data)
-{
-    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
-    keycode_lookup_cancel (kv);
 }
 
 gboolean search_filter (GtkListBoxRow *row, gpointer user_data)
@@ -2051,13 +2039,6 @@ void keycode_lookup_search_changed (GtkEditable *search_entry, gpointer user_dat
     struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
     kv->keycode_lookup_is_first_row = true;
     gtk_list_box_invalidate_filter (GTK_LIST_BOX(kv->keycode_lookup_keycode_list));
-}
-
-void repr_save_as_popover_cancel_handler (GtkButton *button, gpointer user_data)
-{
-    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
-    gtk_widget_destroy (kv->repr_save_as_popover);
-    kv->repr_save_as_popover_entry = NULL;
 }
 
 GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *active_repr, bool saved);
@@ -2189,16 +2170,13 @@ void kv_repr_save_current (struct keyboard_view_t *kv, const char *name, bool co
     str_free (&repr_path);
 }
 
-void repr_save_as_popover_save_handler (GtkButton *button, gpointer user_data)
+FK_POPOVER_BUTTON_PRESSED_CB (repr_save_as_popover_save_handler)
 {
     struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
 
     // NOTE: name must not be freed
     const char *name = gtk_entry_get_text (GTK_ENTRY(kv->repr_save_as_popover_entry));
     kv_repr_save_current (kv, name, true);
-
-    gtk_widget_destroy (kv->repr_save_as_popover);
-    kv->repr_save_as_popover_entry = NULL;
 }
 
 void save_view_as_handler (GtkButton *button, gpointer user_data)
@@ -2229,37 +2207,34 @@ void save_view_as_handler (GtkButton *button, gpointer user_data)
 
     struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
 
-    GtkWidget *name_labeled_entry = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+    GtkWidget *name_labeled_entry = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
     {
         kv->repr_save_as_popover_entry = gtk_entry_new ();
+        gtk_widget_set_margins (kv->repr_save_as_popover_entry, 6);
         gtk_entry_set_text (GTK_ENTRY(kv->repr_save_as_popover_entry), "Untitled");
         gtk_widget_grab_focus (GTK_WIDGET(kv->repr_save_as_popover_entry));
 
-        gtk_container_add (GTK_CONTAINER(name_labeled_entry), gtk_label_new ("Name:"));
+        GtkWidget *label = gtk_label_new ("Name:");
+        gtk_widget_set_margins (label, 6);
+        gtk_container_add (GTK_CONTAINER(name_labeled_entry), label);
         gtk_container_add (GTK_CONTAINER(name_labeled_entry), kv->repr_save_as_popover_entry);
     }
 
-    GtkWidget *cancel_button = gtk_button_new_with_label ("Cancel");
-    g_signal_connect (G_OBJECT(cancel_button), "clicked", G_CALLBACK(repr_save_as_popover_cancel_handler), kv);
-    GtkWidget *save_button = gtk_button_new_with_label ("Save");
-    g_signal_connect (G_OBJECT(save_button), "clicked", G_CALLBACK(repr_save_as_popover_save_handler), kv);
-    add_css_class (save_button, "suggested-action");
+    GtkWidget *popover, *save_button, *cancel_button;
+    fk_popover_init (&kv->repr_save_as_popover,
+                     GTK_WIDGET(button), NULL,
+                     &popover, &save_button, &cancel_button,
+                     "Save", repr_save_as_popover_save_handler,
+                     kv);
 
     GtkWidget *grid = gtk_grid_new ();
-    gtk_widget_set_margin_start (GTK_WIDGET(grid), 12);
-    gtk_widget_set_margin_end (GTK_WIDGET(grid), 12);
-    gtk_widget_set_margin_top (GTK_WIDGET(grid), 12);
-    gtk_widget_set_margin_bottom (GTK_WIDGET(grid), 12);
-    gtk_grid_set_row_spacing (GTK_GRID(grid), 12);
-    gtk_grid_set_column_spacing (GTK_GRID(grid), 12);
+    gtk_widget_set_margins (grid, 6);
     gtk_grid_attach (GTK_GRID(grid), name_labeled_entry, 0, 0, 2, 1);
     gtk_grid_attach (GTK_GRID(grid), cancel_button, 0, 1, 1, 1);
     gtk_grid_attach (GTK_GRID(grid), save_button, 1, 1, 1, 1);
 
-    kv->repr_save_as_popover = gtk_popover_new (GTK_WIDGET(button));
-    gtk_container_add (GTK_CONTAINER(kv->repr_save_as_popover), grid);
-    gtk_popover_set_position (GTK_POPOVER(kv->repr_save_as_popover), GTK_POS_BOTTOM);
-    gtk_widget_show_all (kv->repr_save_as_popover);
+    gtk_container_add (GTK_CONTAINER(popover), grid);
+    gtk_widget_show_all (popover);
 
     gtk_widget_grab_focus (GTK_WIDGET(kv->repr_save_as_popover_entry));
 }
@@ -3759,6 +3734,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 // @select_is_release_based
 
                 kv->keycode_lookup_search_entry = gtk_search_entry_new ();
+                gtk_widget_set_margins (kv->keycode_lookup_search_entry, 6);
                 gtk_entry_set_placeholder_text (GTK_ENTRY(kv->keycode_lookup_search_entry),
                                                 "Search keycode by name");
                 g_signal_connect (G_OBJECT(kv->keycode_lookup_search_entry),
@@ -3800,38 +3776,26 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 gtk_scrolled_window_set_min_content_height (GTK_SCROLLED_WINDOW(scrolled_keycode_list), 100);
                 gtk_container_add (GTK_CONTAINER (scrolled_keycode_list), kv->keycode_lookup_keycode_list);
                 GtkWidget *frame = gtk_frame_new (NULL);
+                gtk_widget_set_margins (frame, 6);
                 gtk_container_add (GTK_CONTAINER(frame), scrolled_keycode_list);
 
-
-                GtkWidget *cancel_button = gtk_button_new_with_label ("Cancel");
-                g_signal_connect (G_OBJECT(cancel_button),
-                                  "clicked",
-                                  G_CALLBACK(keycode_lookup_cancel_handler),
-                                  kv);
-
-                GtkWidget *save_button = gtk_button_new_with_label ("Set");
-                g_signal_connect (G_OBJECT(save_button),
-                                  "clicked",
-                                  G_CALLBACK(keycode_lookup_set_handler),
-                                  kv);
-                add_css_class (save_button, "suggested-action");
+                GtkWidget *popover, *set_button, *cancel_button;
+                fk_popover_init (&app.edit_symbol_popover,
+                                 kv->widget, &button_event_key_rect,
+                                 &popover, &set_button, &cancel_button,
+                                 "Set", keycode_lookup_set_handler,
+                                 kv);
 
                 GtkWidget *grid = gtk_grid_new ();
-                gtk_widget_set_margins (grid, 12);
-                gtk_grid_set_row_spacing (GTK_GRID(grid), 12);
-                gtk_grid_set_column_spacing (GTK_GRID(grid), 12);
+                gtk_widget_set_margins (grid, 6);
                 gtk_grid_attach (GTK_GRID(grid), kv->keycode_lookup_search_entry, 0, 0, 2, 1);
                 gtk_grid_attach (GTK_GRID(grid), frame, 0, 1, 2, 1);
                 gtk_grid_attach (GTK_GRID(grid), cancel_button, 0, 2, 1, 1);
-                gtk_grid_attach (GTK_GRID(grid), save_button, 1, 2, 1, 1);
+                gtk_grid_attach (GTK_GRID(grid), set_button, 1, 2, 1, 1);
 
-                kv->keycode_lookup_popover = gtk_popover_new (kv->widget);
-                gtk_container_add (GTK_CONTAINER(kv->keycode_lookup_popover), grid);
-                gtk_popover_set_position (GTK_POPOVER(kv->keycode_lookup_popover), GTK_POS_BOTTOM);
-                gtk_popover_set_pointing_to (GTK_POPOVER(kv->keycode_lookup_popover), &button_event_key_rect);
-                gtk_widget_show_all (kv->keycode_lookup_popover);
-                g_signal_connect (G_OBJECT(kv->keycode_lookup_popover),
-                                  "closed",
+                gtk_container_add (GTK_CONTAINER(popover), grid);
+                gtk_widget_show_all (popover);
+                g_signal_connect (G_OBJECT(popover), "closed",
                                   G_CALLBACK(keycode_lookup_on_popup_close), kv);
 
                 kv->selected_key = button_event_key;
@@ -4332,10 +4296,11 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             if (e->type == GDK_KEY_RELEASE) {
                 GdkEventKey *event = (GdkEventKey*)e;
                 if (event->hardware_keycode - 8 == KEY_ESC) {
-                    keycode_lookup_cancel (kv);
+                    gtk_widget_destroy (kv->keycode_lookup_popover.popover);
 
                 } else if (event->hardware_keycode - 8 == KEY_ENTER) {
                     keycode_lookup_set (kv);
+                    gtk_widget_destroy (kv->keycode_lookup_popover.popover);
 
                 } else {
 

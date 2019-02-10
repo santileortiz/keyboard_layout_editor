@@ -23,6 +23,7 @@ struct kle_app_t {
     GtkWidget *keyboard_grabbing_button;
     GtkWidget *sidebar;
     GtkWidget *keys_sidebar;
+    struct fk_popover_t edit_symbol_popover;
 };
 
 gboolean grab_input (GtkButton *button, gpointer user_data);

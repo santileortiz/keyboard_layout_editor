@@ -258,7 +258,15 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
 
 FK_POPOVER_BUTTON_PRESSED_CB (set_key_symbol_handler)
 {
-    //TODO: Implement this!!!
+    GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX(app.keysym_lookup_ui.list));
+    GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
+    const char *keysym_name = gtk_label_get_text (GTK_LABEL(row_label));
+
+    struct key_level_t *level = (struct key_level_t*)user_data;
+    level->keysym = xkb_keysym_from_name(keysym_name, XKB_KEYSYM_NO_FLAGS);
+
+    GtkWidget *keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->last_clicked_key->kc);
+    replace_wrapped_widget_deferred (&app.keys_sidebar, keys_sidebar);
 }
 
 void edit_symbol_popup_handler (GtkButton *button, gpointer user_data)
@@ -277,7 +285,7 @@ void edit_symbol_popup_handler (GtkButton *button, gpointer user_data)
                      GTK_WIDGET(button), NULL,
                      NULL, box,
                      "Set", set_key_symbol_handler,
-                     NULL);
+                     user_data);
 }
 
 GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
@@ -329,7 +337,7 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
             GtkWidget *symbol_edit_button =
                 icon_button_new ("edit-symbolic",
                                  "Modify assigned symbol",
-                                 G_CALLBACK(edit_symbol_popup_handler), NULL);
+                                 G_CALLBACK(edit_symbol_popup_handler), &key->levels[i]);
             GtkWidget *symbol_wdgt = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
             gtk_widget_set_halign (symbol_wdgt, GTK_ALIGN_END);
             gtk_container_add (GTK_CONTAINER(symbol_wdgt), symbol_name);

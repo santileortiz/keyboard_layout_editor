@@ -3799,6 +3799,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 gtk_scrolled_window_set_min_content_width (GTK_SCROLLED_WINDOW(scrolled_keycode_list), 200);
                 gtk_scrolled_window_set_min_content_height (GTK_SCROLLED_WINDOW(scrolled_keycode_list), 100);
                 gtk_container_add (GTK_CONTAINER (scrolled_keycode_list), kv->keycode_lookup_keycode_list);
+                GtkWidget *frame = gtk_frame_new (NULL);
+                gtk_container_add (GTK_CONTAINER(frame), scrolled_keycode_list);
+
 
                 GtkWidget *cancel_button = gtk_button_new_with_label ("Cancel");
                 g_signal_connect (G_OBJECT(cancel_button),
@@ -3814,14 +3817,11 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 add_css_class (save_button, "suggested-action");
 
                 GtkWidget *grid = gtk_grid_new ();
-                gtk_widget_set_margin_start (GTK_WIDGET(grid), 12);
-                gtk_widget_set_margin_end (GTK_WIDGET(grid), 12);
-                gtk_widget_set_margin_top (GTK_WIDGET(grid), 12);
-                gtk_widget_set_margin_bottom (GTK_WIDGET(grid), 12);
+                gtk_widget_set_margins (grid, 12);
                 gtk_grid_set_row_spacing (GTK_GRID(grid), 12);
                 gtk_grid_set_column_spacing (GTK_GRID(grid), 12);
                 gtk_grid_attach (GTK_GRID(grid), kv->keycode_lookup_search_entry, 0, 0, 2, 1);
-                gtk_grid_attach (GTK_GRID(grid), scrolled_keycode_list, 0, 1, 2, 1);
+                gtk_grid_attach (GTK_GRID(grid), frame, 0, 1, 2, 1);
                 gtk_grid_attach (GTK_GRID(grid), cancel_button, 0, 2, 1, 1);
                 gtk_grid_attach (GTK_GRID(grid), save_button, 1, 2, 1, 1);
 

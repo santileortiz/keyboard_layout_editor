@@ -256,7 +256,60 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
 
 void edit_symbol_popup (GtkButton *button, gpointer user_data)
 {
-    // TODO: Implement this!
+    GtkWidget *entry = gtk_search_entry_new ();
+    gtk_entry_set_placeholder_text (GTK_ENTRY(entry), "Search keysym by name");
+
+    GtkWidget *list = gtk_list_box_new ();
+    gtk_widget_set_vexpand (list, TRUE);
+    gtk_widget_set_hexpand (list, TRUE);
+    //gtk_list_box_set_filter_func (GTK_LIST_BOX(list), search_filter, kv, NULL);
+
+    bool first = true;
+    for (int i=0; i < ARRAY_SIZE(keysym_names); i++)
+    {
+        if (keysym_names[i].name != NULL) {
+            GtkWidget *row = gtk_label_new (keysym_names[i].name);
+            gtk_container_add (GTK_CONTAINER(list), row);
+            gtk_widget_set_halign (row, GTK_ALIGN_START);
+
+            if (first) {
+                first = false;
+                GtkWidget *r = gtk_widget_get_parent (row);
+                gtk_list_box_select_row (GTK_LIST_BOX(list), GTK_LIST_BOX_ROW(r));
+            }
+
+            gtk_widget_set_margin_start (row, 6);
+            gtk_widget_set_margin_end (row, 6);
+            gtk_widget_set_margin_top (row, 3);
+            gtk_widget_set_margin_bottom (row, 3);
+        }
+    }
+    GtkWidget *scrolled_list = gtk_scrolled_window_new (NULL, NULL);
+    gtk_scrolled_window_disable_hscroll (GTK_SCROLLED_WINDOW(scrolled_list));
+    gtk_scrolled_window_set_min_content_width (GTK_SCROLLED_WINDOW(scrolled_list), 200);
+    gtk_scrolled_window_set_min_content_height (GTK_SCROLLED_WINDOW(scrolled_list), 100);
+    gtk_container_add (GTK_CONTAINER (scrolled_list), list);
+    GtkWidget *frame = gtk_frame_new (NULL);
+    gtk_container_add (GTK_CONTAINER(frame), scrolled_list);
+
+    GtkWidget *cancel_button = gtk_button_new_with_label ("Cancel");
+
+    GtkWidget *save_button = gtk_button_new_with_label ("Set");
+    add_css_class (save_button, "suggested-action");
+
+    GtkWidget *grid = gtk_grid_new ();
+    gtk_widget_set_margins (grid, 12);
+    gtk_grid_set_row_spacing (GTK_GRID(grid), 12);
+    gtk_grid_set_column_spacing (GTK_GRID(grid), 12);
+    gtk_grid_attach (GTK_GRID(grid), entry, 0, 0, 2, 1);
+    gtk_grid_attach (GTK_GRID(grid), frame, 0, 1, 2, 1);
+    gtk_grid_attach (GTK_GRID(grid), cancel_button, 0, 2, 1, 1);
+    gtk_grid_attach (GTK_GRID(grid), save_button, 1, 2, 1, 1);
+
+    GtkWidget *popover = gtk_popover_new (GTK_WIDGET(button));
+    gtk_container_add (GTK_CONTAINER(popover), grid);
+    gtk_popover_set_position (GTK_POPOVER(popover), GTK_POS_BOTTOM);
+    gtk_widget_show_all (popover);
     return;
 }
 

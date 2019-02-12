@@ -288,6 +288,27 @@ void edit_symbol_popup_handler (GtkButton *button, gpointer user_data)
                      user_data);
 }
 
+void on_key_type_changed (GtkComboBox *themes_combobox, gpointer user_data)
+{
+    struct key_t *key = app.keymap->keys[app.keyboard_view->last_clicked_key->kc];
+    const char* type_name = gtk_combo_box_get_active_id (themes_combobox);
+
+    struct key_type_t *curr_type = app.keymap->types;
+    while (curr_type != NULL) {
+        if (strcmp(curr_type->name, type_name) == 0) {
+            break;
+        }
+
+        curr_type = curr_type->next;
+    }
+    assert (curr_type != NULL);
+
+    key->type = curr_type;
+
+    GtkWidget *keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->last_clicked_key->kc);
+    replace_wrapped_widget_deferred (&app.keys_sidebar, keys_sidebar);
+}
+
 GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
 {
     mem_pool_t pool_l = {0};
@@ -358,6 +379,11 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
     } else {
         gtk_combo_box_set_active_id (GTK_COMBO_BOX(types_combobox), "None");
     }
+
+    // NOTE: This comes after gtk_combo_box_set_active_id() so we don't call the
+    // handler unnecesarily. And avoid a infinite loop because
+    // on_key_type_changed() also calls app_keys_sidebar_new().
+    g_signal_connect (G_OBJECT(types_combobox), "changed", G_CALLBACK (on_key_type_changed), NULL);
 
     mem_pool_destroy (&pool_l);
 

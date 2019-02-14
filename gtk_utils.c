@@ -483,11 +483,14 @@ void labeled_combobox_new_in_grid (GtkGrid *grid, char *label, int x, int y, Gtk
     gtk_grid_attach (grid, *combobox_widget, x+1, y, 1, 1);
 }
 
-GtkWidget* new_icon_button (const char *icon_name, GCallback click_handler)
+GtkWidget* new_icon_button (const char *icon_name,
+                            const char *tooltip,
+                            GCallback click_handler)
 {
     // TODO: For some reason the highlight circle on this button button has
     // height 32px but width 30px. Code's circle on header buttons is 30px by 30px.
     GtkWidget *new_button = gtk_button_new_from_icon_name (icon_name, GTK_ICON_SIZE_LARGE_TOOLBAR);
+    gtk_widget_set_tooltip_text (new_button, tooltip);
     g_signal_connect (new_button, "clicked", G_CALLBACK (click_handler), NULL);
     gtk_widget_set_halign (new_button, GTK_ALIGN_FILL);
     gtk_widget_set_valign (new_button, GTK_ALIGN_FILL);
@@ -495,11 +498,14 @@ GtkWidget* new_icon_button (const char *icon_name, GCallback click_handler)
     return new_button;
 }
 
-void set_header_icon_button (GtkWidget **button, const char *icon_name, GCallback click_handler)
+void set_header_icon_button (GtkWidget **button,
+                             const char *icon_name,
+                             const char *tooltip,
+                             GCallback click_handler)
 {
     GtkWidget *parent = gtk_widget_get_parent (*button);
     gtk_container_remove (GTK_CONTAINER(parent), *button);
-    *button = new_icon_button (icon_name, click_handler);
+    *button = new_icon_button (icon_name, tooltip, click_handler);
     gtk_header_bar_pack_start (GTK_HEADER_BAR(parent), *button);
 }
 

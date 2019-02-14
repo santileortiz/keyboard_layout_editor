@@ -421,7 +421,9 @@ void edit_layout_handler (GtkButton *button, gpointer user_data)
     g_signal_connect (return_to_welcome_button, "clicked", G_CALLBACK (return_to_welcome_handler), NULL);
     gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), return_to_welcome_button);
 
-    app.keyboard_grabbing_button = new_icon_button ("process-completed", G_CALLBACK(grab_input));
+    app.keyboard_grabbing_button = new_icon_button ("process-completed",
+                                                    "Test layout",
+                                                    G_CALLBACK(grab_input));
     gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), app.keyboard_grabbing_button);
 
     gtk_window_set_titlebar (GTK_WINDOW(app.window), header_bar);
@@ -479,7 +481,10 @@ gboolean grab_input (GtkButton *button, gpointer user_data)
                                           TRUE, // If this is FALSE we don't get any pointer events, why?
                                           NULL, NULL, NULL, NULL);
     if (status == GDK_GRAB_SUCCESS) {
-        set_header_icon_button (&app.keyboard_grabbing_button, "media-playback-stop", G_CALLBACK(ungrab_input));
+        set_header_icon_button (&app.keyboard_grabbing_button,
+                                "media-playback-stop",
+                                "Stop testing layout",
+                                G_CALLBACK(ungrab_input));
     }
 #endif
     return G_SOURCE_REMOVE;
@@ -489,7 +494,10 @@ gboolean grab_input (GtkButton *button, gpointer user_data)
 gboolean ungrab_input (GtkButton *button, gpointer user_data)
 {
 #ifndef DISABLE_GRABS
-    set_header_icon_button (&app.keyboard_grabbing_button, "process-completed", G_CALLBACK(grab_input));
+    set_header_icon_button (&app.keyboard_grabbing_button,
+                            "process-completed",
+                            "Test layout",
+                            G_CALLBACK(grab_input));
     gdk_seat_ungrab (app.gdk_seat);
     app.gdk_seat = NULL;
 #endif
@@ -509,7 +517,10 @@ void handle_grab_broken (GdkEvent *event, gpointer data)
         if (((GdkEventKey*)event)->keyval == GDK_KEY_Escape) {
             gdk_seat_ungrab (app.gdk_seat);
             app.gdk_seat = NULL;
-            set_header_icon_button (&app.keyboard_grabbing_button, "process-completed", G_CALLBACK(grab_input));
+            set_header_icon_button (&app.keyboard_grabbing_button,
+                                    "process-completed",
+                                    "Test layout",
+                                    G_CALLBACK(grab_input));
         }
     }
 #endif
@@ -536,7 +547,10 @@ void handle_grab_broken (GdkEvent *event, gpointer data)
     // missing an event mask but there is no mask for GdkGrabBroken). I need to
     // test in GNOME.
     if (event->type == GDK_GRAB_BROKEN) {
-        set_header_icon_button (&app.keyboard_grabbing_button, "process-completed", G_CALLBACK(grab_input));
+        set_header_icon_button (&app.keyboard_grabbing_button,
+                                "process-completed",
+                                "Test layout",
+                                G_CALLBACK(grab_input));
     } else {
         gtk_main_do_event (event);
     }
@@ -558,7 +572,9 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
     gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
     gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
 
-    app.keyboard_grabbing_button = new_icon_button ("process-completed", G_CALLBACK(grab_input));
+    app.keyboard_grabbing_button = new_icon_button ("process-completed",
+                                                    "Test layout",
+                                                    G_CALLBACK(grab_input));
     gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), app.keyboard_grabbing_button);
 
     gtk_window_set_titlebar (GTK_WINDOW(app.window), header_bar);

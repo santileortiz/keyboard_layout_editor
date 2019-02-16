@@ -7,7 +7,6 @@ struct kle_app_t {
     GtkWidget *window;
     struct keyboard_view_t *keyboard_view;
     GdkSeat *gdk_seat;
-    bool no_custom_layouts_welcome_view;
 
     char *user_dir;
     char *selected_repr;
@@ -19,6 +18,7 @@ struct kle_app_t {
     int sidebar_min_width;
 
     // UI widgets that change
+    GtkWidget *window_content;
     GtkWidget *custom_layout_list;
     GtkWidget *keyboard_grabbing_button;
     GtkWidget *sidebar;

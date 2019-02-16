@@ -182,12 +182,10 @@ GtkWidget* new_custom_layout_list (char **custom_layouts, int num_custom_layouts
     return custom_layout_list;
 }
 
-void transition_to_welcome_with_custom_layouts (char **custom_layouts, int num_custom_layouts);
-void transition_to_welcome_with_no_custom_layouts (void);
-
 // This is done from a callback queued by the button handler to let the main
 // loop destroy the GtkFileChooserDialog before asking for authentication. If
 // authentication was not required then this should not be necessary.
+GtkWidget* new_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_layouts);
 gboolean install_layout_callback (gpointer layout_path)
 {
     bool success = unprivileged_xkb_keymap_install (layout_path);
@@ -198,9 +196,14 @@ gboolean install_layout_callback (gpointer layout_path)
         int num_custom_layouts;
         xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
 
-        // If installataion was successful then num_custom_layouts > 0.
-        if (app.no_custom_layouts_welcome_view) {
-            transition_to_welcome_with_custom_layouts (custom_layouts, num_custom_layouts);
+        // There are two welcome screens, one for the case where there are already
+        // custom layouts installed, another for when there are not.
+        //
+        // TODO: Maybe animate this?
+        if (num_custom_layouts == 0) {
+            assert (num_custom_layouts > 0);
+            GtkWidget *welcome_screen = new_welcome_screen_custom_layouts (custom_layouts, num_custom_layouts);
+            replace_wrapped_widget (&app.window_content, welcome_screen);
         } else {
             GtkWidget *new_list = new_custom_layout_list (custom_layouts, num_custom_layouts);
             replace_wrapped_widget (&app.custom_layout_list, new_list);
@@ -233,6 +236,7 @@ void install_layout_handler (GtkButton *button, gpointer   user_data)
     gtk_widget_destroy (dialog);
 }
 
+GtkWidget* new_welcome_screen_no_custom_layouts ();
 gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
 {
     GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX(app.custom_layout_list));
@@ -249,7 +253,13 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
             GtkWidget *new_list = new_custom_layout_list (custom_layouts, num_custom_layouts);
             replace_wrapped_widget (&app.custom_layout_list, new_list);
         } else {
-            transition_to_welcome_with_no_custom_layouts ();
+            GtkWidget *header_bar = gtk_window_get_titlebar (GTK_WINDOW(app.window));
+            gtk_container_foreach (GTK_CONTAINER(header_bar),
+                                   destroy_children_callback,
+                                   NULL);
+
+            GtkWidget *welcome_screen = new_welcome_screen_no_custom_layouts ();
+            replace_wrapped_widget (&app.window_content, welcome_screen);
         }
         mem_pool_destroy (&tmp);
     }
@@ -390,8 +400,6 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
     return grid;
 }
 
-void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_layouts);
-void build_welcome_screen_no_custom_layouts ();
 void return_to_welcome_handler (GtkButton *button, gpointer   user_data)
 {
     mem_pool_t tmp = {0};
@@ -399,13 +407,13 @@ void return_to_welcome_handler (GtkButton *button, gpointer   user_data)
     int num_custom_layouts = 0;
     xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
 
+    GtkWidget *welcome_screen;
     if (num_custom_layouts > 0) {
-        gtk_window_resize (GTK_WINDOW(app.window), 1430, 570);
-        build_welcome_screen_custom_layouts (custom_layouts, num_custom_layouts);
+        welcome_screen = new_welcome_screen_custom_layouts (custom_layouts, num_custom_layouts);
     } else {
-        gtk_window_resize (GTK_WINDOW(app.window), 900, 570);
-        build_welcome_screen_no_custom_layouts ();
+        welcome_screen = new_welcome_screen_no_custom_layouts ();
     }
+    replace_wrapped_widget (&app.window_content, welcome_screen);
     mem_pool_destroy (&tmp);
 }
 
@@ -563,9 +571,12 @@ void on_sidebar_allocated (GtkWidget *widget, GdkRectangle *allocation, gpointer
 
 // Build a welcome screen that shows installed layouts and a preview when
 // selected from a list.
-void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_layouts)
+GtkWidget* new_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_layouts)
 {
-    app.no_custom_layouts_welcome_view = false;
+    gtk_window_resize (GTK_WINDOW(app.window), 1430, 570);
+
+    // TODO: Should this be set every time a welcome screen is created? maybe
+    // it should just be called once from main().
     gdk_event_handler_set (handle_grab_broken, NULL, NULL);
 
     GtkWidget *header_bar = gtk_header_bar_new ();
@@ -581,7 +592,6 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
     gtk_widget_show (header_bar);
 
     app.keyboard_view = keyboard_view_new_with_gui (app.window);
-
     GtkWidget *layout_list = gtk_frame_new (NULL);
     {
         GtkWidget *scrolled_custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
@@ -651,19 +661,14 @@ void build_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_
     gtk_paned_pack1 (GTK_PANED(paned), wrap_gtk_widget(app.sidebar), FALSE, FALSE);
     gtk_paned_pack2 (GTK_PANED(paned), app.keyboard_view->widget, TRUE, TRUE);
 
-    GtkWidget *child = gtk_bin_get_child (GTK_BIN(app.window));
-    if (child != NULL) {
-        gtk_container_remove (GTK_CONTAINER(app.window), child);
-    }
-    gtk_container_add(GTK_CONTAINER(app.window), paned);
-    gtk_widget_show_all (paned);
+    return paned;
 }
 
 // Build a welcome screen with only introductory buttons and no list or preview
 // of keyboards.
-void build_welcome_screen_no_custom_layouts ()
+GtkWidget* new_welcome_screen_no_custom_layouts ()
 {
-    app.no_custom_layouts_welcome_view = true;
+    window_resize_centered (app.window, 900, 570);
 
     GtkWidget *header_bar = gtk_header_bar_new ();
     gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
@@ -671,80 +676,24 @@ void build_welcome_screen_no_custom_layouts ()
     gtk_window_set_titlebar (GTK_WINDOW(app.window), header_bar);
     gtk_widget_show (header_bar);
 
-    GtkWidget *no_custom_layouts_message;
-    {
-        no_custom_layouts_message = gtk_grid_new ();
-        GtkWidget *title_label = gtk_label_new ("No Custom Keymaps");
-        add_css_class (title_label, "h1");
-        gtk_widget_set_halign (title_label, GTK_ALIGN_CENTER);
-        gtk_grid_attach (GTK_GRID(no_custom_layouts_message),
-                         title_label, 1, 0, 1, 1);
-
-        GtkWidget *subtitle_label = gtk_label_new ("Open an .xkb file to edit it.");
-        add_css_class (subtitle_label, "h2");
-        add_css_class (subtitle_label, "dim-label");
-        gtk_widget_set_halign (subtitle_label, GTK_ALIGN_CENTER);
-        gtk_grid_attach (GTK_GRID(no_custom_layouts_message),
-                         subtitle_label, 1, 1, 1, 1);
-        gtk_widget_show_all (no_custom_layouts_message);
-    }
+    GtkWidget *buttons;
+    GtkWidget *welcome_screen = new_welcome_screen ("No Custom Keymaps", "Open an .xkb file to edit it.",
+                                                    &buttons);
 
     GtkWidget *new_layout_button =
         intro_button_new ("document-new", "New Layout", "Create a layout based on an existing one.");
+    gtk_container_add (GTK_CONTAINER(buttons), new_layout_button);
+
     GtkWidget *open_layout_button =
         intro_button_new ("document-open", "Open Layout", "Open an existing .xkb file.");
+    gtk_container_add (GTK_CONTAINER(buttons), open_layout_button);
+
     GtkWidget *install_layout_button =
         intro_button_new ("document-save", "Install Layout", "Install an .xkb file into the system.");
     g_signal_connect (G_OBJECT(install_layout_button), "clicked", G_CALLBACK (install_layout_handler), NULL);
+    gtk_container_add (GTK_CONTAINER(buttons), install_layout_button);
 
-    GtkWidget *sidebar = gtk_grid_new ();
-    gtk_widget_set_halign (sidebar, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign (sidebar, GTK_ALIGN_CENTER);
-    gtk_grid_set_row_spacing (GTK_GRID(sidebar), 12);
-    add_custom_css (sidebar, ".grid, grid { margin: 12px; }");
-    gtk_grid_attach (GTK_GRID(sidebar), no_custom_layouts_message, 0, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID(sidebar), new_layout_button, 0, 1, 1, 1);
-    gtk_grid_attach (GTK_GRID(sidebar), open_layout_button, 0, 2, 1, 1);
-    gtk_grid_attach (GTK_GRID(sidebar), install_layout_button, 0, 3, 1, 1);
-    gtk_widget_show (sidebar);
-
-    GtkWidget *welcome_view = gtk_event_box_new ();
-    add_css_class (welcome_view, "view");
-    add_css_class (welcome_view, "welcome");
-    gtk_widget_set_halign (welcome_view, GTK_ALIGN_FILL);
-    gtk_widget_set_valign (welcome_view, GTK_ALIGN_FILL);
-    gtk_container_add (GTK_CONTAINER(welcome_view), sidebar);
-    gtk_widget_show (welcome_view);
-
-    gtk_container_add(GTK_CONTAINER(app.window), welcome_view);
-}
-
-// There are two welcome screens, one for the case where there are already
-// custom layouts installed, another for when there are not.
-//
-// TODO: Transitioning between both welcome screens is currently done by
-// resetting everything an building the other view. It would be better to have a
-// unique build_welcome_view() function that transitions nicely between both,
-// maybe using animations.
-void transition_to_welcome_with_custom_layouts (char **custom_layouts, int num_custom_layouts)
-{
-    assert (num_custom_layouts > 0);
-    GtkWidget *child = gtk_bin_get_child (GTK_BIN (app.window));
-    gtk_widget_destroy (child);
-    window_resize_centered (app.window, 1430, 570);
-    build_welcome_screen_custom_layouts (custom_layouts, num_custom_layouts);
-}
-
-void transition_to_welcome_with_no_custom_layouts (void)
-{
-    GtkWidget *child = gtk_bin_get_child (GTK_BIN (app.window));
-    GtkWidget *header_bar = gtk_window_get_titlebar (GTK_WINDOW(app.window));
-    gtk_container_foreach (GTK_CONTAINER(header_bar),
-                           destroy_children_callback,
-                           NULL);
-    gtk_widget_destroy (child);
-    window_resize_centered (app.window, 900, 570);
-    build_welcome_screen_no_custom_layouts ();
+    return welcome_screen;
 }
 
 string_t app_get_repr_path (struct kle_app_t *app)
@@ -824,19 +773,22 @@ int main (int argc, char *argv[])
         gtk_window_set_gravity (GTK_WINDOW(app.window), GDK_GRAVITY_CENTER);
 
         if (num_custom_layouts > 0) {
-            gtk_window_resize (GTK_WINDOW(app.window), 1430, 570);
-            build_welcome_screen_custom_layouts (custom_layouts, num_custom_layouts);
+            app.window_content = new_welcome_screen_custom_layouts (custom_layouts, num_custom_layouts);
         } else {
-            gtk_window_resize (GTK_WINDOW(app.window), 900, 570);
-            build_welcome_screen_no_custom_layouts ();
+            app.window_content = new_welcome_screen_no_custom_layouts ();
         }
-        gtk_widget_show (app.window);
+
+        // It's not really necessary to wrap the content because GtkWindow is
+        // already a GtkBin and will never be other kind of container but meh,
+        // for consistency we do it anyway.
+        gtk_container_add(GTK_CONTAINER(app.window), wrap_gtk_widget(app.window_content));
+        gtk_widget_show_all (app.window);
         mem_pool_destroy (&tmp);
 
-        // Custom CSS
-        // TODO: How can I set this just to the combobox widget and not
-        // globally? I tried but failed, I don't think I know my CSS selectors
-        // well enough.
+        // Custom CSS for the representation selector in the keyboard view.
+        // TODO: How can I set this just to the specific instance of the
+        // combobox widget and not globally? I tried but failed, I don't think I
+        // know my CSS selectors well enough.
         add_global_css (".flat-combobox button {"
                         "   padding: 1px 1px;"
                         "   border-width: 0px;"

@@ -509,3 +509,45 @@ void set_header_icon_button (GtkWidget **button,
     gtk_header_bar_pack_start (GTK_HEADER_BAR(parent), *button);
 }
 
+GtkWidget *new_welcome_screen (const char *title, const char *message, GtkWidget **buttons_cotainer)
+{
+    assert (title != NULL && message != NULL);
+
+    GtkWidget *title_label = gtk_label_new (title);
+    add_css_class (title_label, "h1");
+    gtk_widget_set_halign (title_label, GTK_ALIGN_CENTER);
+
+    GtkWidget *subtitle_label = gtk_label_new (message);
+    add_css_class (subtitle_label, "h2");
+    add_css_class (subtitle_label, "dim-label");
+    gtk_widget_set_halign (subtitle_label, GTK_ALIGN_CENTER);
+
+    GtkWidget *grid = gtk_grid_new ();
+    gtk_widget_set_halign (grid, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign (grid, GTK_ALIGN_CENTER);
+    gtk_widget_set_margins (grid, 12);
+
+    gtk_grid_attach (GTK_GRID(grid), title_label, 0, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(grid), subtitle_label, 0, 1, 1, 1);
+
+    if (buttons_cotainer != NULL) {
+        *buttons_cotainer = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+        gtk_widget_set_margins (*buttons_cotainer, 24);
+        gtk_grid_attach (GTK_GRID(grid), *buttons_cotainer, 0, 2, 1, 1);
+    }
+
+    // For some reason setting the grid to have vexpand, hexpand to TRUE and
+    // valign and halign to GTK_ALIGN_CENTER or GTK_ALIGN_FILL does not center
+    // it. The only reason we do this is to center the grid.
+    GtkWidget *useless_wrapper = gtk_event_box_new ();
+    add_css_class (useless_wrapper, "view");
+    add_css_class (useless_wrapper, "welcome");
+    gtk_widget_set_halign (useless_wrapper, GTK_ALIGN_FILL);
+    gtk_widget_set_valign (useless_wrapper, GTK_ALIGN_FILL);
+    gtk_widget_set_vexpand (useless_wrapper, TRUE);
+    gtk_widget_set_hexpand (useless_wrapper, TRUE);
+    gtk_container_add (GTK_CONTAINER(useless_wrapper), grid);
+
+    return useless_wrapper;
+}
+

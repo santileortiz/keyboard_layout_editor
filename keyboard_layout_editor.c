@@ -200,8 +200,7 @@ gboolean install_layout_callback (gpointer layout_path)
         // custom layouts installed, another for when there are not.
         //
         // TODO: Maybe animate this?
-        if (num_custom_layouts == 0) {
-            assert (num_custom_layouts > 0);
+        if (num_custom_layouts == 1) {
             GtkWidget *welcome_screen = new_welcome_screen_custom_layouts (custom_layouts, num_custom_layouts);
             replace_wrapped_widget (&app.window_content, welcome_screen);
         } else {
@@ -400,6 +399,38 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
     return grid;
 }
 
+// TODO: Almost everywhere we call new_keymap_test_button() we need to do:
+//
+//      app.keymap_test_button = new_keymap_test_button ();
+//
+// It may look sensible to set app.keymap_test_button inside
+// new_keymap_test_button() but it does not work, because when coming back to
+// the default state, we do:
+//
+//      replace_wrapped_widget (&app.keymap_test_button, new_keymap_test_button ());
+//
+// If we set app.keymap_test_button inside new_keymap_test_button() then we will
+// try to unparent a widget that has not yet been parented (the new button).
+//
+// This is kind of confusing, so maybe it's worth it to create an abstraction
+// arround it. Something like fk_two_state_button(), that wraps this up, I'm
+// just not sure if it's worthwhile, or how less confusing it would get, maybe
+// it gets worse?.
+//
+// FIXME: There is an issue with this button where the first click after the
+// icon changes will be ignored unless the mouse is moved before clicking again,
+// this seems to be a GTK issue and I really don't have time to dig deeper.
+GtkWidget *new_keymap_test_button ()
+{
+    return new_icon_button ("process-completed", "Test layout", G_CALLBACK(grab_input));
+}
+
+GtkWidget *new_keymap_stop_test_button ()
+{
+    return new_icon_button ("media-playback-stop", "Stop testing layout", G_CALLBACK(ungrab_input));
+}
+
+GtkWidget* new_welcome_sidebar (char **custom_layouts, int num_custom_layouts);
 void return_to_welcome_handler (GtkButton *button, gpointer   user_data)
 {
     mem_pool_t tmp = {0};
@@ -407,35 +438,38 @@ void return_to_welcome_handler (GtkButton *button, gpointer   user_data)
     int num_custom_layouts = 0;
     xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
 
-    GtkWidget *welcome_screen;
     if (num_custom_layouts > 0) {
-        welcome_screen = new_welcome_screen_custom_layouts (custom_layouts, num_custom_layouts);
+        GtkWidget *welcome_sidebar = new_welcome_sidebar (custom_layouts, num_custom_layouts);
+        replace_wrapped_widget (&app.sidebar, welcome_sidebar);
+        app.keymap_test_button = new_keymap_test_button ();
+        replace_wrapped_widget (&app.headerbar_buttons, app.keymap_test_button);
+        gtk_header_bar_set_title (GTK_HEADER_BAR(app.header_bar), "Keys");
     } else {
-        welcome_screen = new_welcome_screen_no_custom_layouts ();
+        GtkWidget *welcome_screen = new_welcome_screen_no_custom_layouts ();
+        replace_wrapped_widget (&app.window_content, welcome_screen);
     }
-    replace_wrapped_widget (&app.window_content, welcome_screen);
     mem_pool_destroy (&tmp);
 }
 
 void edit_layout_handler (GtkButton *button, gpointer user_data)
 {
-    GtkWidget *header_bar = gtk_header_bar_new ();
-    gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
-    gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
+    // TODO: Set the keymap name as title
+    gtk_header_bar_set_title (GTK_HEADER_BAR(app.header_bar), "Keyboard Editor");
 
-    GtkWidget *return_to_welcome_button = gtk_button_new_with_label ("Go Back");
-    gtk_widget_set_valign (return_to_welcome_button, GTK_ALIGN_CENTER);
-    add_css_class (return_to_welcome_button, "back-button");
-    g_signal_connect (return_to_welcome_button, "clicked", G_CALLBACK (return_to_welcome_handler), NULL);
-    gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), return_to_welcome_button);
+    // Set the headerbar buttons
+    {
+        GtkWidget *return_to_welcome_button = gtk_button_new_with_label ("Go Back");
+        gtk_widget_set_valign (return_to_welcome_button, GTK_ALIGN_CENTER);
+        add_css_class (return_to_welcome_button, "back-button");
+        g_signal_connect (return_to_welcome_button, "clicked", G_CALLBACK (return_to_welcome_handler), NULL);
 
-    app.keyboard_grabbing_button = new_icon_button ("process-completed",
-                                                    "Test layout",
-                                                    G_CALLBACK(grab_input));
-    gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), app.keyboard_grabbing_button);
-
-    gtk_window_set_titlebar (GTK_WINDOW(app.window), header_bar);
-    gtk_widget_show_all (header_bar);
+        GtkWidget *headerbar_buttons = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+        gtk_container_add (GTK_CONTAINER (headerbar_buttons), return_to_welcome_button);
+        app.keymap_test_button = new_keymap_test_button();
+        gtk_container_add (GTK_CONTAINER (headerbar_buttons), app.keymap_test_button);
+        replace_wrapped_widget (&app.headerbar_buttons, headerbar_buttons);
+        gtk_widget_show_all (headerbar_buttons);
+    }
 
     GtkWidget *stack = gtk_stack_new ();
     gtk_widget_set_halign (stack, GTK_ALIGN_CENTER);
@@ -477,91 +511,41 @@ gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer use
 // TODO: Get better icon for this. I'm thinking a gripper grabbing/ungrabbing a
 // key.
 //#define DISABLE_GRABS
-gboolean grab_input (GtkButton *button, gpointer user_data)
+void grab_input (GtkButton *button, gpointer user_data)
 {
 #ifndef DISABLE_GRABS
     GdkDisplay *disp = gdk_display_get_default ();
     app.gdk_seat = gdk_display_get_default_seat (disp);
     GdkWindow *gdk_window = gtk_widget_get_window (app.window);
+
+    // If the grab is made for GDK_SEAT_CAPABILITY_KEYBOARD, then the user can
+    // move the window by dragging the header bar. Doing this breaks the grab
+    // but we don't get a GdkGrabBroken event (in a handler set with
+    // gdk_event_handler_set()), in fact I wasn't able to receive a
+    // GdkGrabBroken in any way. This makes impossible to reset the button in
+    // the headerbar. Which is why we grab GDK_SEAT_CAPABILITY_ALL, freezing the
+    // window in place and not allowing the grab to be broken. Also, from a UX
+    // perspective GDK_SEAT_CAPABILITY_ALL may be the right choice to communicte
+    // to the user what a grab is.
     GdkGrabStatus status = gdk_seat_grab (app.gdk_seat,
                                           gdk_window,
                                           GDK_SEAT_CAPABILITY_ALL, // See @why_not_GDK_SEAT_CAPABILITY_KEYBOARD
                                           TRUE, // If this is FALSE we don't get any pointer events, why?
                                           NULL, NULL, NULL, NULL);
     if (status == GDK_GRAB_SUCCESS) {
-        set_header_icon_button (&app.keyboard_grabbing_button,
-                                "media-playback-stop",
-                                "Stop testing layout",
-                                G_CALLBACK(ungrab_input));
+        replace_wrapped_widget (&app.keymap_test_button, new_keymap_stop_test_button ());
     }
 #endif
-    return G_SOURCE_REMOVE;
 }
 
 // TODO: @requires:GTK_3.20
-gboolean ungrab_input (GtkButton *button, gpointer user_data)
+void ungrab_input (GtkButton *button, gpointer user_data)
 {
 #ifndef DISABLE_GRABS
-    set_header_icon_button (&app.keyboard_grabbing_button,
-                            "process-completed",
-                            "Test layout",
-                            G_CALLBACK(grab_input));
+    replace_wrapped_widget (&app.keymap_test_button, new_keymap_test_button ());
     gdk_seat_ungrab (app.gdk_seat);
     app.gdk_seat = NULL;
 #endif
-    return G_SOURCE_REMOVE;
-}
-
-// NOTE: There can only be one Gdk event handler at a time. Currently we ony use
-// it to detect GdkEventGrabBroken events and show the initial button.
-void handle_grab_broken (GdkEvent *event, gpointer data)
-{
-    // NOTE: When debugging grabbing events we may completely freeze the system.
-    // Better enable the following code to be able to get out pressing ESC in
-    // case things go wrong.
-#if 0
-    // TODO: @requires:GTK_3.20
-    if (event->type == GDK_KEY_PRESS ) {
-        if (((GdkEventKey*)event)->keyval == GDK_KEY_Escape) {
-            gdk_seat_ungrab (app.gdk_seat);
-            app.gdk_seat = NULL;
-            set_header_icon_button (&app.keyboard_grabbing_button,
-                                    "process-completed",
-                                    "Test layout",
-                                    G_CALLBACK(grab_input));
-        }
-    }
-#endif
-
-    // FIXME: I don't know when these events are sent. I have not ever seen one
-    // being received, so this codepath is untested (do we need to propagate
-    // GdkGrabBroken to gtk?). I tried running 2 instances of the application,
-    // taking a grab in one, and then taking it in the other. This hid the
-    // instance that attempted to steal the grab, while it's process kept
-    // running and had to be terminated with Ctrl+C. The grab made by the other
-    // instance wasn't broken.
-    //
-    // @why_not_GDK_SEAT_CAPABILITY_KEYBOARD
-    // If the grab is made for GDK_SEAT_CAPABILITY_KEYBOARD, then the user can
-    // move the window by dragging the header bar. Doing this breaks the grab
-    // but we don't get a GdkGrabBroken event, making impossible to update the
-    // button with set_header_icon_button(). This is the reason why we grab
-    // GDK_SEAT_CAPABILITY_ALL, freezing the window in place and not allowing
-    // the grab to be broken. Also, from a UX perspective GDK_SEAT_CAPABILITY_ALL
-    // may be the right choice to communicte to the user what a grab is.
-    //
-    // All tests were made in elementary OS Juno. It's possible the problem is
-    // in Gala, maybe in Mutter, or I'm doing something wrong (I thought I was
-    // missing an event mask but there is no mask for GdkGrabBroken). I need to
-    // test in GNOME.
-    if (event->type == GDK_GRAB_BROKEN) {
-        set_header_icon_button (&app.keyboard_grabbing_button,
-                                "process-completed",
-                                "Test layout",
-                                G_CALLBACK(grab_input));
-    } else {
-        gtk_main_do_event (event);
-    }
 }
 
 void on_sidebar_allocated (GtkWidget *widget, GdkRectangle *allocation, gpointer user_data)
@@ -569,29 +553,8 @@ void on_sidebar_allocated (GtkWidget *widget, GdkRectangle *allocation, gpointer
     app.sidebar_min_width = allocation->width;
 }
 
-// Build a welcome screen that shows installed layouts and a preview when
-// selected from a list.
-GtkWidget* new_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_layouts)
+GtkWidget* new_welcome_sidebar (char **custom_layouts, int num_custom_layouts)
 {
-    gtk_window_resize (GTK_WINDOW(app.window), 1430, 570);
-
-    // TODO: Should this be set every time a welcome screen is created? maybe
-    // it should just be called once from main().
-    gdk_event_handler_set (handle_grab_broken, NULL, NULL);
-
-    GtkWidget *header_bar = gtk_header_bar_new ();
-    gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
-    gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
-
-    app.keyboard_grabbing_button = new_icon_button ("process-completed",
-                                                    "Test layout",
-                                                    G_CALLBACK(grab_input));
-    gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), app.keyboard_grabbing_button);
-
-    gtk_window_set_titlebar (GTK_WINDOW(app.window), header_bar);
-    gtk_widget_show (header_bar);
-
-    app.keyboard_view = keyboard_view_new_with_gui (app.window);
     GtkWidget *layout_list = gtk_frame_new (NULL);
     {
         GtkWidget *scrolled_custom_layout_list = gtk_scrolled_window_new (NULL, NULL);
@@ -639,13 +602,28 @@ GtkWidget* new_welcome_screen_custom_layouts (char **custom_layouts, int num_cus
     GtkWidget *open_layout_button =
         intro_button_new ("document-open", "Open Layout", "Open an existing .xkb file.");
 
-    app.sidebar = gtk_grid_new ();
-    g_signal_connect (app.sidebar, "size-allocate", G_CALLBACK(on_sidebar_allocated), NULL);
-    gtk_grid_set_row_spacing (GTK_GRID(app.sidebar), 12);
-    add_custom_css (app.sidebar, ".grid, grid { margin: 12px; }");
-    gtk_grid_attach (GTK_GRID(app.sidebar), layout_list, 0, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID(app.sidebar), new_layout_button, 0, 1, 1, 1);
-    gtk_grid_attach (GTK_GRID(app.sidebar), open_layout_button, 0, 2, 1, 1);
+    GtkWidget *sidebar = gtk_grid_new ();
+    g_signal_connect (sidebar, "size-allocate", G_CALLBACK(on_sidebar_allocated), NULL);
+    gtk_grid_set_row_spacing (GTK_GRID(sidebar), 12);
+    add_custom_css (sidebar, ".grid, grid { margin: 12px; }");
+    gtk_grid_attach (GTK_GRID(sidebar), layout_list, 0, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(sidebar), new_layout_button, 0, 1, 1, 1);
+    gtk_grid_attach (GTK_GRID(sidebar), open_layout_button, 0, 2, 1, 1);
+
+    return sidebar;
+}
+
+// Build a welcome screen that shows installed layouts and a preview when
+// selected from a list.
+GtkWidget* new_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_layouts)
+{
+    gtk_window_resize (GTK_WINDOW(app.window), 1430, 570);
+
+    app.keymap_test_button = new_keymap_test_button ();
+    replace_wrapped_widget (&app.headerbar_buttons, app.keymap_test_button);
+
+    app.keyboard_view = keyboard_view_new_with_gui (app.window);
+    app.sidebar = new_welcome_sidebar (custom_layouts, num_custom_layouts);
 
     GtkWidget *paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
     // FIXME: The following CSS is used to work around 2 issues with
@@ -670,11 +648,7 @@ GtkWidget* new_welcome_screen_no_custom_layouts ()
 {
     window_resize_centered (app.window, 900, 570);
 
-    GtkWidget *header_bar = gtk_header_bar_new ();
-    gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Keyboard Editor");
-    gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
-    gtk_window_set_titlebar (GTK_WINDOW(app.window), header_bar);
-    gtk_widget_show (header_bar);
+    gtk_header_bar_set_title (GTK_HEADER_BAR(app.header_bar), "Keyboard Editor");
 
     GtkWidget *buttons;
     GtkWidget *welcome_screen = new_welcome_screen ("No Custom Keymaps", "Open an .xkb file to edit it.",
@@ -771,6 +745,14 @@ int main (int argc, char *argv[])
         g_signal_connect (G_OBJECT(app.window), "delete-event", G_CALLBACK (window_delete_handler), NULL);
         gtk_window_set_position(GTK_WINDOW(app.window), GTK_WIN_POS_CENTER);
         gtk_window_set_gravity (GTK_WINDOW(app.window), GDK_GRAVITY_CENTER);
+
+        app.header_bar = gtk_header_bar_new ();
+        gtk_header_bar_set_title (GTK_HEADER_BAR(app.header_bar), "Keys");
+        gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(app.header_bar), TRUE);
+        app.headerbar_buttons = gtk_grid_new ();
+        gtk_header_bar_pack_start (GTK_HEADER_BAR(app.header_bar), wrap_gtk_widget (app.headerbar_buttons));
+        gtk_widget_show_all (app.header_bar);
+        gtk_window_set_titlebar (GTK_WINDOW(app.window), app.header_bar);
 
         if (num_custom_layouts > 0) {
             app.window_content = new_welcome_screen_custom_layouts (custom_layouts, num_custom_layouts);

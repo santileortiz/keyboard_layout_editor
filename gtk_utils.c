@@ -494,6 +494,8 @@ GtkWidget* new_icon_button (const char *icon_name,
     g_signal_connect (new_button, "clicked", G_CALLBACK (click_handler), NULL);
     gtk_widget_set_halign (new_button, GTK_ALIGN_FILL);
     gtk_widget_set_valign (new_button, GTK_ALIGN_FILL);
+    gtk_widget_set_margin_start (new_button, 6);
+    gtk_widget_set_margin_end (new_button, 6);
     gtk_widget_show (new_button);
     return new_button;
 }

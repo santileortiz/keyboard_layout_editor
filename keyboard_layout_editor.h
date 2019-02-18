@@ -17,6 +17,10 @@ struct kle_app_t {
 
     int sidebar_min_width;
 
+    // TODO: This will become an enum when we implement different states like
+    // EDIT_KEYS, EDIT_TYPES, etc.
+    bool is_edit_mode;
+
     // UI widgets that change
     GtkWidget *header_bar;
     GtkWidget *headerbar_buttons;

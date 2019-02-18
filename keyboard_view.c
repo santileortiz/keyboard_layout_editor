@@ -322,7 +322,7 @@ struct keyboard_view_t {
     float default_key_size; // In pixels
     int clicked_kc;
     struct sgmt_t *selected_key;
-    struct sgmt_t *last_clicked_key;
+    struct sgmt_t *preview_keys_selection;
     enum keyboard_view_state_t state;
     enum keyboard_view_label_mode_t label_mode;
     enum keyboard_view_preview_mode_t preview_mode;
@@ -1601,7 +1601,7 @@ gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
 
             dvec4 key_color;
             if (curr_key->type != KEY_MULTIROW_SEGMENT) {
-                if (kv->preview_mode == KV_PREVIEW_KEYS && curr_key == kv->last_clicked_key) {
+                if (kv->preview_mode == KV_PREVIEW_KEYS && curr_key == kv->preview_keys_selection) {
                     key_color = color_blue;
 
                 } else if (kv->selected_key != NULL && curr_key == kv->selected_key) {
@@ -1947,6 +1947,22 @@ void add_key_handler (GtkButton *button, gpointer user_data)
 void push_right_handler (GtkButton *button, gpointer user_data)
 {
     app.keyboard_view->active_tool = KV_TOOL_PUSH_RIGHT;
+}
+
+void kv_set_preview_test (struct keyboard_view_t *kv)
+{
+    // TODO: Either reset xkb's keyboard state every time this happens, or syng
+    // it with the actual state of the keyboard.
+    kv->preview_mode = KV_PREVIEW_TEST;
+    kv->clicked_kc = 0;
+    gtk_widget_queue_draw (kv->widget);
+}
+
+void kv_set_preview_keys (struct keyboard_view_t *kv)
+{
+    kv->preview_mode = KV_PREVIEW_KEYS;
+    kv->preview_keys_selection = kv->first_row->first_key;
+    gtk_widget_queue_draw (kv->widget);
 }
 
 void kv_keycode_reassign_selected_key (struct keyboard_view_t *kv, uint16_t new_kc)
@@ -3610,7 +3626,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
     } else if (kv->preview_mode == KV_PREVIEW_KEYS) {
         if (e->type == GDK_BUTTON_RELEASE) {
-            kv->last_clicked_key = button_event_key;
+            kv->preview_keys_selection = button_event_key;
 
             GtkWidget *keys_sidebar = app_keys_sidebar_new (&app, button_event_key->kc);
             replace_wrapped_widget (&app.keys_sidebar, keys_sidebar);

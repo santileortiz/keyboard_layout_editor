@@ -274,7 +274,7 @@ FK_POPOVER_BUTTON_PRESSED_CB (set_key_symbol_handler)
     struct key_level_t *level = (struct key_level_t*)user_data;
     level->keysym = xkb_keysym_from_name(keysym_name, XKB_KEYSYM_NO_FLAGS);
 
-    GtkWidget *keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->last_clicked_key->kc);
+    GtkWidget *keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->preview_keys_selection->kc);
     replace_wrapped_widget_deferred (&app.keys_sidebar, keys_sidebar);
 }
 
@@ -299,7 +299,7 @@ void edit_symbol_popup_handler (GtkButton *button, gpointer user_data)
 
 void on_key_type_changed (GtkComboBox *themes_combobox, gpointer user_data)
 {
-    struct key_t *key = app.keymap->keys[app.keyboard_view->last_clicked_key->kc];
+    struct key_t *key = app.keymap->keys[app.keyboard_view->preview_keys_selection->kc];
     const char* type_name = gtk_combo_box_get_active_id (themes_combobox);
 
     struct key_type_t *curr_type = app.keymap->types;
@@ -314,7 +314,7 @@ void on_key_type_changed (GtkComboBox *themes_combobox, gpointer user_data)
 
     key->type = curr_type;
 
-    GtkWidget *keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->last_clicked_key->kc);
+    GtkWidget *keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->preview_keys_selection->kc);
     replace_wrapped_widget_deferred (&app.keys_sidebar, keys_sidebar);
 }
 
@@ -433,6 +433,8 @@ GtkWidget *new_keymap_stop_test_button ()
 GtkWidget* new_welcome_sidebar (char **custom_layouts, int num_custom_layouts);
 void return_to_welcome_handler (GtkButton *button, gpointer   user_data)
 {
+    app.is_edit_mode = false;
+
     mem_pool_t tmp = {0};
     char **custom_layouts;
     int num_custom_layouts = 0;
@@ -444,6 +446,8 @@ void return_to_welcome_handler (GtkButton *button, gpointer   user_data)
         app.keymap_test_button = new_keymap_test_button ();
         replace_wrapped_widget (&app.headerbar_buttons, app.keymap_test_button);
         gtk_header_bar_set_title (GTK_HEADER_BAR(app.header_bar), "Keys");
+        kv_set_preview_test (app.keyboard_view);
+
     } else {
         GtkWidget *welcome_screen = new_welcome_screen_no_custom_layouts ();
         replace_wrapped_widget (&app.window_content, welcome_screen);
@@ -453,6 +457,8 @@ void return_to_welcome_handler (GtkButton *button, gpointer   user_data)
 
 void edit_layout_handler (GtkButton *button, gpointer user_data)
 {
+    app.is_edit_mode = true;
+
     // TODO: Set the keymap name as title
     gtk_header_bar_set_title (GTK_HEADER_BAR(app.header_bar), "Keyboard Editor");
 
@@ -476,11 +482,8 @@ void edit_layout_handler (GtkButton *button, gpointer user_data)
     {
         app.keymap = keyboard_layout_new_default ();
 
-        app.keyboard_view->preview_mode = KV_PREVIEW_KEYS;
-        app.keyboard_view->last_clicked_key = app.keyboard_view->first_row->first_key;
-        gtk_widget_queue_draw (app.keyboard_view->widget);
-
-        app.keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->last_clicked_key->kc);
+        kv_set_preview_keys (app.keyboard_view);
+        app.keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->preview_keys_selection->kc);
         gtk_stack_add_titled (GTK_STACK(stack), wrap_gtk_widget(app.keys_sidebar), "keys", "Keys");
     }
 
@@ -536,6 +539,10 @@ void grab_input (GtkButton *button, gpointer user_data)
         replace_wrapped_widget (&app.keymap_test_button, new_keymap_stop_test_button ());
     }
 #endif
+
+    if (app.is_edit_mode == true) {
+        kv_set_preview_test (app.keyboard_view);
+    }
 }
 
 // TODO: @requires:GTK_3.20
@@ -546,6 +553,10 @@ void ungrab_input (GtkButton *button, gpointer user_data)
     gdk_seat_ungrab (app.gdk_seat);
     app.gdk_seat = NULL;
 #endif
+
+    if (app.is_edit_mode == true) {
+        kv_set_preview_keys (app.keyboard_view);
+    }
 }
 
 void on_sidebar_allocated (GtkWidget *widget, GdkRectangle *allocation, gpointer user_data)

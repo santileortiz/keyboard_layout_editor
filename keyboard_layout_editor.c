@@ -151,6 +151,10 @@ void on_custom_layout_selected (GtkListBox *box, GtkListBoxRow *row, gpointer us
     GtkWidget *label = gtk_bin_get_child (GTK_BIN(row));
     const gchar *curr_layout = gtk_label_get_text (GTK_LABEL (label));
     keyboard_view_set_keymap (app.keyboard_view, curr_layout);
+
+    // FIXME: Don't do this... we need more information about the layout,
+    // including the full xkb file.
+    str_set (&app.curr_keymap_name, curr_layout);
 }
 
 GtkWidget* new_custom_layout_list (char **custom_layouts, int num_custom_layouts)
@@ -460,7 +464,7 @@ void edit_layout_handler (GtkButton *button, gpointer user_data)
     app.is_edit_mode = true;
 
     // TODO: Set the keymap name as title
-    gtk_header_bar_set_title (GTK_HEADER_BAR(app.header_bar), "Keyboard Editor");
+    gtk_header_bar_set_title (GTK_HEADER_BAR(app.header_bar), str_data(&app.curr_keymap_name));
 
     // Set the headerbar buttons
     {

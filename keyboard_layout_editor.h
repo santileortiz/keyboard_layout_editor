@@ -14,6 +14,7 @@ struct kle_app_t {
     GResource *gresource;
 
     struct keyboard_layout_t *keymap;
+    string_t curr_keymap_name;
 
     int sidebar_min_width;
 

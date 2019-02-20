@@ -152,8 +152,7 @@ void on_custom_layout_selected (GtkListBox *box, GtkListBoxRow *row, gpointer us
     const gchar *curr_layout = gtk_label_get_text (GTK_LABEL (label));
     keyboard_view_set_keymap (app.keyboard_view, curr_layout);
 
-    // FIXME: Don't do this... we need more information about the layout,
-    // including the full xkb file.
+    str_free (&app.curr_keymap_name);
     str_set (&app.curr_keymap_name, curr_layout);
 }
 
@@ -162,7 +161,6 @@ GtkWidget* new_custom_layout_list (char **custom_layouts, int num_custom_layouts
     GtkWidget *custom_layout_list = gtk_list_box_new ();
     gtk_widget_set_vexpand (custom_layout_list, TRUE);
     gtk_widget_set_hexpand (custom_layout_list, TRUE);
-    g_signal_connect (G_OBJECT(custom_layout_list), "row-selected", G_CALLBACK (on_custom_layout_selected), NULL);
 
     // Create rows
     int i;
@@ -182,6 +180,7 @@ GtkWidget* new_custom_layout_list (char **custom_layouts, int num_custom_layouts
     // Select first row
     GtkListBoxRow *first_row = gtk_list_box_get_row_at_index (GTK_LIST_BOX(custom_layout_list), 0);
     gtk_list_box_select_row (GTK_LIST_BOX(custom_layout_list), GTK_LIST_BOX_ROW(first_row));
+    g_signal_connect (G_OBJECT(custom_layout_list), "row-selected", G_CALLBACK (on_custom_layout_selected), NULL);
 
     return custom_layout_list;
 }
@@ -463,7 +462,16 @@ void edit_layout_handler (GtkButton *button, gpointer user_data)
 {
     app.is_edit_mode = true;
 
-    // TODO: Set the keymap name as title
+    // TODO: The current xkb string should be able to be set from different
+    // sources, besides an installed layout it may come from a source file or
+    // from an autosave. Source file paths should be persisted but not required.
+    // This will need to be abstracted to take into account these posibilities
+    // and the priorities between them, also this will also be required in the
+    // handler for the open xkb button.
+    str_free (&app.curr_xkb_str);
+    str_set (&app.curr_xkb_str, str_data(&app.curr_keymap_name));
+    app.curr_xkb_str = reconstruct_installed_custom_layout_str (str_data(&app.curr_keymap_name));
+
     gtk_header_bar_set_title (GTK_HEADER_BAR(app.header_bar), str_data(&app.curr_keymap_name));
 
     // Set the headerbar buttons
@@ -850,6 +858,8 @@ int main (int argc, char *argv[])
     }
 
     xmlCleanupParser();
+    str_free (&app.curr_keymap_name);
+    str_free (&app.curr_xkb_str);
 
     return !success;
 }

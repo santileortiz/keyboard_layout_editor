@@ -2,15 +2,14 @@
  * Copiright (C) 2018 Santiago León O.
  */
 
-// Reverts the process of xkb_keymap_install() creating a string inside pool (or
-// malloc'd if pool==NULL) with the content of an .xkb file from which this
-// layout can be installed.
+// Reverts the process of xkb_keymap_install() creating a string_t with the
+// content of an .xkb file from which this layout can be installed.
 //
 // NOTE: This function assumes layout_name is a custom layout installed by this
 // program. Be sure to get the name from xkb_keymap_list().
 // NOTE: This function is NOT optimized, it was written to be called only when
 // choosing which layout to work with.
-char* reconstruct_installed_custom_layout (mem_pool_t *pool, const char *layout_name)
+string_t reconstruct_installed_custom_layout_str (const char *layout_name)
 {
     xmlDocPtr metadata_doc = xmlParseFile("/usr/share/X11/xkb/rules/evdev.xml");
     xmlNodePtr node = xmlDocGetRootElement (metadata_doc);
@@ -119,9 +118,16 @@ char* reconstruct_installed_custom_layout (mem_pool_t *pool, const char *layout_
     }
     str_cat_c (&res, "\n};\n");
 
-    char *retval = pom_strndup (pool, str_data (&res), str_len (&res));
-
     xmlFreeDoc (metadata_doc);
+    return res;
+}
+
+// Same as reconstruct_installed_custom_layout_str() but allocates the result
+// inside the pool, (or malloc's it if pool==NULL).
+char* reconstruct_installed_custom_layout (mem_pool_t *pool, const char *layout_name)
+{
+    string_t res = reconstruct_installed_custom_layout_str (layout_name);
+    char *retval = pom_strndup (pool, str_data (&res), str_len (&res));
     str_free (&res);
     return retval;
 }

@@ -271,14 +271,20 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
 FK_POPOVER_BUTTON_PRESSED_CB (set_key_symbol_handler)
 {
     GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX(app.keysym_lookup_ui.list));
-    GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
-    const char *keysym_name = gtk_label_get_text (GTK_LABEL(row_label));
 
-    struct key_level_t *level = (struct key_level_t*)user_data;
-    level->keysym = xkb_keysym_from_name(keysym_name, XKB_KEYSYM_NO_FLAGS);
+    // NOTE: Calling gtk_widget_is_visible() on the row does not work. Looks
+    // like GtkListBox stores visibility in their own private property, not the
+    // one inherited from GtkWidget. :GtkListBoxHasPrivateVisibility
+    if (gtk_widget_get_child_visible (GTK_WIDGET(row))) {
+        GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
+        const char *keysym_name = gtk_label_get_text (GTK_LABEL(row_label));
 
-    GtkWidget *keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->preview_keys_selection->kc);
-    replace_wrapped_widget_deferred (&app.keys_sidebar, keys_sidebar);
+        struct key_level_t *level = (struct key_level_t*)user_data;
+        level->keysym = xkb_keysym_from_name(keysym_name, XKB_KEYSYM_NO_FLAGS);
+
+        GtkWidget *keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->preview_keys_selection->kc);
+        replace_wrapped_widget_deferred (&app.keys_sidebar, keys_sidebar);
+    }
 }
 
 void edit_symbol_popup_handler (GtkButton *button, gpointer user_data)

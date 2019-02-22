@@ -2008,19 +2008,23 @@ void kv_autosave (struct keyboard_view_t *kv);
 void keycode_lookup_set (struct keyboard_view_t *kv)
 {
     GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX(kv->keycode_lookup_ui.list));
-    GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
-    const char *keycode_name = gtk_label_get_text (GTK_LABEL(row_label));
 
-    // TODO: Don't iterate the array? @performance
-    uint16_t i;
-    for (i=1; i<KEY_CNT; i++) {
-        if (keycode_names[i] != NULL && strcmp (keycode_name, keycode_names[i]) == 0) {
-            break;
+    // :GtkListBoxHasPrivateVisibility
+    if (gtk_widget_get_child_visible (GTK_WIDGET(row))) {
+        GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
+        const char *keycode_name = gtk_label_get_text (GTK_LABEL(row_label));
+
+        // TODO: Don't iterate the array? @performance
+        uint16_t i;
+        for (i=1; i<KEY_CNT; i++) {
+            if (keycode_names[i] != NULL && strcmp (keycode_name, keycode_names[i]) == 0) {
+                break;
+            }
         }
-    }
 
-    kv_keycode_reassign_selected_key (kv, i);
-    kv_autosave (kv);
+        kv_keycode_reassign_selected_key (kv, i);
+        kv_autosave (kv);
+    }
 }
 
 FK_POPOVER_BUTTON_PRESSED_CB (keycode_lookup_set_handler)

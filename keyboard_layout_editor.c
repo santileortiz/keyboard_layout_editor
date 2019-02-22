@@ -270,6 +270,7 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
 
 FK_POPOVER_BUTTON_PRESSED_CB (set_key_symbol_handler)
 {
+    bool keysym_set = false;
     GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX(app.keysym_lookup_ui.list));
 
     // NOTE: Calling gtk_widget_is_visible() on the row does not work. Looks
@@ -281,7 +282,21 @@ FK_POPOVER_BUTTON_PRESSED_CB (set_key_symbol_handler)
 
         struct key_level_t *level = (struct key_level_t*)user_data;
         level->keysym = xkb_keysym_from_name(keysym_name, XKB_KEYSYM_NO_FLAGS);
+        keysym_set = true;
 
+    } else {
+        const char *search = gtk_entry_get_text (GTK_ENTRY(app.keysym_lookup_ui.search_entry));
+
+        uint32_t cp;
+        xkb_keysym_t keysym;
+        if (parse_unicode_str (search, &cp) && codepoint_to_xkb_keysym (cp, &keysym)) {
+            struct key_level_t *level = (struct key_level_t*)user_data;
+            level->keysym = keysym;
+            keysym_set = true;
+        }
+    }
+
+    if (keysym_set)  {
         GtkWidget *keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->preview_keys_selection->kc);
         replace_wrapped_widget_deferred (&app.keys_sidebar, keys_sidebar);
     }

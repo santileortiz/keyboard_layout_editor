@@ -76,6 +76,45 @@ struct keyboard_layout_t {
     struct key_t *keys[KEY_CNT];
 };
 
+bool parse_unicode_str (const char *str, uint32_t *cp)
+{
+    assert (str != NULL && cp != NULL);
+
+    bool success = false;
+    while (*str && is_space(str)) { str++; }
+    if (str[0] == 'U' && str[1] == '+' && str[2] != '\0') {
+        char *end;
+        uint32_t value = strtol (str+2, &end, 16);
+        if (*end == '\0') {
+            *cp = value;
+            success = true;
+        }
+    }
+
+    return success;
+}
+
+bool codepoint_to_xkb_keysym (uint32_t cp, xkb_keysym_t *res)
+{
+    assert (res != NULL);
+
+    bool is_cp_valid = true;
+
+    // ASCII range excluding control characters
+    if ((cp >= 0x20 && cp <= 0x7E) ||
+        (cp >= 0xA0 && cp <= 0xFF)) {
+        *res = cp;
+
+    } else if (cp >= 0x100 && cp <= 0x10FFFF) {
+        *res = cp | 0x1000000;
+
+    } else {
+        is_cp_valid = false;
+    }
+
+    return is_cp_valid;
+}
+
 struct key_type_t* keyboard_layout_new_type (struct keyboard_layout_t *keymap, char *name)
 {
     struct key_type_t *new_type = mem_pool_push_size (&keymap->pool, sizeof(struct key_type_t));

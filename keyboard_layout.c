@@ -191,7 +191,133 @@ struct keyboard_layout_t* keyboard_layout_new_default (void)
     return keymap;
 }
 
-void keyboar_layout_destroy (struct keyboard_layout_t *keymap)
+enum xkb_parser_token_type_t {
+    XKB_PARSER_TOKEN_IDENTIFIER,
+    XKB_PARSER_TOKEN_KEY_IDENTIFIER,
+    XKB_PARSER_TOKEN_OPERATOR,
+    XKB_PARSER_TOKEN_NUMBER,
+    XKB_PARSER_TOKEN_STRING
+};
+
+struct xkb_parser_state_t {
+    struct scanner_t scnr;
+
+    enum xkb_parser_token_type_t tok_type;
+    string_t tok_value;
+};
+
+void xkb_parser_state_init (struct xkb_parser_state_t *state, char *xkb_str)
+{
+    *state = ZERO_INIT(struct xkb_parser_state_t);
+    state->scnr.pos = xkb_str;
+}
+
+void xkb_parser_state_destory (struct xkb_parser_state_t *state)
+{
+    str_free (&state->tok_value);
+}
+
+void xkb_parser_next (struct xkb_parser_state_t *state)
+{
+    struct scanner_t *scnr = &state->scnr;
+
+    // TODO: Do we want <ESC> and such symbols be identifiers or maybe a new
+    // type XKB_PARSER_TOKEN_KEY_IDENTIFIER.
+    char *identifier_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.";
+
+    // Scan out all comments
+    while (scanner_str (scnr, "//")) {
+        if (scnr->is_eof) {
+            scanner_set_error (scnr, "Stale '/' character");
+        }
+        scanner_to_char (scnr, '\n');
+    }
+
+    scanner_consume_spaces (scnr);
+    if (scnr->is_eof) {
+        return;
+    }
+
+    char *tok_start;
+    if ((tok_start = scnr->pos) && scanner_char_any (scnr, identifier_chars)) {
+        state->tok_type = XKB_PARSER_TOKEN_IDENTIFIER;
+        while (scanner_char_any (scnr, identifier_chars));
+        strn_set (&state->tok_value, tok_start, scnr->pos - tok_start);
+
+    } else if (scanner_char (scnr, '<')) {
+        // TODO: There is a list of valid key identifiers somewhere as xkbcom
+        // crashes when adding unknown ones. Where is this coming from? xkbcomp,
+        // X11's spec or XKB's spec. For now we trust they will be valid.
+        state->tok_type = XKB_PARSER_TOKEN_KEY_IDENTIFIER;
+
+        tok_start = scnr->pos;
+        scanner_to_char (scnr, '>');
+        if (scnr->is_eof) {
+            scanner_set_error (scnr, "Key identifier without closing '>'");
+        } else {
+            strn_set (&state->tok_value, tok_start, scnr->pos - tok_start);
+            scanner_char (scnr, '>');
+        }
+
+    } else if (scanner_char_any (scnr, "{}[](),;=+-!")) {
+        state->tok_type = XKB_PARSER_TOKEN_OPERATOR;
+        strn_set (&state->tok_value, scnr->pos-1, 1);
+
+    } else if ((tok_start = scnr->pos) && scanner_char_any (scnr, "0123456789")) {
+        state->tok_type = XKB_PARSER_TOKEN_NUMBER;
+
+        // TODO: Store the int value somewhere.
+        int value;
+        scanner_int (scnr, &value);
+        strn_set (&state->tok_value, tok_start, scnr->pos - tok_start);
+
+    } else if (scanner_char (scnr, '\"')) {
+        state->tok_type = XKB_PARSER_TOKEN_STRING;
+
+        tok_start = scnr->pos;
+        scanner_to_char (scnr, '\"');
+        if (scnr->is_eof) {
+            scanner_set_error (scnr, "String without matching '\"'");
+        } else {
+            strn_set (&state->tok_value, tok_start, scnr->pos - tok_start);
+            scanner_char (scnr, '\"');
+        }
+
+    } else {
+        scanner_set_error (scnr, "Unexpected character");
+    }
+}
+
+// This parses a subset of the xkb file syntax into our internal representation
+// keyboard_layout_t. We only care about parsing resolved layouts as returned by
+// xkbcomp. Notable differences from a full xkb compiler are the lack of include
+// statements and a more strict ordering of things.
+struct keyboard_layout_t* keyboard_layout_new (char *xkb_str)
+{
+    mem_pool_t bootstrap = ZERO_INIT (mem_pool_t);
+    struct keyboard_layout_t *keymap = mem_pool_push_size (&bootstrap, sizeof(struct keyboard_layout_t));
+    *keymap = ZERO_INIT (struct keyboard_layout_t);
+    keymap->pool = bootstrap;
+
+    struct xkb_parser_state_t state;
+    xkb_parser_state_init (&state, xkb_str);
+
+    while (!state.scnr.is_eof && !state.scnr.error) {
+        xkb_parser_next (&state);
+        printf ("Type: %d Value: %s\n", state.tok_type, str_data(&state.tok_value));
+    }
+
+    if (state.scnr.error) {
+        printf ("Error: %s\n", state.scnr.error_message);
+
+    } else {
+        printf ("SUCESSFUL TOKENIZATION!!!\n");
+    }
+
+    return keymap;
+}
+
+void keyboard_layout_destroy (struct keyboard_layout_t *keymap)
 {
     mem_pool_destroy (&keymap->pool);
 }

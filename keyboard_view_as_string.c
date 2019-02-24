@@ -199,10 +199,41 @@ void kv_print (struct keyboard_view_t *kv)
 struct scanner_t {
     char *pos;
     bool is_eof;
+    bool eof_is_error;
 
     bool error;
     char *error_message;
 };
+
+// Calling scanning functions will never set the error flag, it's the
+// responsability of the caller to call scanner_set_error() if a match should
+// have happened but didn't. To allow this the return value of scanning
+// functions is a boolean that is true if the match was successful and false
+// otherwise.
+//
+// After an error is set, the return value for scanning functions  will always
+// be false. This allows easy termination of the execution without adding gotos
+// everywhere in the code.
+//
+// NOTE: The error message is not duplicated or stored by the scanner, it just
+// stores a pointer to it.
+void scanner_set_error (struct scanner_t *scnr, char *error_message)
+{
+    scnr->error = true;
+    scnr->error_message = error_message;
+}
+
+// Sometimes there are blocks of code where reaching EOF is an error, setting
+// eof_is_error to true will make reaching EOF be an error. This is convenience
+// functionality so we don't need to check for EOF every time we call a scanning
+// function inside a block like this.
+void scanner_eof_set (struct scanner_t *scnr)
+{
+    scnr->is_eof = true;
+    if (scnr->eof_is_error) {
+        scanner_set_error (scnr, "Unexpected end of file.");
+    }
+}
 
 // TODO: I still have to think about parsing optional stuff, sometimes we want
 // to test something but not consume it. Maybe split testing and consuming one
@@ -228,7 +259,7 @@ bool scanner_float (struct scanner_t *scnr, float *value)
         scnr->pos = end;
 
         if (*scnr->pos == '\0') {
-            scnr->is_eof = true;
+            scanner_eof_set (scnr);
         }
         return true;
     }
@@ -251,7 +282,7 @@ bool scanner_int (struct scanner_t *scnr, int *value)
         scnr->pos = end;
 
         if (*scnr->pos == '\0') {
-            scnr->is_eof = true;
+            scanner_eof_set (scnr);
         }
         return true;
     }
@@ -266,7 +297,7 @@ void scanner_consume_spaces (struct scanner_t *scnr)
     }
 
     if (*scnr->pos == '\0') {
-        scnr->is_eof = true;
+        scanner_eof_set (scnr);
     }
 }
 
@@ -281,13 +312,50 @@ bool scanner_char (struct scanner_t *scnr, char c)
         scnr->pos++;
 
         if (*scnr->pos == '\0') {
-            scnr->is_eof = true;
+            scanner_eof_set (scnr);
         }
 
         return true;
     }
 
     return false;
+}
+
+bool scanner_char_any (struct scanner_t *scnr, char *char_list)
+{
+    assert (char_list != NULL);
+
+    if (scnr->error)
+        return false;
+
+    while (*char_list != '\0' && *scnr->pos != *char_list) {
+        char_list++;
+    }
+
+    if (*char_list != '\0') {
+        scnr->pos++;
+        return true;
+    } else {
+        return false;
+    }
+
+}
+
+bool scanner_to_char (struct scanner_t *scnr, char c)
+{
+    if (scnr->error)
+        return false;
+
+    while (*scnr->pos != '\0' && *scnr->pos != c) {
+        scnr->pos++;
+    }
+
+    if (*scnr->pos == '\0') {
+        scanner_eof_set (scnr);
+        return false;
+    } else {
+        return true;
+    }
 }
 
 bool scanner_str (struct scanner_t *scnr, char *str)
@@ -303,21 +371,13 @@ bool scanner_str (struct scanner_t *scnr, char *str)
         scnr->pos += len;
 
         if (*scnr->pos == '\0') {
-            scnr->is_eof = true;
+            scanner_eof_set (scnr);
         }
 
         return true;
     }
 
     return false;
-}
-
-// NOTE: The error message is not duplicated or stored by the scanner, it just
-// stores a pointer to it.
-void scanner_set_error (struct scanner_t *scnr, char *error_message)
-{
-    scnr->error = true;
-    scnr->error_message = error_message;
 }
 
 void parse_full_key_arguments (struct scanner_t *scnr, int *kc, float *width, float *user_glue)

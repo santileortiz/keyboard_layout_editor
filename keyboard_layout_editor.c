@@ -515,7 +515,7 @@ void edit_layout_handler (GtkButton *button, gpointer user_data)
     GtkWidget *stack = gtk_stack_new ();
     gtk_widget_set_halign (stack, GTK_ALIGN_CENTER);
     {
-        app.keymap = keyboard_layout_new_default ();
+        app.keymap = keyboard_layout_new (str_data(&app.curr_xkb_str));
 
         kv_set_preview_keys (app.keyboard_view);
         app.keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->preview_keys_selection->kc);

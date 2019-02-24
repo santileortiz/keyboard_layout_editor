@@ -476,6 +476,8 @@ void return_to_welcome_handler (GtkButton *button, gpointer   user_data)
         GtkWidget *welcome_screen = new_welcome_screen_no_custom_layouts ();
         replace_wrapped_widget (&app.window_content, welcome_screen);
     }
+
+    keyboard_layout_destroy (app.keymap);
     mem_pool_destroy (&tmp);
 }
 

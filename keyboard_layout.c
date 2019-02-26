@@ -200,6 +200,8 @@ enum xkb_parser_token_type_t {
 };
 
 struct xkb_parser_state_t {
+    mem_pool_t pool;
+
     struct scanner_t scnr;
 
     enum xkb_parser_token_type_t tok_type;
@@ -286,6 +288,46 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
     } else {
         scanner_set_error (scnr, "Unexpected character");
     }
+
+    // TODO: Get better error messages, show the line where we got stuck.
+    if (!state->scnr.error) {
+        printf ("Type: %d, Value: %s\n", state->tok_type, str_data(&state->tok_value));
+    }
+}
+
+void xkb_parser_skip_block (struct xkb_parser_state_t *state, char *block_id)
+{
+    xkb_parser_next (state);
+    if (state->tok_type != XKB_PARSER_TOKEN_IDENTIFIER || strcmp (str_data(&state->tok_value), block_id) != 0) {
+        char *error = pprintf (&state->pool, "Expected block identifier '%s'", block_id);
+        scanner_set_error (&state->scnr, error);
+    }
+
+    xkb_parser_next (state);
+    if (state->tok_type != XKB_PARSER_TOKEN_STRING) {
+        scanner_set_error (&state->scnr, "Expected a block name");
+    }
+
+    xkb_parser_next (state);
+    if (state->tok_type != XKB_PARSER_TOKEN_OPERATOR || strcmp (str_data(&state->tok_value), "{") != 0) {
+        scanner_set_error (&state->scnr, "Expected '{'");
+    }
+
+    // Skip the content of the block
+    int braces = 1;
+    do {
+        xkb_parser_next (state);
+        if (state->tok_type == XKB_PARSER_TOKEN_OPERATOR && strcmp (str_data(&state->tok_value), "{") == 0) {
+            braces++;
+        } else if (state->tok_type == XKB_PARSER_TOKEN_OPERATOR && strcmp (str_data(&state->tok_value), "}") == 0) {
+            braces--;
+        }
+    } while (!state->scnr.is_eof && braces > 0);
+
+    xkb_parser_next (state);
+    if (state->tok_type != XKB_PARSER_TOKEN_OPERATOR || strcmp (str_data(&state->tok_value), ";") != 0) {
+        scanner_set_error (&state->scnr, "Expected ';'");
+    }
 }
 
 // This parses a subset of the xkb file syntax into our internal representation
@@ -302,6 +344,36 @@ struct keyboard_layout_t* keyboard_layout_new (char *xkb_str)
     struct xkb_parser_state_t state;
     xkb_parser_state_init (&state, xkb_str);
 
+    xkb_parser_next (&state);
+    if (state.tok_type != XKB_PARSER_TOKEN_IDENTIFIER || strcmp (str_data(&state.tok_value), "xkb_keymap") != 0) {
+        scanner_set_error (&state.scnr, "Expected 'xkb_keymap'");
+    }
+
+    xkb_parser_next (&state);
+    if (state.tok_type != XKB_PARSER_TOKEN_OPERATOR || strcmp (str_data(&state.tok_value), "{") != 0) {
+        scanner_set_error (&state.scnr, "Expected '{'");
+    }
+
+    xkb_parser_skip_block (&state, "xkb_keycodes");
+    xkb_parser_skip_block (&state, "xkb_types");
+    xkb_parser_skip_block (&state, "xkb_compatibility");
+    xkb_parser_skip_block (&state, "xkb_symbols");
+
+    // Should we accept keymaps with geometry section? looks like xkbcomp does
+    // not return one.
+    //xkb_parser_skip_block (&state, "xkb_geometry");
+
+    // Closing } of xkb_keymap block
+    xkb_parser_next (&state);
+    if (state.tok_type != XKB_PARSER_TOKEN_OPERATOR || strcmp (str_data(&state.tok_value), "}") != 0) {
+        scanner_set_error (&state.scnr, "Expected '}'");
+    }
+
+    xkb_parser_next (&state);
+    if (state.tok_type != XKB_PARSER_TOKEN_OPERATOR || strcmp (str_data(&state.tok_value), ";") != 0) {
+        scanner_set_error (&state.scnr, "Expected ';'");
+    }
+
     while (!state.scnr.is_eof && !state.scnr.error) {
         xkb_parser_next (&state);
         printf ("Type: %d Value: %s\n", state.tok_type, str_data(&state.tok_value));
@@ -311,7 +383,7 @@ struct keyboard_layout_t* keyboard_layout_new (char *xkb_str)
         printf ("Error: %s\n", state.scnr.error_message);
 
     } else {
-        printf ("SUCESSFUL TOKENIZATION!!!\n");
+        printf ("SUCESS\n");
     }
 
     return keymap;

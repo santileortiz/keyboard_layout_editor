@@ -226,8 +226,6 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
 {
     struct scanner_t *scnr = &state->scnr;
 
-    // TODO: Do we want <ESC> and such symbols be identifiers or maybe a new
-    // type XKB_PARSER_TOKEN_KEY_IDENTIFIER.
     char *identifier_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.";
 
     // Scan out all comments

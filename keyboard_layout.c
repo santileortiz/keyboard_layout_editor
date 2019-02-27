@@ -130,7 +130,7 @@ struct key_type_t* keyboard_layout_new_type (struct keyboard_layout_t *keymap, c
     return new_type;
 }
 
-void keyboar_layout_type_set_level (struct key_type_t *type, int level, key_modifier_mask_t modifiers)
+void keyboard_layout_type_set_level (struct key_type_t *type, int level, key_modifier_mask_t modifiers)
 {
     assert (level > 0 && "Levels must be grater than 0");
 
@@ -173,17 +173,17 @@ struct keyboard_layout_t* keyboard_layout_new_default (void)
 
     struct key_type_t *type_one_level;
     type_one_level = keyboard_layout_new_type (keymap, "ONE_LEVEL");
-    keyboar_layout_type_set_level (type_one_level, 1, 0);
+    keyboard_layout_type_set_level (type_one_level, 1, 0);
 
     struct key_type_t *type;
     type = keyboard_layout_new_type (keymap, "TWO_LEVEL");
-    keyboar_layout_type_set_level (type, 1, 0);
-    keyboar_layout_type_set_level (type, 2, 0);
+    keyboard_layout_type_set_level (type, 1, 0);
+    keyboard_layout_type_set_level (type, 2, 0);
 
     type = keyboard_layout_new_type (keymap, "ALPHABETIC");
-    keyboar_layout_type_set_level (type, 1, 0);
-    keyboar_layout_type_set_level (type, 2, 0);
-    keyboar_layout_type_set_level (type, 3, 0);
+    keyboard_layout_type_set_level (type, 1, 0);
+    keyboard_layout_type_set_level (type, 2, 0);
+    keyboard_layout_type_set_level (type, 3, 0);
 
     struct key_t *key = keyboard_layout_new_key (keymap, KEY_ESC, type_one_level);
     keyboard_layout_key_set_level (key, 1, XKB_KEY_Escape, NULL);

@@ -206,12 +206,15 @@ struct xkb_parser_state_t {
 
     enum xkb_parser_token_type_t tok_type;
     string_t tok_value;
+
+    struct keyboard_layout_t *keymap;
 };
 
-void xkb_parser_state_init (struct xkb_parser_state_t *state, char *xkb_str)
+void xkb_parser_state_init (struct xkb_parser_state_t *state, char *xkb_str, struct keyboard_layout_t *keymap)
 {
     *state = ZERO_INIT(struct xkb_parser_state_t);
     state->scnr.pos = xkb_str;
+    state->keymap = keymap;
 }
 
 void xkb_parser_state_destory (struct xkb_parser_state_t *state)
@@ -291,11 +294,11 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
 
     // TODO: Get better error messages, show the line where we got stuck.
     if (!state->scnr.error) {
-        printf ("Type: %d, Value: %s\n", state->tok_type, str_data(&state->tok_value));
+        //printf ("Type: %d, Value: %s\n", state->tok_type, str_data(&state->tok_value));
     }
 }
 
-void xkb_parser_skip_block (struct xkb_parser_state_t *state, char *block_id)
+void xkb_parser_block_start (struct xkb_parser_state_t *state, char *block_id)
 {
     xkb_parser_next (state);
     if (state->tok_type != XKB_PARSER_TOKEN_IDENTIFIER || strcmp (str_data(&state->tok_value), block_id) != 0) {
@@ -303,6 +306,8 @@ void xkb_parser_skip_block (struct xkb_parser_state_t *state, char *block_id)
         scanner_set_error (&state->scnr, error);
     }
 
+    // TODO: Maybe pass a char** as argument and set it to the name?, ATM we
+    // don't use this information for anything.
     xkb_parser_next (state);
     if (state->tok_type != XKB_PARSER_TOKEN_STRING) {
         scanner_set_error (&state->scnr, "Expected a block name");
@@ -312,6 +317,11 @@ void xkb_parser_skip_block (struct xkb_parser_state_t *state, char *block_id)
     if (state->tok_type != XKB_PARSER_TOKEN_OPERATOR || strcmp (str_data(&state->tok_value), "{") != 0) {
         scanner_set_error (&state->scnr, "Expected '{'");
     }
+}
+
+void xkb_parser_skip_block (struct xkb_parser_state_t *state, char *block_id)
+{
+    xkb_parser_block_start (state, block_id);
 
     // Skip the content of the block
     int braces = 1;
@@ -322,12 +332,94 @@ void xkb_parser_skip_block (struct xkb_parser_state_t *state, char *block_id)
         } else if (state->tok_type == XKB_PARSER_TOKEN_OPERATOR && strcmp (str_data(&state->tok_value), "}") == 0) {
             braces--;
         }
-    } while (!state->scnr.is_eof && braces > 0);
+    } while (!state->scnr.is_eof && !state->scnr.error && braces > 0);
 
     xkb_parser_next (state);
     if (state->tok_type != XKB_PARSER_TOKEN_OPERATOR || strcmp (str_data(&state->tok_value), ";") != 0) {
         scanner_set_error (&state->scnr, "Expected ';'");
     }
+}
+
+static inline
+bool xkb_parser_match_tok (struct xkb_parser_state_t *state, enum xkb_parser_token_type_t type, char *value)
+{
+    return state->tok_type == type &&
+        (value == NULL || strcmp (str_data(&state->tok_value), value) == 0);
+}
+
+void xkb_parser_parse_types (struct xkb_parser_state_t *state)
+{
+    state->scnr.eof_is_error = true;
+    xkb_parser_block_start (state, "xkb_types");
+
+    do {
+        xkb_parser_next (state);
+        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "virtual_modifiers")) {
+            do {
+                xkb_parser_next (state);
+                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL)) {
+                    // TODO: Register the defined virtual modifiers.
+
+                    xkb_parser_next (state);
+                    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";")) {
+                        break;
+
+                    } else if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",")) {
+                        scanner_set_error (&state->scnr, "Expected ';' or ','");
+                    }
+
+                } else {
+                    scanner_set_error (&state->scnr, "Expected modifier name");
+                }
+
+            } while (!state->scnr.error);
+
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "type")) {
+
+            string_t type_name = {0};
+            xkb_parser_next (state);
+            if (state->tok_type == XKB_PARSER_TOKEN_STRING) {
+                str_cpy (&type_name, &state->tok_value);
+
+                xkb_parser_next (state);
+                if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{")) {
+                    scanner_set_error (&state->scnr, "Expected type block");
+                }
+
+                // Consume the block's content
+                do {
+                    // TODO: Actually get the type information here.
+                    xkb_parser_next (state);
+                } while (!state->scnr.error && !xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}"));
+
+                xkb_parser_next (state);
+                if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";")) {
+                    scanner_set_error (&state->scnr, "Expected ';'");
+                }
+
+                if (!state->scnr.error) {
+                    keyboard_layout_new_type (state->keymap, str_data(&type_name));
+                }
+
+                str_free (&type_name);
+            }
+
+        } else {
+            break;
+        }
+
+    } while (!state->scnr.error);
+
+    if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
+        scanner_set_error (&state->scnr, "Expected '}'");
+    }
+
+    xkb_parser_next (state);
+    if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";")) {
+        scanner_set_error (&state->scnr, "Expected ';'");
+    }
+
+    state->scnr.eof_is_error = false;
 }
 
 // This parses a subset of the xkb file syntax into our internal representation
@@ -342,7 +434,7 @@ struct keyboard_layout_t* keyboard_layout_new (char *xkb_str)
     keymap->pool = bootstrap;
 
     struct xkb_parser_state_t state;
-    xkb_parser_state_init (&state, xkb_str);
+    xkb_parser_state_init (&state, xkb_str, keymap);
 
     xkb_parser_next (&state);
     if (state.tok_type != XKB_PARSER_TOKEN_IDENTIFIER || strcmp (str_data(&state.tok_value), "xkb_keymap") != 0) {
@@ -355,7 +447,7 @@ struct keyboard_layout_t* keyboard_layout_new (char *xkb_str)
     }
 
     xkb_parser_skip_block (&state, "xkb_keycodes");
-    xkb_parser_skip_block (&state, "xkb_types");
+    xkb_parser_parse_types (&state);
     xkb_parser_skip_block (&state, "xkb_compatibility");
     xkb_parser_skip_block (&state, "xkb_symbols");
 
@@ -374,10 +466,7 @@ struct keyboard_layout_t* keyboard_layout_new (char *xkb_str)
         scanner_set_error (&state.scnr, "Expected ';'");
     }
 
-    while (!state.scnr.is_eof && !state.scnr.error) {
-        xkb_parser_next (&state);
-        printf ("Type: %d Value: %s\n", state.tok_type, str_data(&state.tok_value));
-    }
+    // TODO: Make sure we reach EOF here?
 
     if (state.scnr.error) {
         printf ("Error: %s\n", state.scnr.error_message);

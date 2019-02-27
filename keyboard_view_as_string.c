@@ -219,8 +219,12 @@ struct scanner_t {
 // stores a pointer to it.
 void scanner_set_error (struct scanner_t *scnr, char *error_message)
 {
-    scnr->error = true;
-    scnr->error_message = error_message;
+    // Only set this the first time the function is called. Knowing the first
+    // error message is more useful than the last.
+    if (!scnr->error) {
+        scnr->error = true;
+        scnr->error_message = error_message;
+    }
 }
 
 // Sometimes there are blocks of code where reaching EOF is an error, setting

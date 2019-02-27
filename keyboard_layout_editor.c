@@ -323,7 +323,6 @@ void edit_symbol_popup_handler (GtkButton *button, gpointer user_data)
 
 void on_key_type_changed (GtkComboBox *themes_combobox, gpointer user_data)
 {
-    struct key_t *key = app.keymap->keys[app.keyboard_view->preview_keys_selection->kc];
     const char* type_name = gtk_combo_box_get_active_id (themes_combobox);
 
     struct key_type_t *curr_type = app.keymap->types;
@@ -336,7 +335,17 @@ void on_key_type_changed (GtkComboBox *themes_combobox, gpointer user_data)
     }
     assert (curr_type != NULL);
 
-    key->type = curr_type;
+    // Update the type in the selected key, or create a key in the keymap if
+    // there is none assigned yet.
+    int kc = app.keyboard_view->preview_keys_selection->kc;
+    struct key_t *key = app.keymap->keys[kc];
+    if (key != NULL) {
+        key->type = curr_type;
+
+    } else {
+        struct key_t *new_key = keyboard_layout_new_key (app.keymap, kc, curr_type);
+        app.keymap->keys[kc] = new_key;
+    }
 
     GtkWidget *keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->preview_keys_selection->kc);
     replace_wrapped_widget_deferred (&app.keys_sidebar, keys_sidebar);

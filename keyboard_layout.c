@@ -390,13 +390,15 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
                     xkb_parser_next (state);
                 } while (!state->scnr.error && !xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}"));
 
+
                 xkb_parser_next (state);
                 if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";")) {
                     scanner_set_error (&state->scnr, "Expected ';'");
                 }
 
                 if (!state->scnr.error) {
-                    keyboard_layout_new_type (state->keymap, str_data(&type_name));
+                    struct key_type_t *new_type = keyboard_layout_new_type (state->keymap, str_data(&type_name));
+                    keyboard_layout_type_set_level (new_type, 1, 0);
                 }
 
                 str_free (&type_name);

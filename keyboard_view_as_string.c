@@ -256,6 +256,13 @@ bool scanner_float (struct scanner_t *scnr, float *value)
     if (scnr->error)
         return false;
 
+    // Don't accept leading spaces.
+    // NOTE: We don't accept floats not starting with a digit like .5, INF or
+    // NAN. But we do accept hexadecimal floats like 0x1.Cp2
+    if (!isdigit (*scnr->pos)) {
+        return false;
+    }
+
     char *end;
     float res = strtof (scnr->pos, &end);
     if (res != 0 || scnr->pos != end) {
@@ -279,6 +286,11 @@ bool scanner_int (struct scanner_t *scnr, int *value)
     if (scnr->error)
         return false;
 
+    // Don't accept leading spaces.
+    if (!isdigit (*scnr->pos)) {
+        return false;
+    }
+
     char *end;
     int res = strtol (scnr->pos, &end, 10);
     if (res != 0 || scnr->pos != end) {
@@ -294,6 +306,8 @@ bool scanner_int (struct scanner_t *scnr, int *value)
     return false;
 }
 
+// TODO: We should have a scanner_is_space that uses an internal definition of
+// what a space is.
 void scanner_consume_spaces (struct scanner_t *scnr)
 {
     while (isspace(*scnr->pos)) {
@@ -309,8 +323,6 @@ bool scanner_char (struct scanner_t *scnr, char c)
 {
     if (scnr->error)
         return false;
-
-    scanner_consume_spaces (scnr);
 
     if (*scnr->pos == c) {
         scnr->pos++;
@@ -345,6 +357,7 @@ bool scanner_char_any (struct scanner_t *scnr, char *char_list)
 
 }
 
+// Consume all characters until c is found. c will be consummed too.
 bool scanner_to_char (struct scanner_t *scnr, char c)
 {
     if (scnr->error)
@@ -358,6 +371,7 @@ bool scanner_to_char (struct scanner_t *scnr, char c)
         scanner_eof_set (scnr);
         return false;
     } else {
+        scnr->pos++;
         return true;
     }
 }
@@ -368,10 +382,28 @@ bool scanner_str (struct scanner_t *scnr, char *str)
     if (scnr->error)
         return false;
 
-    scanner_consume_spaces (scnr);
-
     size_t len = strlen(str);
     if (strncmp(scnr->pos, str, len) == 0) {
+        scnr->pos += len;
+
+        if (*scnr->pos == '\0') {
+            scanner_eof_set (scnr);
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+bool scanner_strcase (struct scanner_t *scnr, char *str)
+{
+    assert (str != NULL);
+    if (scnr->error)
+        return false;
+
+    size_t len = strlen(str);
+    if (strncasecmp(scnr->pos, str, len) == 0) {
         scnr->pos += len;
 
         if (*scnr->pos == '\0') {
@@ -396,18 +428,23 @@ void parse_full_key_arguments (struct scanner_t *scnr, int *kc, float *width, fl
         scanner_set_error (scnr, "Expected keycode.\n");
     }
 
+    scanner_consume_spaces (scnr);
     if (scanner_str (scnr, ", W:")) {
+        scanner_consume_spaces (scnr);
         if (!scanner_float (scnr, width)) {
             scanner_set_error (scnr, "Expected width.\n");
         }
     }
 
+    scanner_consume_spaces (scnr);
     if (scanner_str (scnr, ", UG:")) {
+        scanner_consume_spaces (scnr);
         if (!scanner_float (scnr, user_glue)) {
             scanner_set_error (scnr, "Expected user glue.\n");
         }
     }
 
+    scanner_consume_spaces (scnr);
     if (!scanner_char (scnr, ')')) {
         scanner_set_error (scnr, "Missing ')'\n");
     }
@@ -423,12 +460,16 @@ void parse_key_sgmt_arguments (struct scanner_t *scnr, float *width, enum multir
     // align property is ignored.
     *align = MULTIROW_ALIGN_LEFT;
 
+    scanner_consume_spaces (scnr);
     if (scanner_str (scnr, "W:")) {
+        scanner_consume_spaces (scnr);
         if (!scanner_float (scnr, width)) {
             scanner_set_error (scnr, "Expected width.\n");
         }
 
+        scanner_consume_spaces (scnr);
         if (scanner_char (scnr, ',')) {
+            scanner_consume_spaces (scnr);
             if (scanner_char (scnr, 'L')) {
                 *align = MULTIROW_ALIGN_LEFT;
             } else if (scanner_char (scnr, 'R')) {
@@ -443,6 +484,7 @@ void parse_key_sgmt_arguments (struct scanner_t *scnr, float *width, enum multir
 
     }
 
+    scanner_consume_spaces (scnr);
     if (!scanner_char (scnr, ')')) {
         scanner_set_error (scnr, "Missing ')'\n");
     }
@@ -469,11 +511,13 @@ void kv_set_from_string (struct keyboard_view_t *kv, char *str)
 
     while (!scnr.is_eof && !scnr.error) {
         float row_height = 1;
+        scanner_consume_spaces (&scnr);
         scanner_float (&scnr, &row_height);
 
         kv_new_row_h (&ctx, row_height);
 
         while (!scnr.is_eof) {
+            scanner_consume_spaces (&scnr);
             if (scanner_str (&scnr, "K(")) {
                 int kc;
                 float width, user_glue;

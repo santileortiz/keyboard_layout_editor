@@ -9,6 +9,17 @@
 // depending on how the UI evolves. I don't want to add a dependency on an file
 // people isn't supposed to depend on (yet).
 
+// TODO: XKB seems to support an arbitrary number of levels, in practice xkbcomp
+// seems to complain if there are more than 8 levels. Maybe remove this in the
+// future?. Some considerations to have:
+//  - Removing this limit would mean any identifier matching regex
+//    [lL][eE][vV][eE][lL][0-9]+ will be invalid. Currently used virtual modifier
+//    identifiers don't match this, but LevelThree is awfully close to matching.
+//    :level_identifiers
+//  - Letting people choose an absurdly large number of levels could make us
+//    allocate a lot of unnecessary memory.
+//  - Maybe just leave it like this and bump it if necessary.
+//
 #define KEYBOARD_LAYOUT_MAX_LEVELS 8
 
 typedef uint32_t key_modifier_mask_t;
@@ -16,6 +27,7 @@ typedef uint32_t key_modifier_mask_t;
 struct key_type_t {
     char *name;
     int num_levels;
+    key_modifier_mask_t modifier_mask;
     key_modifier_mask_t modifiers[KEYBOARD_LAYOUT_MAX_LEVELS];
 
     struct key_type_t *next;
@@ -115,7 +127,8 @@ bool codepoint_to_xkb_keysym (uint32_t cp, xkb_keysym_t *res)
     return is_cp_valid;
 }
 
-struct key_type_t* keyboard_layout_new_type (struct keyboard_layout_t *keymap, char *name)
+struct key_type_t* keyboard_layout_new_type (struct keyboard_layout_t *keymap,
+                                             char *name, key_modifier_mask_t modifier_mask)
 {
     struct key_type_t *new_type = mem_pool_push_size (&keymap->pool, sizeof(struct key_type_t));
     *new_type = ZERO_INIT (struct key_type_t);
@@ -123,6 +136,7 @@ struct key_type_t* keyboard_layout_new_type (struct keyboard_layout_t *keymap, c
     // TODO: For now, types will not be destroyed, if they do, the name will
     // leak space inside the keymap's pool.
     new_type->name = pom_strdup (&keymap->pool, name);
+    new_type->modifier_mask = modifier_mask;
 
     new_type->next = keymap->types;
     keymap->types = new_type;
@@ -172,15 +186,15 @@ struct keyboard_layout_t* keyboard_layout_new_default (void)
     keymap->pool = bootstrap;
 
     struct key_type_t *type_one_level;
-    type_one_level = keyboard_layout_new_type (keymap, "ONE_LEVEL");
+    type_one_level = keyboard_layout_new_type (keymap, "ONE_LEVEL", 0);
     keyboard_layout_type_set_level (type_one_level, 1, 0);
 
     struct key_type_t *type;
-    type = keyboard_layout_new_type (keymap, "TWO_LEVEL");
+    type = keyboard_layout_new_type (keymap, "TWO_LEVEL", 0);
     keyboard_layout_type_set_level (type, 1, 0);
     keyboard_layout_type_set_level (type, 2, 0);
 
-    type = keyboard_layout_new_type (keymap, "ALPHABETIC");
+    type = keyboard_layout_new_type (keymap, "ALPHABETIC", 0);
     keyboard_layout_type_set_level (type, 1, 0);
     keyboard_layout_type_set_level (type, 2, 0);
     keyboard_layout_type_set_level (type, 3, 0);
@@ -194,6 +208,7 @@ struct keyboard_layout_t* keyboard_layout_new_default (void)
 enum xkb_parser_token_type_t {
     XKB_PARSER_TOKEN_IDENTIFIER,
     XKB_PARSER_TOKEN_KEY_IDENTIFIER,
+    XKB_PARSER_TOKEN_LEVEL_IDENTIFIER,
     XKB_PARSER_TOKEN_OPERATOR,
     XKB_PARSER_TOKEN_NUMBER,
     XKB_PARSER_TOKEN_STRING
@@ -206,6 +221,7 @@ struct xkb_parser_state_t {
 
     enum xkb_parser_token_type_t tok_type;
     string_t tok_value;
+    int tok_value_int;
 
     struct keyboard_layout_t *keymap;
 };
@@ -247,6 +263,20 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
         while (scanner_char_any (scnr, identifier_chars));
         strn_set (&state->tok_value, tok_start, scnr->pos - tok_start);
 
+        // Check if it's a level identifier, if so, change the type and set the
+        // int value. :level_identifiers
+        struct scanner_t level_scnr = ZERO_INIT(struct scanner_t);
+        level_scnr.pos = str_data(&state->tok_value);
+        int level;
+        if (scanner_strcase (&level_scnr, "level") && scanner_int (&level_scnr, &level) &&
+            level > 0 && level <= KEYBOARD_LAYOUT_MAX_LEVELS)
+        {
+            state->tok_type = XKB_PARSER_TOKEN_LEVEL_IDENTIFIER;
+            state->tok_value_int = level;
+        }
+
+        // TODO: Check the identifier value is one of the valid identifiers.
+
     } else if (scanner_char (scnr, '<')) {
         // TODO: There is a list of valid key identifiers somewhere as xkbcom
         // crashes when adding unknown ones. Where is this coming from? xkbcomp,
@@ -259,7 +289,6 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
             scanner_set_error (scnr, "Key identifier without closing '>'");
         } else {
             strn_set (&state->tok_value, tok_start, scnr->pos - tok_start);
-            scanner_char (scnr, '>');
         }
 
     } else if (scanner_char_any (scnr, "{}[](),;=+-!")) {
@@ -269,9 +298,7 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
     } else if ((tok_start = scnr->pos) && scanner_char_any (scnr, "0123456789")) {
         state->tok_type = XKB_PARSER_TOKEN_NUMBER;
 
-        // TODO: Store the int value somewhere.
-        int value;
-        scanner_int (scnr, &value);
+        scanner_int (scnr, &state->tok_value_int);
         strn_set (&state->tok_value, tok_start, scnr->pos - tok_start);
 
     } else if (scanner_char (scnr, '\"')) {
@@ -282,8 +309,7 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
         if (scnr->is_eof) {
             scanner_set_error (scnr, "String without matching '\"'");
         } else {
-            strn_set (&state->tok_value, tok_start, scnr->pos - tok_start);
-            scanner_char (scnr, '\"');
+            strn_set (&state->tok_value, tok_start, scnr->pos - 1 - tok_start);
         }
 
     } else {
@@ -338,11 +364,62 @@ void xkb_parser_skip_block (struct xkb_parser_state_t *state, char *block_id)
     }
 }
 
+// A token matches if types are equal and if value is not NULL then the values
+// must match too.
 static inline
 bool xkb_parser_match_tok (struct xkb_parser_state_t *state, enum xkb_parser_token_type_t type, char *value)
 {
     return state->tok_type == type &&
         (value == NULL || strcmp (str_data(&state->tok_value), value) == 0);
+}
+
+// Advances one token, checks if it matches the expected token, if it doesn't
+// the error is set.
+static inline
+void xkb_parser_consume_tok (struct xkb_parser_state_t *state, enum xkb_parser_token_type_t type, char *value)
+{
+    xkb_parser_next (state);
+    if (!xkb_parser_match_tok (state, type, value)) {
+        if (state->tok_type != type) {
+            // TODO: show identifier types as strings.
+            char *error_msg =
+                pprintf (&state->pool, "Expected Identifier of type '%d', got '%d'.", type, state->tok_type);
+            scanner_set_error (&state->scnr, error_msg);
+
+        } else {
+            assert (value != NULL);
+            char *error_msg =
+                pprintf (&state->pool, "Expected '%s', got '%s'.", value, str_data(&state->tok_value));
+            scanner_set_error (&state->scnr, error_msg);
+        }
+    }
+}
+
+void xkb_parser_modifier_mask (struct xkb_parser_state_t *state,
+                               char *end_operator, key_modifier_mask_t *modifier_mask)
+{
+    assert (modifier_mask != NULL);
+
+    *modifier_mask = 0;
+    do {
+        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL);
+
+        // TODO: Check the modifier registry, get the correspondig flag for this
+        // modifier and or it here. Requires :register_modifiers
+        *modifier_mask |= 0;
+
+        xkb_parser_next (state);
+        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, end_operator)) {
+            break;
+
+        } else if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "+")) {
+            char *error_msg =
+                pprintf (&state->pool, "Expected '%s' or '+', got '%s'.",
+                         end_operator, str_data(&state->tok_value));
+            scanner_set_error (&state->scnr, error_msg);
+        }
+
+    } while (!state->scnr.error);
 }
 
 void xkb_parser_parse_types (struct xkb_parser_state_t *state)
@@ -357,6 +434,7 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
                 xkb_parser_next (state);
                 if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL)) {
                     // TODO: Register the defined virtual modifiers.
+                    // :register_modifiers
 
                     xkb_parser_next (state);
                     if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";")) {
@@ -374,50 +452,89 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
 
         } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "type")) {
 
-            string_t type_name = {0};
             xkb_parser_next (state);
             if (state->tok_type == XKB_PARSER_TOKEN_STRING) {
-                str_cpy (&type_name, &state->tok_value);
+                struct key_type_t *new_type;
+                char *type_name;
+                key_modifier_mask_t type_modifier_mask;
+
+                mem_pool_t type_data = ZERO_INIT(mem_pool_t);
+                type_name = pom_strdup (&type_data, str_data(&state->tok_value));
 
                 xkb_parser_next (state);
                 if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{")) {
                     scanner_set_error (&state->scnr, "Expected type block");
                 }
 
-                // Consume the block's content
+                // Parse the type's modifier mask.
+                // NOTE: We assume the modifier mask is the first entry in the
+                // type block. xkbcomp tries to compile types without this at
+                // the start, but I think it will always fail anyway.
+                xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "modifiers");
+                xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+                xkb_parser_modifier_mask (state, ";", &type_modifier_mask);
+
+                new_type = keyboard_layout_new_type (state->keymap, type_name, type_modifier_mask);
+
+                // Parse the other type statements.
                 do {
-                    // TODO: Actually get the type information here.
+                    key_modifier_mask_t level_modifiers;
+                    int level;
+
                     xkb_parser_next (state);
-                } while (!state->scnr.error && !xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}"));
+                    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "map")) {
+                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "[");
 
+                        xkb_parser_modifier_mask (state, "]", &level_modifiers);
 
-                xkb_parser_next (state);
-                if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";")) {
-                    scanner_set_error (&state->scnr, "Expected ';'");
-                }
+                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
 
+                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_LEVEL_IDENTIFIER, NULL);
+                        level = state->tok_value_int;
+
+                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+                        if (!state->scnr.error) {
+                            keyboard_layout_type_set_level (new_type, level, level_modifiers);
+                        }
+
+                    } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "level_name") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "preserve")) {
+
+                        // TODO: Ignore these statements for now
+                        do {
+                            xkb_parser_next (state);
+                        } while (!state->scnr.error && !xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";"));
+
+                    } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
+                        break;
+
+                    } else {
+                        scanner_set_error (&state->scnr, "Invalid statement in key type");
+                    }
+
+                } while (!state->scnr.error);
+
+                xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+                // No matter what we parse, level1 will neve have modifiers.
                 if (!state->scnr.error) {
-                    struct key_type_t *new_type = keyboard_layout_new_type (state->keymap, str_data(&type_name));
                     keyboard_layout_type_set_level (new_type, 1, 0);
                 }
 
-                str_free (&type_name);
+                mem_pool_destroy (&type_data);
             }
 
-        } else {
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
             break;
+
+        } else {
+            scanner_set_error (&state->scnr, "Invalid statement in types section");
         }
 
     } while (!state->scnr.error);
 
-    if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
-        scanner_set_error (&state->scnr, "Expected '}'");
-    }
-
-    xkb_parser_next (state);
-    if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";")) {
-        scanner_set_error (&state->scnr, "Expected ';'");
-    }
+    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
     state->scnr.eof_is_error = false;
 }

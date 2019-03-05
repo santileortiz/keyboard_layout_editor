@@ -157,6 +157,7 @@ struct key_t* keyboard_layout_new_key (struct keyboard_layout_t *keymap, int kc,
     struct key_t *key = keymap->keys[kc];
     if (key == NULL) {
         key = mem_pool_push_size (&keymap->pool, sizeof (struct key_t));
+        *key = ZERO_INIT (struct key_t);
         key->kc = kc;
         keymap->keys[kc] = key;
     }

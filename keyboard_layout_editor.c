@@ -333,7 +333,10 @@ void on_key_type_changed (GtkComboBox *themes_combobox, gpointer user_data)
 
         curr_type = curr_type->next;
     }
-    assert (curr_type != NULL);
+    // NOTE: curr_type can be NULL, this means we assigned the "None" type, or
+    // rather, we unassigned the type for this key.
+    // TODO: Maybe this is not a good convention and we should have a proper
+    // "None" type?
 
     // Update the type in the selected key, or create a key in the keymap if
     // there is none assigned yet.

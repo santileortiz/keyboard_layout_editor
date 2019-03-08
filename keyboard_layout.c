@@ -505,7 +505,7 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
 
                 xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
-                // No matter what we parse, level1 will neve have modifiers.
+                // No matter what we parse, level1 will never have modifiers.
                 if (!state->scnr.error) {
                     keyboard_layout_type_set_level (new_type, 1, 0);
                 }
@@ -518,6 +518,36 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
 
         } else {
             scanner_set_error (&state->scnr, "Invalid statement in types section");
+        }
+
+    } while (!state->scnr.error);
+
+    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+    state->scnr.eof_is_error = false;
+}
+
+void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
+{
+    state->scnr.eof_is_error = true;
+    xkb_parser_block_start (state, "xkb_symbols");
+
+    do {
+        xkb_parser_next (state);
+        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "name") ||
+            xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "key") ||
+            xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "modifier_map")) {
+
+            // Skip statements
+            do {
+                xkb_parser_next (state);
+            } while (!state->scnr.error && !xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";"));
+
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
+            break;
+
+        } else {
+            scanner_set_error (&state->scnr, "Invalid statement in symbols section");
         }
 
     } while (!state->scnr.error);
@@ -547,7 +577,7 @@ struct keyboard_layout_t* keyboard_layout_new (char *xkb_str)
     xkb_parser_skip_block (&state, "xkb_keycodes");
     xkb_parser_parse_types (&state);
     xkb_parser_skip_block (&state, "xkb_compatibility");
-    xkb_parser_skip_block (&state, "xkb_symbols");
+    xkb_parser_parse_symbols (&state);
 
     // Should we accept keymaps with geometry section? looks like xkbcomp does
     // not return one.

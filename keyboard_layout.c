@@ -144,6 +144,20 @@ struct key_type_t* keyboard_layout_new_type (struct keyboard_layout_t *keymap,
     return new_type;
 }
 
+// NOTE: May return NULL if the name does not exist.
+struct key_type_t* keyboard_layout_type_lookup (struct keyboard_layout_t *keymap, char *name)
+{
+    // TODO: Linear search for now. Is this really SO bad that we should use a
+    // tree or a hash table?
+    struct key_type_t *curr_type = keymap->types;
+    while (curr_type != NULL) {
+        if (strcmp (curr_type->name, name) == 0) break;
+        curr_type = curr_type->next;
+    }
+
+    return curr_type;
+}
+
 void keyboard_layout_type_set_level (struct key_type_t *type, int level, key_modifier_mask_t modifiers)
 {
     assert (level > 0 && "Levels must be grater than 0");
@@ -319,7 +333,7 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
 
     // TODO: Get better error messages, show the line where we got stuck.
     if (!state->scnr.error) {
-        //printf ("Type: %d, Value: %s\n", state->tok_type, str_data(&state->tok_value));
+        printf ("Type: %d, Value: %s\n", state->tok_type, str_data(&state->tok_value));
     }
 }
 
@@ -332,12 +346,8 @@ bool xkb_parser_match_tok (struct xkb_parser_state_t *state, enum xkb_parser_tok
         (value == NULL || strcmp (str_data(&state->tok_value), value) == 0);
 }
 
-// Advances one token, checks if it matches the expected token, if it doesn't
-// the error is set.
-static inline
-void xkb_parser_consume_tok (struct xkb_parser_state_t *state, enum xkb_parser_token_type_t type, char *value)
+void xkb_parser_expect_tok (struct xkb_parser_state_t *state, enum xkb_parser_token_type_t type, char *value)
 {
-    xkb_parser_next (state);
     if (!xkb_parser_match_tok (state, type, value)) {
         if (state->tok_type != type) {
             // TODO: show identifier types as strings.
@@ -352,6 +362,15 @@ void xkb_parser_consume_tok (struct xkb_parser_state_t *state, enum xkb_parser_t
             scanner_set_error (&state->scnr, error_msg);
         }
     }
+}
+
+// Advances one token, checks if it matches the expected token, if it doesn't
+// the error is set.
+static inline
+void xkb_parser_consume_tok (struct xkb_parser_state_t *state, enum xkb_parser_token_type_t type, char *value)
+{
+    xkb_parser_next (state);
+    xkb_parser_expect_tok (state, type, value);
 }
 
 void xkb_parser_block_start (struct xkb_parser_state_t *state, char *block_id)
@@ -408,6 +427,13 @@ void xkb_parser_modifier_mask (struct xkb_parser_state_t *state,
         }
 
     } while (!state->scnr.error);
+}
+
+void xkb_parser_skip_until_operator (struct xkb_parser_state_t *state, char *operator)
+{
+    do {
+        xkb_parser_next (state);
+    } while (!state->scnr.error && !xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, operator));
 }
 
 void xkb_parser_parse_types (struct xkb_parser_state_t *state)
@@ -488,11 +514,8 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
 
                     } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "level_name") ||
                                xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "preserve")) {
-
-                        // TODO: Ignore these statements for now
-                        do {
-                            xkb_parser_next (state);
-                        } while (!state->scnr.error && !xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";"));
+                        // TODO: We ignore these statements for now.
+                        xkb_parser_skip_until_operator (state, ";");
 
                     } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
                         break;
@@ -534,14 +557,125 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
 
     do {
         xkb_parser_next (state);
-        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "name") ||
-            xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "key") ||
-            xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "modifier_map")) {
+        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "key")) {
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_KEY_IDENTIFIER, NULL);
+            // TODO: Grab the key identifier's keybode and assign that one, for
+            // now we assign the ESC keycode.
+            //int kc = xkb_parser_key_identifier_kc (state, state->tok_value);
+            int kc = KEY_ESC;
 
-            // Skip statements
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{");
+
+            struct key_type_t *type = NULL;
+            xkb_keysym_t symbols[KEYBOARD_LAYOUT_MAX_LEVELS];
+            int num_symbols = 0;
             do {
                 xkb_parser_next (state);
-            } while (!state->scnr.error && !xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";"));
+                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "[")) {
+                    // This is a shorthand used, in this case the type will be
+                    // guessed afterwards, and there are no actions set here.
+                    xkb_parser_skip_until_operator (state, "]");
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}");
+                    break;
+
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "type")) {
+                    int group = 1;
+                    xkb_parser_next (state);
+                    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "[")) {
+                        // TODO: Add group identifiers like we have level
+                        // identifiers.
+                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL);
+                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "]");
+
+                        xkb_parser_next (state);
+                    }
+
+                    // I don't think multiple groups will be supported unless
+                    // there is a good usecase.
+                    if (group == 1) {
+                        xkb_parser_expect_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_STRING, NULL);
+                        type =
+                            keyboard_layout_type_lookup (state->keymap, str_data(&state->tok_value));
+                        if (type == NULL) {
+                            char *error_msg =
+                                pprintf (&state->pool, "Unknown type '%s.", str_data(&state->tok_value));
+                            scanner_set_error (&state->scnr, error_msg);
+                        }
+                    }
+
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "symbols")) {
+                    xkb_parser_next (state);
+                    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "[")) {
+                        // TODO: Add group identifiers like we have level
+                        // identifiers.
+                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL);
+                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "]");
+
+                        xkb_parser_next (state);
+                    }
+
+                    xkb_parser_expect_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "[");
+                    xkb_parser_skip_until_operator (state, "]");
+
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "actions")) {
+                    // Maybe we should use this instead of the compat block. But
+                    // I would need to lookup documentation for it because it's
+                    // almost never used in freedesktop's keymap database.
+                    // Inside /usr/share/X11/xkb/symbols this is only used
+                    // inside 'shift', 'capslock' and 'level5'.
+                    // TODO: I think loading a layout that includes any of the
+                    // above symbols will show this data as compat declarations,
+                    // but I'm not sure. Check we won't get these from xkbcomp.
+                    xkb_parser_skip_until_operator (state, ";");
+                    scanner_set_error (&state->scnr, "Parsing of actions in key definitions not implemented yet");
+                }
+
+                xkb_parser_next (state);
+                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
+                    break;
+                } else {
+                    xkb_parser_expect_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",");
+                }
+
+            } while (!state->scnr.error);
+
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+            // This ensures the only case type==NULL is when num_symbols==0,
+            // then we will leave the type for the key unassigned.
+            if (type == NULL && num_symbols > 0) {
+                if (num_symbols == 1) {
+                    type = keyboard_layout_type_lookup (state->keymap, "ONE_LEVEL");
+                } else if (num_symbols == 2) {
+                    type = keyboard_layout_type_lookup (state->keymap, "TWO_LEVEL");
+                } else {
+                    // TODO: I'm not sure this is the actual default in xkbcomp
+                    // for this situation. Research that.
+                    type = keyboard_layout_type_lookup (state->keymap, "TWO_LEVEL");
+                }
+            }
+
+            // If everything looks fine then create the new key and assign data
+            // to each level.
+            if (!state->scnr.error) {
+                struct key_t *new_key =
+                    keyboard_layout_new_key (state->keymap, kc, type);
+
+                if (type != NULL) {
+                    // If there are more declared symbols for the key than levels in
+                    // the type we just ignore the extra symbols.
+                    for (int i=0; i<type->num_levels; i++) {
+                        keyboard_layout_key_set_level (new_key, i+1, symbols[i], NULL);
+                    }
+                }
+            }
+
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "name") ||
+            xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "modifier_map")) {
+            // TODO: Don't skip modifier_map statements.
+            xkb_parser_skip_until_operator (state, ";");
 
         } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
             break;

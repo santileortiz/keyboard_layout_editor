@@ -22,6 +22,12 @@
 //
 #define KEYBOARD_LAYOUT_MAX_LEVELS 8
 
+// This has similar considerations than level identifiers, but unlike level
+// identifiers that we actually need, I don't really want to support multiple
+// groups unless it's necessary. This constant is used just to parse the
+// identifiers and ignore everything in a group different than the first one.
+#define KEYBOARD_LAYOUT_MAX_GROUPS 4
+
 typedef uint32_t key_modifier_mask_t;
 
 struct key_type_t {
@@ -224,6 +230,7 @@ enum xkb_parser_token_type_t {
     XKB_PARSER_TOKEN_IDENTIFIER,
     XKB_PARSER_TOKEN_KEY_IDENTIFIER,
     XKB_PARSER_TOKEN_LEVEL_IDENTIFIER,
+    XKB_PARSER_TOKEN_GROUP_IDENTIFIER,
     XKB_PARSER_TOKEN_OPERATOR,
     XKB_PARSER_TOKEN_NUMBER,
     XKB_PARSER_TOKEN_STRING
@@ -280,13 +287,23 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
 
         // Check if it's a level identifier, if so, change the type and set the
         // int value. :level_identifiers
-        struct scanner_t level_scnr = ZERO_INIT(struct scanner_t);
-        level_scnr.pos = str_data(&state->tok_value);
+        struct scanner_t special_identifier_scnr = ZERO_INIT(struct scanner_t);
+        special_identifier_scnr.pos = str_data(&state->tok_value);
+        char *bak_start = special_identifier_scnr.pos;
         int level;
-        if (scanner_strcase (&level_scnr, "level") && scanner_int (&level_scnr, &level) &&
-            level > 0 && level <= KEYBOARD_LAYOUT_MAX_LEVELS)
-        {
+        if (scanner_strcase (&special_identifier_scnr, "level") &&
+            scanner_int (&special_identifier_scnr, &level) &&
+            level > 0 && level <= KEYBOARD_LAYOUT_MAX_LEVELS) {
+
             state->tok_type = XKB_PARSER_TOKEN_LEVEL_IDENTIFIER;
+            state->tok_value_int = level;
+
+        } else if ((special_identifier_scnr.pos = bak_start) &&
+                   scanner_strcase (&special_identifier_scnr, "group") &&
+                   scanner_int (&special_identifier_scnr, &level) &&
+                   level > 0 && level <= KEYBOARD_LAYOUT_MAX_GROUPS) {
+
+            state->tok_type = XKB_PARSER_TOKEN_GROUP_IDENTIFIER;
             state->tok_value_int = level;
         }
 
@@ -582,9 +599,8 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                     int group = 1;
                     xkb_parser_next (state);
                     if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "[")) {
-                        // TODO: Add group identifiers like we have level
-                        // identifiers.
-                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL);
+                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_GROUP_IDENTIFIER, NULL);
+                        group = state->tok_value_int;
                         xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "]");
 
                         xkb_parser_next (state);
@@ -605,11 +621,11 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                     }
 
                 } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "symbols")) {
+                    int group = 1;
                     xkb_parser_next (state);
                     if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "[")) {
-                        // TODO: Add group identifiers like we have level
-                        // identifiers.
-                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL);
+                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_GROUP_IDENTIFIER, NULL);
+                        group = state->tok_value_int;
                         xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "]");
 
                         xkb_parser_next (state);

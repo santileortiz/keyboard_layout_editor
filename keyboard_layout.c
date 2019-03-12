@@ -320,7 +320,7 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
         if (scnr->is_eof) {
             scanner_set_error (scnr, "Key identifier without closing '>'");
         } else {
-            strn_set (&state->tok_value, tok_start, scnr->pos - tok_start);
+            strn_set (&state->tok_value, tok_start, scnr->pos - 1 - tok_start);
         }
 
     } else if (scanner_char_any (scnr, "{}[](),;=+-!")) {

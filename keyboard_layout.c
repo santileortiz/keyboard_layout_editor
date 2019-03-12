@@ -245,6 +245,8 @@ struct xkb_parser_state_t {
     string_t tok_value;
     int tok_value_int;
 
+    GTree *key_identifiers_to_keycodes;
+
     struct keyboard_layout_t *keymap;
 };
 
@@ -253,11 +255,54 @@ void xkb_parser_state_init (struct xkb_parser_state_t *state, char *xkb_str, str
     *state = ZERO_INIT(struct xkb_parser_state_t);
     state->scnr.pos = xkb_str;
     state->keymap = keymap;
+
+    state->key_identifiers_to_keycodes = g_tree_new (strcmp_as_g_compare_func);
 }
 
 void xkb_parser_state_destory (struct xkb_parser_state_t *state)
 {
     str_free (&state->tok_value);
+    mem_pool_destroy (&state->pool);
+    g_tree_destroy (state->key_identifiers_to_keycodes);
+}
+
+// NOTE: key_identifier is expected to already be allocated inside state->pool,
+// we do this to avoid double allocation/copying. The parser needs to copy it
+// anyway to be able to call this at the end of a keycode assignment statement.
+bool xkb_parser_define_key_identifier (struct xkb_parser_state_t *state, char *key_identifier, int kc)
+{
+    bool new_identifier_defined = false;
+
+    if (!g_tree_lookup_extended (state->key_identifiers_to_keycodes, key_identifier, NULL, NULL)) {
+        // GTree only accepts pointers as values, a tree that points to integers
+        // would avoid some pointer lookups.
+        int *value_ptr = mem_pool_push_size (&state->pool, sizeof(int));
+        *value_ptr = kc;
+        g_tree_insert (state->key_identifiers_to_keycodes, key_identifier, value_ptr);
+        new_identifier_defined = true;
+
+    } else {
+        char *error_msg =
+            pprintf (&state->pool, "Key identifier '%s' already defined.", key_identifier);
+        scanner_set_error (&state->scnr, error_msg);
+    }
+
+    return new_identifier_defined;
+}
+
+bool xkb_parser_key_identifier_lookup (struct xkb_parser_state_t *state, char *key_identifier, int *kc)
+{
+    assert (kc != NULL);
+
+    bool identifier_found = false;
+
+    void *value;
+    if (g_tree_lookup_extended (state->key_identifiers_to_keycodes, key_identifier, NULL, &value)) {
+        identifier_found = true;
+        *kc = *(int*)value;
+    }
+
+    return identifier_found;
 }
 
 void xkb_parser_next (struct xkb_parser_state_t *state)
@@ -280,7 +325,14 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
     }
 
     char *tok_start;
-    if ((tok_start = scnr->pos) && scanner_char_any (scnr, identifier_chars)) {
+    if ((tok_start = scnr->pos) && scanner_char_any (scnr, "0123456789")) {
+        state->tok_type = XKB_PARSER_TOKEN_NUMBER;
+
+        scnr->pos = tok_start;
+        scanner_int (scnr, &state->tok_value_int);
+        strn_set (&state->tok_value, tok_start, scnr->pos - tok_start);
+
+    } else if ((tok_start = scnr->pos) && scanner_char_any (scnr, identifier_chars)) {
         state->tok_type = XKB_PARSER_TOKEN_IDENTIFIER;
         while (scanner_char_any (scnr, identifier_chars));
         strn_set (&state->tok_value, tok_start, scnr->pos - tok_start);
@@ -326,12 +378,6 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
     } else if (scanner_char_any (scnr, "{}[](),;=+-!")) {
         state->tok_type = XKB_PARSER_TOKEN_OPERATOR;
         strn_set (&state->tok_value, scnr->pos-1, 1);
-
-    } else if ((tok_start = scnr->pos) && scanner_char_any (scnr, "0123456789")) {
-        state->tok_type = XKB_PARSER_TOKEN_NUMBER;
-
-        scanner_int (scnr, &state->tok_value_int);
-        strn_set (&state->tok_value, tok_start, scnr->pos - tok_start);
 
     } else if (scanner_char (scnr, '\"')) {
         state->tok_type = XKB_PARSER_TOKEN_STRING;
@@ -451,6 +497,67 @@ void xkb_parser_skip_until_operator (struct xkb_parser_state_t *state, char *ope
     do {
         xkb_parser_next (state);
     } while (!state->scnr.error && !xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, operator));
+}
+
+void xkb_parser_parse_keycodes (struct xkb_parser_state_t *state)
+{
+    state->scnr.eof_is_error = true;
+    xkb_parser_block_start (state, "xkb_keycodes");
+
+    do {
+        xkb_parser_next (state);
+        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_KEY_IDENTIFIER, NULL)) {
+            char *key_identifier = pom_strdup (&state->pool, str_data(&state->tok_value));
+
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_NUMBER, NULL);
+            int kc = state->tok_value_int;
+
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+            xkb_parser_define_key_identifier (state, key_identifier, kc);
+
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "alias")) {
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_KEY_IDENTIFIER, NULL);
+            string_t tmp_identifier = {0};
+            str_cpy (&tmp_identifier, &state->tok_value);
+
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+
+            bool ignore_alias = false;
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_KEY_IDENTIFIER, NULL);
+            int kc;
+            if (!xkb_parser_key_identifier_lookup (state, str_data(&state->tok_value), &kc)) {
+                printf ("Ignoring alias for '%s' as key identifier '%s' is undefined.",
+                        str_data(&tmp_identifier), str_data(&state->tok_value));
+                ignore_alias = true;
+            }
+
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+            if (!state->scnr.error && !ignore_alias) {
+                xkb_parser_define_key_identifier (state, str_data(&tmp_identifier), kc);
+            }
+
+            str_free (&tmp_identifier);
+
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "minimum") ||
+                   xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "maximum") ||
+                   xkb_parser_match_tok (state, XKB_PARSER_TOKEN_KEY_IDENTIFIER, "indicator")) {
+
+            // Ignore these statements.
+            xkb_parser_skip_until_operator (state, ";");
+
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
+            break;
+        }
+
+    } while (!state->scnr.error);
+
+    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+    state->scnr.eof_is_error = false;
 }
 
 void xkb_parser_parse_types (struct xkb_parser_state_t *state)
@@ -576,10 +683,17 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
         xkb_parser_next (state);
         if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "key")) {
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_KEY_IDENTIFIER, NULL);
-            // TODO: Grab the key identifier's keybode and assign that one, for
-            // now we assign the ESC keycode.
-            //int kc = xkb_parser_key_identifier_kc (state, state->tok_value);
+#if 0
+            // FIXME: Needs work!!!
+            int kc;
+            if (!xkb_parser_key_identifier_lookup (state, str_data(&state->tok_value), &kc)) {
+                char *error_msg =
+                    pprintf (&state->pool, "Undefined key identifier '%s.", str_data(&state->tok_value));
+                scanner_set_error (&state->scnr, error_msg);
+            }
+#else
             int kc = KEY_ESC;
+#endif
 
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{");
 
@@ -724,7 +838,7 @@ struct keyboard_layout_t* keyboard_layout_new (char *xkb_str)
     xkb_parser_consume_tok (&state, XKB_PARSER_TOKEN_IDENTIFIER, "xkb_keymap");
     xkb_parser_consume_tok (&state, XKB_PARSER_TOKEN_OPERATOR, "{");
 
-    xkb_parser_skip_block (&state, "xkb_keycodes");
+    xkb_parser_parse_keycodes (&state);
     xkb_parser_parse_types (&state);
     xkb_parser_skip_block (&state, "xkb_compatibility");
     xkb_parser_parse_symbols (&state);
@@ -744,6 +858,8 @@ struct keyboard_layout_t* keyboard_layout_new (char *xkb_str)
     } else {
         printf ("SUCESS\n");
     }
+
+    xkb_parser_state_destory (&state);
 
     return keymap;
 }

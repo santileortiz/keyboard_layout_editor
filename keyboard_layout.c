@@ -537,7 +537,8 @@ void xkb_parser_parse_keycodes (struct xkb_parser_state_t *state)
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
             if (!state->scnr.error && !ignore_alias) {
-                xkb_parser_define_key_identifier (state, str_data(&tmp_identifier), kc);
+                char *new_identifier = pom_strdup (&state->pool, str_data(&tmp_identifier));
+                xkb_parser_define_key_identifier (state, new_identifier, kc);
             }
 
             str_free (&tmp_identifier);
@@ -683,17 +684,12 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
         xkb_parser_next (state);
         if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "key")) {
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_KEY_IDENTIFIER, NULL);
-#if 0
-            // FIXME: Needs work!!!
             int kc;
             if (!xkb_parser_key_identifier_lookup (state, str_data(&state->tok_value), &kc)) {
                 char *error_msg =
                     pprintf (&state->pool, "Undefined key identifier '%s.", str_data(&state->tok_value));
                 scanner_set_error (&state->scnr, error_msg);
             }
-#else
-            int kc = KEY_ESC;
-#endif
 
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{");
 

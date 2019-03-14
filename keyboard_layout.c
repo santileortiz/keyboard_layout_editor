@@ -716,17 +716,19 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                         xkb_parser_next (state);
                     }
 
+                    xkb_parser_expect_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_STRING, NULL);
+
                     // I don't think multiple groups will be supported unless
                     // there is a good usecase.
                     if (group == 1) {
-                        xkb_parser_expect_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
-                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_STRING, NULL);
                         type =
                             keyboard_layout_type_lookup (state->keymap, str_data(&state->tok_value));
                         if (type == NULL) {
                             char *error_msg =
                                 pprintf (&state->pool, "Unknown type '%s.", str_data(&state->tok_value));
                             scanner_set_error (&state->scnr, error_msg);
+
                         }
                     }
 
@@ -743,7 +745,27 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
 
                     xkb_parser_expect_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "[");
-                    xkb_parser_skip_until_operator (state, "]");
+                    if (group == 1) {
+                        do {
+                            xkb_parser_next (state);
+                            if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL)) {
+                                symbols[num_symbols] =
+                                    xkb_keysym_from_name (str_data(&state->tok_value), XKB_KEYSYM_NO_FLAGS);
+                                num_symbols++;
+                            }
+
+                            xkb_parser_next (state);
+                            if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "]")) {
+                                break;
+                            } else {
+                                xkb_parser_expect_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",");
+                            }
+
+                        } while (!state->scnr.error);
+
+                    } else {
+                        xkb_parser_skip_until_operator (state, "]");
+                    }
 
                 } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "actions")) {
                     // Maybe we should use this instead of the compat block. But

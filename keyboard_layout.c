@@ -512,7 +512,7 @@ void xkb_parser_parse_keycodes (struct xkb_parser_state_t *state)
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
 
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_NUMBER, NULL);
-            int kc = state->tok_value_int;
+            int kc = state->tok_value_int - 8;
 
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
@@ -675,6 +675,31 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
     state->scnr.eof_is_error = false;
 }
 
+void xkb_parser_symbol_list (struct xkb_parser_state_t *state,
+                             xkb_keysym_t *symbols, int size,
+                             int *num_symbols_found)
+{
+    assert (size == KEYBOARD_LAYOUT_MAX_LEVELS);
+    assert (*num_symbols_found == 0);
+
+    do {
+        xkb_parser_next (state);
+        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL)) {
+            symbols[*num_symbols_found] =
+                xkb_keysym_from_name (str_data(&state->tok_value), XKB_KEYSYM_NO_FLAGS);
+            (*num_symbols_found)++;
+        }
+
+        xkb_parser_next (state);
+        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "]")) {
+            break;
+        } else {
+            xkb_parser_expect_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",");
+        }
+
+    } while (!state->scnr.error && *num_symbols_found < size);
+}
+
 void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
 {
     state->scnr.eof_is_error = true;
@@ -701,7 +726,7 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                 if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "[")) {
                     // This is a shorthand used, in this case the type will be
                     // guessed afterwards, and there are no actions set here.
-                    xkb_parser_skip_until_operator (state, "]");
+                    xkb_parser_symbol_list (state, symbols, ARRAY_SIZE(symbols), &num_symbols);
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}");
                     break;
 
@@ -746,22 +771,7 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                     xkb_parser_expect_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "[");
                     if (group == 1) {
-                        do {
-                            xkb_parser_next (state);
-                            if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL)) {
-                                symbols[num_symbols] =
-                                    xkb_keysym_from_name (str_data(&state->tok_value), XKB_KEYSYM_NO_FLAGS);
-                                num_symbols++;
-                            }
-
-                            xkb_parser_next (state);
-                            if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "]")) {
-                                break;
-                            } else {
-                                xkb_parser_expect_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",");
-                            }
-
-                        } while (!state->scnr.error);
+                        xkb_parser_symbol_list (state, symbols, ARRAY_SIZE(symbols), &num_symbols);
 
                     } else {
                         xkb_parser_skip_until_operator (state, "]");

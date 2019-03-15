@@ -688,11 +688,16 @@ void xkb_parser_symbol_list (struct xkb_parser_state_t *state,
 
     do {
         xkb_parser_next (state);
-        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL)) {
+        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL) ||
+            (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_NUMBER, NULL) && state->tok_value_int < 10)) {
             symbols[*num_symbols_found] =
                 xkb_keysym_from_name (str_data(&state->tok_value), XKB_KEYSYM_NO_FLAGS);
             (*num_symbols_found)++;
         }
+
+        // TODO: I think xkbcomp parses numbers grater than 9 as a keycode
+        // value. This is very counterintuitive, do we want to support this?
+        // maybe multicharacter keysyms are more useful.
 
         xkb_parser_next (state);
         if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "]")) {

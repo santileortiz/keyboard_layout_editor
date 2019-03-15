@@ -325,14 +325,7 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
     }
 
     char *tok_start;
-    if ((tok_start = scnr->pos) && scanner_char_any (scnr, "0123456789")) {
-        state->tok_type = XKB_PARSER_TOKEN_NUMBER;
-
-        scnr->pos = tok_start;
-        scanner_int (scnr, &state->tok_value_int);
-        strn_set (&state->tok_value, tok_start, scnr->pos - tok_start);
-
-    } else if ((tok_start = scnr->pos) && scanner_char_any (scnr, identifier_chars)) {
+    if ((tok_start = scnr->pos) && scanner_char_any (scnr, identifier_chars)) {
         state->tok_type = XKB_PARSER_TOKEN_IDENTIFIER;
         while (scanner_char_any (scnr, identifier_chars));
         strn_set (&state->tok_value, tok_start, scnr->pos - tok_start);
@@ -343,9 +336,19 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
         special_identifier_scnr.pos = str_data(&state->tok_value);
         char *bak_start = special_identifier_scnr.pos;
         int level;
-        if (scanner_strcase (&special_identifier_scnr, "level") &&
-            scanner_int (&special_identifier_scnr, &level) &&
-            level > 0 && level <= KEYBOARD_LAYOUT_MAX_LEVELS) {
+
+        int num_numbers = 0;
+        while (scanner_char_any (&special_identifier_scnr, "0123456789")) num_numbers++;
+
+        if (num_numbers == str_len(&state->tok_value)) {
+            state->tok_type = XKB_PARSER_TOKEN_NUMBER;
+            special_identifier_scnr.pos = bak_start;
+            scanner_int (&special_identifier_scnr, &state->tok_value_int);
+
+        } else if ((special_identifier_scnr.pos = bak_start) &&
+                   scanner_strcase (&special_identifier_scnr, "level") &&
+                   scanner_int (&special_identifier_scnr, &level) &&
+                   level > 0 && level <= KEYBOARD_LAYOUT_MAX_LEVELS) {
 
             state->tok_type = XKB_PARSER_TOKEN_LEVEL_IDENTIFIER;
             state->tok_value_int = level;
@@ -357,9 +360,10 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
 
             state->tok_type = XKB_PARSER_TOKEN_GROUP_IDENTIFIER;
             state->tok_value_int = level;
-        }
 
-        // TODO: Check the identifier value is one of the valid identifiers.
+        } else {
+            // TODO: Check the identifier value is one of the valid identifiers.
+        }
 
     } else if (scanner_char (scnr, '<')) {
         // TODO: There is a list of valid key identifiers somewhere as xkbcom

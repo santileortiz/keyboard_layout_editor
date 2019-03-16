@@ -383,11 +383,7 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
         GtkWidget *symbol_title = title_label_new ("Symbol");
         gtk_widget_set_halign (symbol_title, GTK_ALIGN_CENTER);
         gtk_widget_set_margins (symbol_title, 6);
-        GtkWidget *action_title = title_label_new ("Action");
-        gtk_widget_set_halign (action_title, GTK_ALIGN_CENTER);
-        gtk_widget_set_margins (action_title, 6);
         gtk_grid_attach (GTK_GRID(per_level_data), symbol_title, 1, 0, 1, 1);
-        gtk_grid_attach (GTK_GRID(per_level_data), action_title, 2, 0, 1, 1);
 
         char keysym_name[64];
         for (int i=0; i<key->type->num_levels; i++) {
@@ -411,12 +407,8 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
             gtk_widget_set_margins (symbol_wdgt, 6);
             gtk_widget_set_size_request (symbol_wdgt, 120, 0);
 
-            GtkWidget *action_entry = gtk_entry_new ();
-            gtk_entry_set_width_chars (GTK_ENTRY(action_entry), 10);
-            gtk_widget_set_margins (action_entry, 6);
             gtk_grid_attach (GTK_GRID(per_level_data), level_label, 0, i+1, 1, 1);
             gtk_grid_attach (GTK_GRID(per_level_data), symbol_wdgt, 1, i+1, 1, 1);
-            gtk_grid_attach (GTK_GRID(per_level_data), action_entry, 2, i+1, 1, 1);
         }
 
         gtk_grid_attach (GTK_GRID(grid), per_level_data, 0, 2, 2, 1);

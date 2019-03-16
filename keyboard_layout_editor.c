@@ -29,6 +29,7 @@ struct kle_app_t app;
 #include "keyboard_view_as_string.c"
 
 #include "keyboard_layout.c"
+#include "xkb_file_backend.c"
 
 static inline
 void str_cat_full_path (string_t *str, char *path)
@@ -487,8 +488,6 @@ void return_to_welcome_handler (GtkButton *button, gpointer   user_data)
 
 void edit_layout_handler (GtkButton *button, gpointer user_data)
 {
-    app.is_edit_mode = true;
-
     // TODO: The current xkb string should be able to be set from different
     // sources, besides an installed layout it may come from a source file or
     // from an autosave. Source file paths should be persisted but not required.
@@ -498,49 +497,55 @@ void edit_layout_handler (GtkButton *button, gpointer user_data)
     str_free (&app.curr_xkb_str);
     str_set (&app.curr_xkb_str, str_data(&app.curr_keymap_name));
     app.curr_xkb_str = reconstruct_installed_custom_layout_str (str_data(&app.curr_keymap_name));
+    app.keymap = keyboard_layout_new_from_xkb (str_data(&app.curr_xkb_str));
 
-    gtk_header_bar_set_title (GTK_HEADER_BAR(app.header_bar), str_data(&app.curr_keymap_name));
+    if (app.keymap != NULL) {
+        app.is_edit_mode = true;
 
-    // Set the headerbar buttons
-    {
-        GtkWidget *return_to_welcome_button = gtk_button_new_with_label ("Go Back");
-        gtk_widget_set_valign (return_to_welcome_button, GTK_ALIGN_CENTER);
-        add_css_class (return_to_welcome_button, "back-button");
-        g_signal_connect (return_to_welcome_button, "clicked", G_CALLBACK (return_to_welcome_handler), NULL);
+        gtk_header_bar_set_title (GTK_HEADER_BAR(app.header_bar), str_data(&app.curr_keymap_name));
 
-        GtkWidget *headerbar_buttons = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
-        gtk_container_add (GTK_CONTAINER (headerbar_buttons), return_to_welcome_button);
-        app.keymap_test_button = new_keymap_test_button();
-        gtk_container_add (GTK_CONTAINER (headerbar_buttons), app.keymap_test_button);
-        replace_wrapped_widget (&app.headerbar_buttons, headerbar_buttons);
-        gtk_widget_show_all (headerbar_buttons);
+        // Set the headerbar buttons
+        {
+            GtkWidget *return_to_welcome_button = gtk_button_new_with_label ("Go Back");
+            gtk_widget_set_valign (return_to_welcome_button, GTK_ALIGN_CENTER);
+            add_css_class (return_to_welcome_button, "back-button");
+            g_signal_connect (return_to_welcome_button, "clicked", G_CALLBACK (return_to_welcome_handler), NULL);
+
+            GtkWidget *headerbar_buttons = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+            gtk_container_add (GTK_CONTAINER (headerbar_buttons), return_to_welcome_button);
+            app.keymap_test_button = new_keymap_test_button();
+            gtk_container_add (GTK_CONTAINER (headerbar_buttons), app.keymap_test_button);
+            replace_wrapped_widget (&app.headerbar_buttons, headerbar_buttons);
+            gtk_widget_show_all (headerbar_buttons);
+        }
+
+        GtkWidget *stack = gtk_stack_new ();
+        gtk_widget_set_halign (stack, GTK_ALIGN_CENTER);
+        {
+            kv_set_preview_keys (app.keyboard_view);
+            app.keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->preview_keys_selection->kc);
+            gtk_stack_add_titled (GTK_STACK(stack), wrap_gtk_widget(app.keys_sidebar), "keys", "Keys");
+        }
+
+        {
+            GtkWidget *types_stack = gtk_label_new ("Types");
+            gtk_stack_add_titled (GTK_STACK(stack), types_stack, "types", "Types");
+        }
+
+        GtkWidget *stack_buttons = gtk_stack_switcher_new ();
+        gtk_widget_set_halign (stack_buttons, GTK_ALIGN_CENTER);
+        gtk_widget_set_margins (stack_buttons, 12);
+        gtk_stack_switcher_set_stack (GTK_STACK_SWITCHER(stack_buttons), GTK_STACK(stack));
+
+        GtkWidget *grid = gtk_grid_new ();
+        gtk_widget_set_halign (grid, GTK_ALIGN_CENTER);
+        gtk_grid_attach (GTK_GRID(grid), stack_buttons, 0, 0, 1, 1);
+        gtk_grid_attach (GTK_GRID(grid), stack, 0, 1, 1, 1);
+        replace_wrapped_widget (&app.sidebar, grid);
+
+    } else {
+        // TODO: xkb file parsing failed, show an error message.
     }
-
-    GtkWidget *stack = gtk_stack_new ();
-    gtk_widget_set_halign (stack, GTK_ALIGN_CENTER);
-    {
-        app.keymap = keyboard_layout_new (str_data(&app.curr_xkb_str));
-
-        kv_set_preview_keys (app.keyboard_view);
-        app.keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->preview_keys_selection->kc);
-        gtk_stack_add_titled (GTK_STACK(stack), wrap_gtk_widget(app.keys_sidebar), "keys", "Keys");
-    }
-
-    {
-        GtkWidget *types_stack = gtk_label_new ("Types");
-        gtk_stack_add_titled (GTK_STACK(stack), types_stack, "types", "Types");
-    }
-
-    GtkWidget *stack_buttons = gtk_stack_switcher_new ();
-    gtk_widget_set_halign (stack_buttons, GTK_ALIGN_CENTER);
-    gtk_widget_set_margins (stack_buttons, 12);
-    gtk_stack_switcher_set_stack (GTK_STACK_SWITCHER(stack_buttons), GTK_STACK(stack));
-
-    GtkWidget *grid = gtk_grid_new ();
-    gtk_widget_set_halign (grid, GTK_ALIGN_CENTER);
-    gtk_grid_attach (GTK_GRID(grid), stack_buttons, 0, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID(grid), stack, 0, 1, 1, 1);
-    replace_wrapped_widget (&app.sidebar, grid);
 }
 
 gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)

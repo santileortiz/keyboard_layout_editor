@@ -194,6 +194,7 @@ struct keyboard_layout_t* keyboard_layout_new_default (void)
 
 // NOTE: This can return NULL if parsing fails.
 bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap);
+void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res);
 struct keyboard_layout_t* keyboard_layout_new_from_xkb (char *xkb_str)
 {
     mem_pool_t bootstrap = ZERO_INIT (mem_pool_t);
@@ -205,6 +206,10 @@ struct keyboard_layout_t* keyboard_layout_new_from_xkb (char *xkb_str)
         keyboard_layout_destroy (keymap);
         keymap = NULL;
     }
+
+    string_t out;
+    xkb_file_write (keymap, &out);
+    printf ("%s\n", str_data(&out));
 
     return keymap;
 }

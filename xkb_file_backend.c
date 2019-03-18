@@ -710,3 +710,67 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
     return success;
 }
 
+// Can we guarantee this will never fail? if we do then we can write the output
+// directly into res.
+void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
+{
+    bool success = true;
+    string_t xkb_str = {0};
+    char buff[100];
+
+    // TODO: Print our extra informtion as comments.
+    str_cat_c (&xkb_str, "keymap {\n");
+
+    // As far as I've been able to understand, the keycode section is basically
+    // useless. It's only purpose is to assign more semantically meaningful
+    // names to keycodes. There is no list of specific key identifiers, instead
+    // the keymap database is the one that attempts to provide meaning to them.
+    // As far as I can tell any 0 to 4 sequence of alphanumeric characters can
+    // be a key identifier. What we do with this section is to name keycodes by
+    // their kernel keycode (keycode KEY_ESC will be <1>). At the moment the
+    // kernel expects to have maximum 768 keycode macros, I don't think they
+    // will go beyond the 4 character limit.
+    //
+    // In the future I think the xkb file format could even drop the <> but we would
+    // have to check that this isn't semantically ambiguous. To improve human
+    // readability we could use the kernel's macros for keycodes but then we are
+    // relying on these macros never changing in the future (which I think is a
+    // safe assumption to make about the kernel development team).
+    //
+
+    str_cat_c (&xkb_str, "keycodes \"keys_k\" {\n");
+    str_cat_c (&xkb_str, "    minimum = 8\n");
+    str_cat_c (&xkb_str, "    maximum = 255\n");
+
+    // TODO: This could be faster if keys were in a linked list. But more cache
+    // unfriendly?. If it ever becomes an issue, see which on is better.
+    int i=0;
+    for (i=0; i<KEY_CNT; i++) {
+        if (keymap->keys[i] != NULL) {
+            str_cat_c (&xkb_str, "    ");
+            snprintf (buff, ARRAY_SIZE(buff), "<%d>", i);
+            str_cat_c (&xkb_str, buff);
+            str_cat_c (&xkb_str, " = ");
+            snprintf (buff, ARRAY_SIZE(buff), "%d", i+8);
+            str_cat_c (&xkb_str, buff);
+
+            if (keycode_names[i] != NULL) {
+                str_cat_c (&xkb_str, "; // ");
+                str_cat_c (&xkb_str, keycode_names[i]);
+                str_cat_c (&xkb_str, "\n");
+
+            } else {
+                str_cat_c (&xkb_str, ";\n");
+            }
+        }
+    }
+    str_cat_c (&xkb_str, "};\n"); // end of keycodes section
+
+    str_cat_c (&xkb_str, "};\n"); // end of keymap
+
+    if (success) {
+        str_cpy (res, &xkb_str);
+    }
+    str_free (&xkb_str);
+}
+

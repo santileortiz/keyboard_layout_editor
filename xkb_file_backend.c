@@ -738,7 +738,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
     // safe assumption to make about the kernel development team).
     //
 
-    str_cat_c (&xkb_str, "keycodes \"keys_k\" {\n");
+    str_cat_c (&xkb_str, "xkb_keycodes \"keys_k\" {\n");
     str_cat_c (&xkb_str, "    minimum = 8\n");
     str_cat_c (&xkb_str, "    maximum = 255\n");
 
@@ -765,6 +765,15 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
         }
     }
     str_cat_c (&xkb_str, "};\n"); // end of keycodes section
+
+    str_cat_c (&xkb_str, "xkb_types \"keys_t\" {\n");
+    str_cat_c (&xkb_str, "};\n"); // end of types section
+
+    str_cat_c (&xkb_str, "xkb_compatibility \"keys_c\" {\n");
+    str_cat_c (&xkb_str, "};\n"); // end of compatibility section
+
+    str_cat_c (&xkb_str, "xkb_symbols \"keys_s\" {\n");
+    str_cat_c (&xkb_str, "};\n"); // end of symbols section
 
     str_cat_c (&xkb_str, "};\n"); // end of keymap
 

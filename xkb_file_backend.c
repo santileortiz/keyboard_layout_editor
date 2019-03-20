@@ -764,18 +764,55 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
             }
         }
     }
-    str_cat_c (&xkb_str, "};\n"); // end of keycodes section
+    str_cat_c (&xkb_str, "};\n\n"); // end of keycodes section
 
     str_cat_c (&xkb_str, "xkb_types \"keys_t\" {\n");
-    str_cat_c (&xkb_str, "};\n"); // end of types section
+
+    // TODO: Only define virtual modifiers that are used in the keymap. These
+    // ones seem to be the most common. The full list of used virtual modifiers
+    // in the database is:
+    //
+    //      Alt,AltGr,Circle,Cross,Hyper,Kana_Lock,LAlt,LControl,LevelFive,
+    //      LevelThree,Meta,NumLock,RAlt,RControl,ScrollLock,Square,Super,Triangle
+    //
+    // I don't know what most of them do, so I won't define them for now.
+    // Technically I think virtual modifiers (like key identifiers) are mostly
+    // used to ease readability, but maybe we can make up names for them as they
+    // become necessary.
+    str_cat_c (&xkb_str, "    virtual_modifiers NumLock,Alt,LevelThree,LAlt,RAlt,RControl,LControl,ScrollLock,LevelFive,AltGr,Meta,Super,Hyper;\n\n");
+
+    struct key_type_t *curr_type = keymap->types;
+    while (curr_type != NULL) {
+        str_cat_c (&xkb_str, "    type \"");
+        str_cat_c (&xkb_str, curr_type->name);
+        str_cat_c (&xkb_str, "\" {\n");
+        // TODO: Print modifiers from curr_type->modifier_mask
+        str_cat_c (&xkb_str, "        modifiers = none;\n");
+
+        int i=0;
+        for (i=0; i<curr_type->num_levels; i++) {
+            str_cat_c (&xkb_str, "        level_name[none");
+            // TODO: Print the mask curr_type->modifiers[i] here.
+            str_cat_c (&xkb_str, "] = Level");
+            snprintf (buff, ARRAY_SIZE(buff), "%d", i+1);
+            str_cat_c (&xkb_str, buff);
+            str_cat_c (&xkb_str, ";\n");
+
+            // I don't think level names are really important.
+        }
+        str_cat_c (&xkb_str, "    };\n");
+
+        curr_type = curr_type->next;
+    }
+    str_cat_c (&xkb_str, "};\n\n"); // end of types section
 
     str_cat_c (&xkb_str, "xkb_compatibility \"keys_c\" {\n");
-    str_cat_c (&xkb_str, "};\n"); // end of compatibility section
+    str_cat_c (&xkb_str, "};\n\n"); // end of compatibility section
 
     str_cat_c (&xkb_str, "xkb_symbols \"keys_s\" {\n");
-    str_cat_c (&xkb_str, "};\n"); // end of symbols section
+    str_cat_c (&xkb_str, "};\n\n"); // end of symbols section
 
-    str_cat_c (&xkb_str, "};\n"); // end of keymap
+    str_cat_c (&xkb_str, "};\n\n"); // end of keymap
 
     if (success) {
         str_cpy (res, &xkb_str);

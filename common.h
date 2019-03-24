@@ -1759,10 +1759,36 @@ typedef struct {
     uint32_t num_bins;
 } mem_pool_t;
 
+// Sometimes we want to execute code when something we allocated in a pool gets
+// destroyed, that's what this callback is for. The alloceted argument will
+// point to the allocated memory when the callback was assigned.
+//
+// NOTE: When destroying a pool (or part of it when using temporary memory), ALL
+// destruction callbacks will be called BEFORE we free any memory from the pool.
+// The reasoning behind this is that maybe these callback functions would like
+// to use data inside things being destroyed. At the moment it seems like the
+// most sensible thing to do, but there may be cases where it isn't, maybe it
+// could increase cache misses? I don't know.
+//
+// TODO: Which other arguments would be useful for this? maybe add a closure?,
+// take into account that currently this signature is the same as for
+// str_free() avoiding a wrapper for it.
+#define ON_DESTROY_CALLBACK(name) void name(void *allocated)
+typedef ON_DESTROY_CALLBACK(mem_pool_on_destroy_callback_t);
+
+struct on_destroy_callback_info_t {
+    mem_pool_on_destroy_callback_t *cb;
+    void *allocated;
+
+    struct on_destroy_callback_info_t *prev;
+};
+
 struct _bin_info_t {
     void *base;
     uint32_t size;
     struct _bin_info_t *prev_bin_info;
+
+    struct on_destroy_callback_info_t *last_cb_info;
 };
 
 typedef struct _bin_info_t bin_info_t;
@@ -1772,13 +1798,19 @@ enum alloc_opts {
     POOL_ZERO_INIT
 };
 
+#define mem_pool_push_size_cb(pool, size, cb) mem_pool_push_size_full(pool, size, POOL_UNINITIALIZED, cb)
+#define mem_pool_push_size(pool, size) mem_pool_push_size_full(pool, size, POOL_UNINITIALIZED, NULL)
 #define mem_pool_push_struct(pool, type) mem_pool_push_size(pool, sizeof(type))
 #define mem_pool_push_array(pool, n, type) mem_pool_push_size(pool, (n)*sizeof(type))
-#define mem_pool_push_size(pool, size) mem_pool_push_size_full(pool, size, POOL_UNINITIALIZED)
-void* mem_pool_push_size_full (mem_pool_t *pool, uint32_t size, enum alloc_opts opts)
+void* mem_pool_push_size_full (mem_pool_t *pool, uint32_t size, enum alloc_opts opts,
+                               mem_pool_on_destroy_callback_t *cb)
 {
     assert (pool != NULL);
     if (size == 0) return NULL;
+
+    if (cb != NULL) {
+        size += sizeof (struct on_destroy_callback_info_t);
+    }
 
     if (pool->used + size >= pool->size) {
         pool->num_bins++;
@@ -1794,6 +1826,7 @@ void* mem_pool_push_size_full (mem_pool_t *pool, uint32_t size, enum alloc_opts 
 
         new_info->base = new_bin;
         new_info->size = new_bin_size;
+        new_info->last_cb_info = NULL;
 
         if (pool->base == NULL) {
             new_info->prev_bin_info = NULL;
@@ -1811,6 +1844,17 @@ void* mem_pool_push_size_full (mem_pool_t *pool, uint32_t size, enum alloc_opts 
     pool->used += size;
     pool->total_used += size;
 
+    if (cb != NULL) {
+        struct on_destroy_callback_info_t *cb_info =
+            (struct on_destroy_callback_info_t*)(pool->base + pool->used - sizeof(struct on_destroy_callback_info_t));
+        cb_info->allocated = ret;
+        cb_info->cb = cb;
+
+        bin_info_t *bin_info = pool->base + pool->size;
+        cb_info->prev = bin_info->last_cb_info;
+        bin_info->last_cb_info = cb_info;
+    }
+
     if (opts == POOL_ZERO_INIT) {
         memset (ret, 0, size);
     }
@@ -1825,6 +1869,19 @@ void mem_pool_destroy (mem_pool_t *pool)
     if (pool->base != NULL) {
         bin_info_t *curr_info = (bin_info_t*)((uint8_t*)pool->base + pool->size);
 
+        // Call all on_destroy callbacks
+        while (curr_info != NULL) {
+            struct on_destroy_callback_info_t *cb_info = curr_info->last_cb_info;
+            while (cb_info != NULL) {
+                cb_info->cb(cb_info->allocated);
+                cb_info = cb_info->prev;
+            }
+
+            curr_info = curr_info->prev_bin_info;
+        }
+
+        // Free all allocated bins
+        curr_info = (bin_info_t*)((uint8_t*)pool->base + pool->size);
         void *to_free = curr_info->base;
         curr_info = curr_info->prev_bin_info;
         while (curr_info != NULL) {
@@ -1892,6 +1949,26 @@ void mem_pool_end_temporary_memory (mem_pool_temp_marker_t mrkr)
 {
     if (mrkr.base != NULL) {
         bin_info_t *curr_info = (bin_info_t*)((uint8_t*)mrkr.pool->base + mrkr.pool->size);
+        // Call all on_destroy callbacks for bins that will be freed
+        while (curr_info->base != mrkr.base) {
+            struct on_destroy_callback_info_t *cb_info = curr_info->last_cb_info;
+            while (cb_info != NULL) {
+                cb_info->cb(cb_info->allocated);
+                cb_info = cb_info->prev;
+            }
+
+            curr_info = curr_info->prev_bin_info;
+        }
+
+        // Call affected on_destroy callbacks in the last bin
+        struct on_destroy_callback_info_t *cb_info = curr_info->last_cb_info;
+        while (cb_info != NULL && cb_info->allocated >= mrkr.base + mrkr.used) {
+            cb_info->cb(cb_info->allocated);
+            cb_info = cb_info->prev;
+        }
+
+        // Free necessary bins
+        curr_info = (bin_info_t*)((uint8_t*)mrkr.pool->base + mrkr.pool->size);
         while (curr_info->base != mrkr.base) {
             void *to_free = curr_info->base;
             curr_info = curr_info->prev_bin_info;
@@ -1902,6 +1979,7 @@ void mem_pool_end_temporary_memory (mem_pool_temp_marker_t mrkr)
         mrkr.pool->base = mrkr.base;
         mrkr.pool->used = mrkr.used;
         mrkr.pool->total_used = mrkr.total_used;
+
     } else {
         // NOTE: Here mrkr was created before the pool was initialized, so we
         // destroy everything.

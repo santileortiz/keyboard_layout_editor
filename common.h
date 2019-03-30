@@ -1748,14 +1748,14 @@ void cont_buff_destroy (cont_buff_t *buff)
 }
 
 // Memory pool that grows as needed, and can be freed easily.
-#define MEM_POOL_MIN_BIN_SIZE 1024u
+#define MEM_POOL_DEFAULT_MIN_BIN_SIZE 1024u
 typedef struct {
     uint32_t min_bin_size;
     uint32_t size;
     uint32_t used;
     void *base;
 
-    uint32_t total_used;
+    uint32_t total_data;
     uint32_t num_bins;
 } mem_pool_t;
 
@@ -1770,9 +1770,7 @@ typedef struct {
 // most sensible thing to do, but there may be cases where it isn't, maybe it
 // could increase cache misses? I don't know.
 //
-// TODO: Which other arguments would be useful for this? maybe add a closure?,
-// take into account that currently this signature is the same as for
-// str_free() avoiding a wrapper for it.
+// TODO: Which other arguments would be useful for this? maybe add a closure?.
 #define ON_DESTROY_CALLBACK(name) void name(void *allocated)
 typedef ON_DESTROY_CALLBACK(mem_pool_on_destroy_callback_t);
 
@@ -1812,9 +1810,14 @@ void* mem_pool_push_size_full (mem_pool_t *pool, uint32_t size, enum alloc_opts 
         size += sizeof (struct on_destroy_callback_info_t);
     }
 
-    if (pool->used + size >= pool->size) {
+    if (pool->used + size > pool->size) {
         pool->num_bins++;
-        int new_bin_size = MAX (MAX (MEM_POOL_MIN_BIN_SIZE, pool->min_bin_size), size);
+
+        if (pool->min_bin_size == 0) {
+            pool->min_bin_size = MEM_POOL_DEFAULT_MIN_BIN_SIZE;
+        }
+
+        int new_bin_size = MAX(pool->min_bin_size, size);
         void *new_bin;
         bin_info_t *new_info;
         if ((new_bin = malloc (new_bin_size + sizeof(bin_info_t)))) {
@@ -1842,7 +1845,7 @@ void* mem_pool_push_size_full (mem_pool_t *pool, uint32_t size, enum alloc_opts 
 
     void *ret = (uint8_t*)pool->base + pool->used;
     pool->used += size;
-    pool->total_used += size;
+    pool->total_data += cb == NULL ? size : size - sizeof (struct on_destroy_callback_info_t);
 
     if (cb != NULL) {
         struct on_destroy_callback_info_t *cb_info =
@@ -1906,21 +1909,49 @@ uint32_t mem_pool_allocated (mem_pool_t *pool)
     return allocated;
 }
 
+// Computes how much memory of the pool is used to store
+// on_destroy_callback_info_t structutres.
+uint32_t mem_pool_callback_info (mem_pool_t *pool)
+{
+    uint64_t callback_info_size = 0;
+    if (pool->base != NULL) {
+        bin_info_t *curr_info = (bin_info_t*)((uint8_t*)pool->base + pool->size);
+        while (curr_info != NULL) {
+            struct on_destroy_callback_info_t *callback_info =
+                curr_info->last_cb_info;
+            while (callback_info != NULL) {
+                callback_info_size += sizeof(struct on_destroy_callback_info_t);
+                callback_info = callback_info->prev;
+            }
+            curr_info = curr_info->prev_bin_info;
+        }
+    }
+    return callback_info_size;
+}
+
+// NOTE: This isn't supposed to be called often, we traverse all bins at least
+// twice. Once in the call to mem_pool_allocated() and again in the call to
+// mem_pool_callback_info().
 void mem_pool_print (mem_pool_t *pool)
 {
     uint32_t allocated = mem_pool_allocated(pool);
     printf ("Allocated: %u bytes\n", allocated);
-    printf ("Available: %u bytes\n", pool->size-pool->used);
-    printf ("Used: %u bytes (%.2f%%)\n", pool->total_used, ((double)pool->total_used*100)/allocated);
+    uint32_t available = pool->size-pool->used;
+    printf ("Available: %u bytes (%.2f%%)\n", available, ((double)available*100)/allocated);
+    printf ("Data: %u bytes (%.2f%%)\n", pool->total_data, ((double)pool->total_data*100)/allocated);
     uint64_t info_size = pool->num_bins*sizeof(bin_info_t);
     printf ("Info: %lu bytes (%.2f%%)\n", info_size, ((double)info_size*100)/allocated);
+    uint32_t callback_info_size = mem_pool_callback_info (pool);
+    printf ("Callback Info: %u bytes (%.2f%%)\n", callback_info_size, ((double)callback_info_size*100)/allocated);
 
-    // NOTE: This is the amount of space left empty in previous bins
+    // NOTE: This is the amount of space left empty in previous bins. It's
+    // different from 'available' space in that 'left_empty' space is
+    // effectively wasted and won't be used in future allocations.
     uint64_t left_empty;
     if (pool->num_bins>0)
-        left_empty = (allocated - pool->size - sizeof(bin_info_t))- /*allocated except last bin*/
-                     (pool->total_used - pool->used)-               /*total_used except last bin*/
-                     (pool->num_bins-1)*sizeof(bin_info_t);         /*size used in bin_info_t*/
+        left_empty = (allocated - pool->size - sizeof(bin_info_t)) -        /*allocated except last bin*/
+                     (pool->total_data + callback_info_size - pool->used) - /*total_data except last bin*/
+                     (pool->num_bins-1)*sizeof(bin_info_t);                 /*size used in bin_info_t*/
     else {
         left_empty = 0;
     }
@@ -1932,13 +1963,13 @@ typedef struct {
     mem_pool_t *pool;
     void* base;
     uint32_t used;
-    uint32_t total_used;
+    uint32_t total_data;
 } mem_pool_temp_marker_t;
 
 mem_pool_temp_marker_t mem_pool_begin_temporary_memory (mem_pool_t *pool)
 {
     mem_pool_temp_marker_t res;
-    res.total_used = pool->total_used;
+    res.total_data = pool->total_data;
     res.used = pool->used;
     res.base = pool->base;
     res.pool = pool;
@@ -1967,6 +1998,11 @@ void mem_pool_end_temporary_memory (mem_pool_temp_marker_t mrkr)
             cb_info = cb_info->prev;
         }
 
+        // Update last_cb_info in the bin_info of the last bin. This bin will
+        // not be freed, future allocations will overwrite the end of it if
+        // there's enough space.
+        curr_info->last_cb_info = cb_info;
+
         // Free necessary bins
         curr_info = (bin_info_t*)((uint8_t*)mrkr.pool->base + mrkr.pool->size);
         while (curr_info->base != mrkr.base) {
@@ -1978,7 +2014,7 @@ void mem_pool_end_temporary_memory (mem_pool_temp_marker_t mrkr)
         mrkr.pool->size = curr_info->size;
         mrkr.pool->base = mrkr.base;
         mrkr.pool->used = mrkr.used;
-        mrkr.pool->total_used = mrkr.total_used;
+        mrkr.pool->total_data = mrkr.total_data;
 
     } else {
         // NOTE: Here mrkr was created before the pool was initialized, so we
@@ -1989,7 +2025,7 @@ void mem_pool_end_temporary_memory (mem_pool_temp_marker_t mrkr)
         mrkr.pool->size = 0;
         mrkr.pool->base = NULL;
         mrkr.pool->used = 0;
-        mrkr.pool->total_used = 0;
+        mrkr.pool->total_data = 0;
     }
 }
 
@@ -2037,6 +2073,23 @@ char* pprintf (mem_pool_t *pool, const char *format, ...)
     vsnprintf (str, size, format, args2);
     va_end (args2);
 
+    return str;
+}
+
+// These functions implement pooled string_t structures. This means strings
+// created using strn_new_pooled() will be automatically freed when the passed
+// pool gets destroyed.
+ON_DESTROY_CALLBACK (destroy_pooled_str)
+{
+    string_t *str = (string_t*)allocated;
+    str_free (str);
+}
+#define str_new_pooled(pool,data) strn_new_pooled((pool),(data),((data)!=NULL?strlen(data):0))
+string_t* strn_new_pooled (mem_pool_t *pool, const char *c_str, size_t len)
+{
+    string_t *str = mem_pool_push_size_cb (pool, sizeof(string_t), destroy_pooled_str);
+    *str = ZERO_INIT (string_t);
+    strn_set (str, c_str, len);
     return str;
 }
 

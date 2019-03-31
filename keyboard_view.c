@@ -3629,7 +3629,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         }
 
     } else if (kv->preview_mode == KV_PREVIEW_KEYS) {
-        if (e->type == GDK_BUTTON_RELEASE) {
+        if (e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
             kv->preview_keys_selection = button_event_key;
 
             GtkWidget *keys_sidebar = app_keys_sidebar_new (&app, button_event_key->kc);

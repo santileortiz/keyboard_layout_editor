@@ -776,6 +776,96 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
     return success;
 }
 
+struct xkb_writer_state_t {
+    string_t *xkb_str;
+
+    // An array of modifier names indexed by the bit position of the mask. This
+    // is effectiveley the reverse map of the one used in the internal
+    // representation.
+    // NOTE: This will point into the internal representation, which is fine
+    // because we won't destroy the keymap representation inside xkb_file_write.
+    // TODO: Maybe change this for a tree so we can represent the 'none'
+    // modifier mask?
+    // :none_modifier
+    char *reverse_modifier_map[KEYBOARD_LAYOUT_MAX_MODIFIERS];
+
+    // Flag used when printing modifier definitions to know when to print a ','
+    // this is necessary because traversing of trees is done through a callback.
+    bool is_first;
+};
+
+void xkb_file_write_modifier_mask (struct xkb_writer_state_t *state, string_t *str, key_modifier_mask_t mask)
+{
+    int bit_pos = 0;
+    if (mask == 0) {
+        // The current representation used for the reverse map does not allow a
+        // representation for the 'none' keyboard mask.
+        // :none_modifier
+        str_cat_c (str, "none");
+
+    } else {
+        while (mask != 0) {
+            if (mask & 0x1) {
+                str_cat_c (str, state->reverse_modifier_map[bit_pos]);
+
+                if (mask>>1 != 0) {
+                    str_cat_c (str, " + ");
+                }
+            }
+
+            bit_pos++;
+            mask >>= 1;
+        }
+    }
+}
+
+gboolean reverse_mapping_create_foreach (gpointer modifier_name, gpointer mask_ptr, gpointer data)
+{
+    struct xkb_writer_state_t *state = (struct xkb_writer_state_t*)data;
+
+    key_modifier_mask_t mask = *(key_modifier_mask_t*)mask_ptr;
+    if (mask != 0) {
+        int pos = 0;
+        while (!(mask&0x1) && pos < KEYBOARD_LAYOUT_MAX_MODIFIERS) {
+            pos++;
+            mask >>= 1;
+        }
+
+        if (state->reverse_modifier_map[pos]) {
+            printf ("Modfier mapping is not 1:1, keymap seems to be corrupted.\n");
+
+        } else if (pos == KEYBOARD_LAYOUT_MAX_MODIFIERS) {
+            printf ("Invalid modifier mask, keymap seems to be corrupted.\n");
+
+        } else {
+            state->reverse_modifier_map[pos] = modifier_name;
+        }
+    }
+    // else {
+    // The 'none' modifier can't be represented with the current reverse mapping
+    // data structure. We ignore it and later when writing masks we handle it as
+    // a special case.
+    // :none_modifier
+    // }
+
+    return FALSE;
+}
+
+gboolean print_modifiers_foreach (gpointer modifier_name, gpointer mask_ptr, gpointer data)
+{
+    struct xkb_writer_state_t *state = (struct xkb_writer_state_t*)data;
+
+    if (state->is_first == true) {
+        state->is_first = false;
+    } else {
+        str_cat_c (state->xkb_str, ",");
+    }
+
+    str_cat_c (state->xkb_str, modifier_name);
+
+    return FALSE;
+}
+
 // Can we guarantee this will never fail? if we do then we can write the output
 // directly into res.
 void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
@@ -784,7 +874,17 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
     string_t xkb_str = {0};
     char buff[100];
 
+    // TODO: When we have a compact function, we should call it before creating
+    // the output string. :keyboard_layout_compact
+
+    struct xkb_writer_state_t state = {0};
+    state.xkb_str = &xkb_str;
+    // Create a reverse mapping of the modifier mapping in the internal
+    // representation.
+    g_tree_foreach (keymap->modifiers, reverse_mapping_create_foreach, &state);
+
     // TODO: Print our extra informtion as comments.
+
     str_cat_c (&xkb_str, "keymap {\n");
 
     // As far as I've been able to understand, the keycode section is basically
@@ -834,37 +934,46 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
 
     str_cat_c (&xkb_str, "xkb_types \"keys_t\" {\n");
 
-    // TODO: Only define virtual modifiers that are used in the keymap. These
-    // ones seem to be the most common. The full list of used virtual modifiers
-    // in the database is:
-    //
-    //      Alt,AltGr,Circle,Cross,Hyper,Kana_Lock,LAlt,LControl,LevelFive,
-    //      LevelThree,Meta,NumLock,RAlt,RControl,ScrollLock,Square,Super,Triangle
-    //
-    // I don't know what most of them do, so I won't define them for now.
-    // Technically I think virtual modifiers (like key identifiers) are mostly
-    // used to ease readability, but maybe we can make up names for them as they
-    // become necessary.
-    str_cat_c (&xkb_str, "    virtual_modifiers NumLock,Alt,LevelThree,LAlt,RAlt,RControl,LControl,ScrollLock,LevelFive,AltGr,Meta,Super,Hyper;\n\n");
+    str_cat_c (&xkb_str, "    virtual_modifiers ");
+    // NOTE: We print modifier definitions from the internal representation's
+    // tree and not from the reverse mapping because we want them in alphabetic
+    // ordes so their ordering does not depend on the value of the mask assigned
+    // to it.
+    state.is_first = true;
+    g_tree_foreach (keymap->modifiers, print_modifiers_foreach, &state);
+    str_cat_c (&xkb_str, ";\n\n");
 
     struct key_type_t *curr_type = keymap->types;
     while (curr_type != NULL) {
         str_cat_c (&xkb_str, "    type \"");
         str_cat_c (&xkb_str, curr_type->name);
         str_cat_c (&xkb_str, "\" {\n");
-        // TODO: Print modifiers from curr_type->modifier_mask
-        str_cat_c (&xkb_str, "        modifiers = none;\n");
+        str_cat_c (&xkb_str, "        modifiers = ");
+        xkb_file_write_modifier_mask (&state, &xkb_str, curr_type->modifier_mask);
+        str_cat_c (&xkb_str, ";\n");
 
-        int i=0;
-        for (i=0; i<curr_type->num_levels; i++) {
-            str_cat_c (&xkb_str, "        level_name[none");
-            // TODO: Print the mask curr_type->modifiers[i] here.
+        for (int i=0; i<curr_type->num_levels; i++) {
+            str_cat_c (&xkb_str, "        map[");
+            xkb_file_write_modifier_mask (&state, &xkb_str, curr_type->modifiers[i]);
             str_cat_c (&xkb_str, "] = Level");
             snprintf (buff, ARRAY_SIZE(buff), "%d", i+1);
             str_cat_c (&xkb_str, buff);
             str_cat_c (&xkb_str, ";\n");
+        }
 
-            // I don't think level names are really important.
+        // According to some documentation level names are required. When
+        // testing it looks like xkbcomp only checks there is at least one name,
+        // it doesn't check all mapped levels have a name. In any case, we
+        // create generic names for all of them. Maybe in the future let the
+        // user name them?.
+        for (int i=0; i<curr_type->num_levels; i++) {
+            snprintf (buff, ARRAY_SIZE(buff), "%d", i+1);
+
+            str_cat_c (&xkb_str, "        level_name[Level");
+            str_cat_c (&xkb_str, buff);
+            str_cat_c (&xkb_str, "] = \"Level ");
+            str_cat_c (&xkb_str, buff);
+            str_cat_c (&xkb_str, "\";\n");
         }
         str_cat_c (&xkb_str, "    };\n");
 

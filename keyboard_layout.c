@@ -43,6 +43,10 @@ struct key_type_t {
     char *name;
     int num_levels;
     key_modifier_mask_t modifier_mask;
+    // FIXME: A single level can have multiple modifier mappings, this
+    // representation only allows for one. This is important because the default
+    // ALPHABETIC type has this, Level2 is mapped to Shift but also to Lock.
+    // Which is different than mapping the Level2 to Shift+Lock.
     key_modifier_mask_t modifiers[KEYBOARD_LAYOUT_MAX_LEVELS];
 
     struct key_type_t *next;
@@ -173,6 +177,9 @@ key_modifier_mask_t keyboard_layout_get_modifier (struct keyboard_layout_t *keym
         result = *(key_modifier_mask_t*)value;
 
     } else if (strcasecmp (name, "none") == 0) {
+        // TODO: Maybe store this as a normal modifier inside the modifier
+        // mapping tree?
+        // :none_modifier
         status_l = KEYBOARD_LAYOUT_MOD_SUCCESS;
         result = 0;
     }

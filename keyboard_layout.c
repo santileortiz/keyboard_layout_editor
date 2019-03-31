@@ -20,6 +20,13 @@
 //    allocate a lot of unnecessary memory.
 //  - Maybe just leave it like this and bump it if necessary.
 //
+//  Update (Mar 30, 2019): It looks like xkbcomp does accept an arbitrary number
+//  of levels by using number identifiers instead of numbers prefixed by
+//  'level', this means we can stick to that syntax and remove this limit.
+//  TODO: Make our xkb parser understand this syntax, then use this syntax in
+//  our xkb file writer.
+//  :level_limit
+//
 #define KEYBOARD_LAYOUT_MAX_LEVELS 8
 
 // This has similar considerations than level identifiers, but unlike level
@@ -27,6 +34,8 @@
 // groups unless it's necessary. This constant is used just to parse the
 // identifiers and ignore everything in a group different than the first one.
 #define KEYBOARD_LAYOUT_MAX_GROUPS 4
+
+#define KEYBOARD_LAYOUT_MAX_MODIFIERS 16
 
 typedef uint32_t key_modifier_mask_t;
 
@@ -92,7 +101,88 @@ struct keyboard_layout_t {
 
     struct key_type_t *types;
     struct key_t *keys[KEY_CNT];
+
+    // Map from modifier names to modifier masks
+    GTree *modifiers;
 };
+
+enum modifier_result_status_t {
+    KEYBOARD_LAYOUT_MOD_SUCCESS,
+    KEYBOARD_LAYOUT_MOD_REDEFINITION,
+    KEYBOARD_LAYOUT_MOD_MAX_LIMIT_REACHED,
+    KEYBOARD_LAYOUT_MOD_UNDEFINED
+};
+
+key_modifier_mask_t keyboard_layout_new_modifier (struct keyboard_layout_t *keymap,
+                                                  char *name, enum modifier_result_status_t *status)
+{
+    key_modifier_mask_t result = 0;
+    enum modifier_result_status_t status_l;
+
+    int num_modifiers = 0;
+    if (keymap->modifiers == NULL) {
+        keymap->modifiers = g_tree_new (strcasecmp_as_g_compare_func);
+    } else {
+        num_modifiers = g_tree_nnodes(keymap->modifiers);
+    }
+
+    if (num_modifiers < KEYBOARD_LAYOUT_MAX_MODIFIERS) {
+        if (!g_tree_lookup_extended (keymap->modifiers, name, NULL, NULL)) {
+            // FIXME: Sigh, I don't like this wrapping of values inside GTree,
+            // it will make us leak memory when we add a way to delete
+            // modifiers. Not leaking memory would require us keeping a linked
+            // list of spare key_modifier_mask_t which seems overkill. What I
+            // would REALLY like is have my own tree implementation that uses
+            // macros and a pool. It should internally handle this spare node
+            // linked list, and allow us to define an implementation that stores
+            // the key_modifier_mask_t value itself, not a pointer to one.
+            key_modifier_mask_t *value_ptr = mem_pool_push_size (&keymap->pool, sizeof(key_modifier_mask_t));
+            *value_ptr = 1 << num_modifiers;
+            char *stored_modifier_name = pom_strdup (&keymap->pool, name);
+            g_tree_insert (keymap->modifiers, stored_modifier_name, value_ptr);
+            result = *value_ptr;
+
+            status_l = KEYBOARD_LAYOUT_MOD_SUCCESS;
+
+        } else {
+            status_l = KEYBOARD_LAYOUT_MOD_REDEFINITION;
+        }
+
+    } else {
+        status_l = KEYBOARD_LAYOUT_MOD_MAX_LIMIT_REACHED;
+    }
+
+    if (status != NULL) {
+        *status = status_l;
+    }
+
+    return result;
+}
+
+// NOTE: The return value will be 0 if name is 'none'. It's expected that 0 will
+// be a valid modifier everywhere,representing no modifier.
+key_modifier_mask_t keyboard_layout_get_modifier (struct keyboard_layout_t *keymap,
+                                                  char *name, enum modifier_result_status_t *status)
+{
+    key_modifier_mask_t result = 0;
+    enum modifier_result_status_t status_l = KEYBOARD_LAYOUT_MOD_UNDEFINED;
+
+    void *value;
+    if (g_tree_lookup_extended (keymap->modifiers, name, NULL, &value)) {
+        status_l = KEYBOARD_LAYOUT_MOD_SUCCESS;
+        result = *(key_modifier_mask_t*)value;
+
+    } else if (strcasecmp (name, "none") == 0) {
+        status_l = KEYBOARD_LAYOUT_MOD_SUCCESS;
+        result = 0;
+    }
+
+    if (status != NULL) {
+        *status = status_l;
+    }
+
+    return result;
+}
 
 struct key_type_t* keyboard_layout_new_type (struct keyboard_layout_t *keymap,
                                              char *name, key_modifier_mask_t modifier_mask)
@@ -163,6 +253,8 @@ void keyboard_layout_key_set_level (struct key_t *key, int level, xkb_keysym_t k
 void keyboard_layout_destroy (struct keyboard_layout_t *keymap)
 {
     mem_pool_destroy (&keymap->pool);
+    // TODO: We should add a way of adding single callbacks to a pool.
+    g_tree_destroy (keymap->modifiers);
 }
 
 struct keyboard_layout_t* keyboard_layout_new_default (void)
@@ -205,12 +297,24 @@ struct keyboard_layout_t* keyboard_layout_new_from_xkb (char *xkb_str)
     if (!xkb_file_parse (xkb_str, keymap)) {
         keyboard_layout_destroy (keymap);
         keymap = NULL;
-    }
 
-    string_t out;
-    xkb_file_write (keymap, &out);
-    printf ("%s\n", str_data(&out));
+    } else {
+        string_t out;
+        xkb_file_write (keymap, &out);
+        printf ("%s\n", str_data(&out));
+    }
 
     return keymap;
 }
+
+// TODO: Add a function that prunes all unused components and compacts limited
+// resources, for instance in xkb there can't be more than 16 modifiers. Should
+// this be done in the specific backend?, or maybe let the backend set the
+// resource limits and we create a single function here that takes them into
+// account? (this will only be an issue in the future when we may have multiple
+// backends). Right now limited resources include modifiers and levels, groups
+// would be limited too but I don't want to support them unless they are
+// necessary. Levels could be made unlimited if we use a linked list but
+// modifiers will always have a limit as they are a bit mask.
+// :keyboard_layout_compact, :level_limit
 

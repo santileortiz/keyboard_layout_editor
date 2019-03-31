@@ -63,6 +63,9 @@ struct xkb_parser_state_t {
     GTree *key_identifiers_to_keycodes;
 
     struct keyboard_layout_t *keymap;
+
+    char **predefined_modifiers;
+    int predefined_modifiers_len;
 };
 
 void xkb_parser_state_init (struct xkb_parser_state_t *state, char *xkb_str, struct keyboard_layout_t *keymap)
@@ -284,6 +287,42 @@ void xkb_parser_skip_block (struct xkb_parser_state_t *state, char *block_id)
     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 }
 
+bool xkb_parser_is_predefined_mod (struct xkb_parser_state_t *state, char *name)
+{
+    bool res = false;
+    for (int i=0; i<state->predefined_modifiers_len; i++) {
+        if (strcasecmp (state->predefined_modifiers[i], name) == 0) {
+            res = true;
+            break;
+        }
+    }
+
+    return res;
+}
+
+key_modifier_mask_t xkb_parser_modifier_lookup (struct xkb_parser_state_t *state, char *name)
+{
+    key_modifier_mask_t result = 0;
+
+    enum modifier_result_status_t status;
+    result = keyboard_layout_get_modifier (state->keymap, str_data(&state->tok_value), &status);
+    if (status == KEYBOARD_LAYOUT_MOD_UNDEFINED) {
+        if (xkb_parser_is_predefined_mod (state, name)) {
+            // :lazy_add_predefined_modifiers
+            // NOTE: This should not fail
+            result = keyboard_layout_new_modifier (state->keymap, name, &status);
+            assert (status == KEYBOARD_LAYOUT_MOD_SUCCESS);
+
+        } else {
+            char *error_msg =
+                pprintf (&state->pool, "Reference to undefined modifier '%s'.", str_data(&state->tok_value));
+            scanner_set_error (&state->scnr, error_msg);
+        }
+    }
+
+    return result;
+}
+
 void xkb_parser_modifier_mask (struct xkb_parser_state_t *state,
                                char *end_operator, key_modifier_mask_t *modifier_mask)
 {
@@ -293,9 +332,7 @@ void xkb_parser_modifier_mask (struct xkb_parser_state_t *state,
     do {
         xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL);
 
-        // TODO: Check the modifier registry, get the correspondig flag for this
-        // modifier and or it here. Requires :register_modifiers
-        *modifier_mask |= 0;
+        *modifier_mask |= xkb_parser_modifier_lookup (state, str_data(&state->tok_value));
 
         xkb_parser_next (state);
         if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, end_operator)) {
@@ -391,8 +428,15 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
             do {
                 xkb_parser_next (state);
                 if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL)) {
-                    // TODO: Register the defined virtual modifiers.
-                    // :register_modifiers
+                    enum modifier_result_status_t status;
+                    keyboard_layout_new_modifier (state->keymap, str_data(&state->tok_value), &status);
+                    if (status == KEYBOARD_LAYOUT_MOD_MAX_LIMIT_REACHED) {
+                        scanner_set_error (&state->scnr, "Too many modifier definitions, maximum is 16.");
+
+                    } else if (status == KEYBOARD_LAYOUT_MOD_REDEFINITION &&
+                               !xkb_parser_is_predefined_mod (state, str_data(&state->tok_value))) {
+                        printf ("Modifier '%s' defined multiple times.\n", str_data(&state->tok_value));
+                    }
 
                     xkb_parser_next (state);
                     if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";")) {
@@ -682,6 +726,13 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
     struct xkb_parser_state_t state;
     xkb_parser_state_init (&state, xkb_str, keymap);
 
+    char *predefined_modifiers[] = {"Shift", "Control", "Lock", "Mod1", "Mod2", "Mod3", "Mod5", "Mod5"};
+    // These modifiers will not be added into the keymap yet, they will be added
+    // lazily when they are referenced somewhere in the keymap.
+    // :lazy_add_predefined_modifiers
+    state.predefined_modifiers = predefined_modifiers;
+    state.predefined_modifiers_len = ARRAY_SIZE(predefined_modifiers);
+
     xkb_parser_consume_tok (&state, XKB_PARSER_TOKEN_IDENTIFIER, "xkb_keymap");
     xkb_parser_consume_tok (&state, XKB_PARSER_TOKEN_OPERATOR, "{");
 
@@ -706,6 +757,21 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
     }
 
     xkb_parser_state_destory (&state);
+
+    // TODO: This parser does not care if some elements in the internal
+    // representation are unused. We will maybe need to add functionality into
+    // keyboard_layout.c that compacts layout elements. For example if the xkb
+    // file defines 16 modifiers but only uses 10 fo those, we don't want to
+    // tell the user there are no modifiers left if they try to define a new
+    // one. This will also become an issue when we start creating functions that
+    // remove IR components like keyboard_layout_remove_type(). I don't like the
+    // idea of traversing the full IR every time a change happens, I like more
+    // the option of letting things be unused, then if we reach a limit we call
+    // a single compact function, if that still leaves no space for what the
+    // user wants we show an error. This will centralize the complexity of
+    // compaction in a single place and not across all IR state modification
+    // functions, and will also run this maybe expensive computation less often.
+    // :keyboard_layout_compact
 
     return success;
 }

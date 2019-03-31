@@ -21,6 +21,11 @@ int strcmp_as_g_compare_func (gconstpointer str1, gconstpointer str2)
     return strcmp (str1, str2);
 }
 
+int strcasecmp_as_g_compare_func (gconstpointer str1, gconstpointer str2)
+{
+    return strcasecmp (str1, str2);
+}
+
 void window_resize_centered (GtkWidget *window, gint w, gint h)
 {
     gint x, y;

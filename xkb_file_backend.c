@@ -323,6 +323,9 @@ key_modifier_mask_t xkb_parser_modifier_lookup (struct xkb_parser_state_t *state
     return result;
 }
 
+// NOTE: Strangeley enough xkbcomp accepts strings like none+Shift+Control as
+// valid modifier masks, my guess is none will be just 0 and not affect the mask
+// in any way (but I haven't checked). We interpret them this way here.
 void xkb_parser_modifier_mask (struct xkb_parser_state_t *state,
                                char *end_operator, key_modifier_mask_t *modifier_mask)
 {
@@ -496,8 +499,78 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
 
                         xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
+                        if (level_modifiers == 0 && level != 1) {
+                            // I checked and xkbcomp does something weird here.
+                            // The 'none' modifier mask can't be assigned
+                            // multiple times to different levels. At the same
+                            // time, if there is no definition for Level 1 it
+                            // gets assigned the 'none' mapping. Now, if we map
+                            // 'none' to a level different than 1 and don't add
+                            // a mapping for level 1, xkbcomp doesn't complain,
+                            // but then I don't know which level gets mapped to
+                            // the 'none' mask.
+                            // TODO: Check how xkbcomp maps modifiers in this
+                            // case.
+                            //
+                            // What we do here is reserve 'none' to Level1 by
+                            // convention, and fail if another level tries to
+                            // map the empty mask. As far as I know there is no
+                            // reason to map 'none' multiple times or to a level
+                            // different than 1. To me this looks like a
+                            // consequence of the choosen syntax for level
+                            // mappings that allows skipping levels.
+                            // TODO: Check that no type in the xkb database maps
+                            // the 'none' modifier mask to a level different
+                            // than 1. If there is, then determine why, is it
+                            // necessary in that case? or is it a bug in the xkb
+                            // database?.
+                            //
+                            // I think a better syntax for level mappings could
+                            // be something like
+                            //
+                            //      map = {none, Shift+Alt, Control};
+                            //
+                            // And to specify multiple mappings to a level use:
+                            //
+                            //      map = {none, (Shift+Alt, Lock), Control};
+                            //
+                            // This way 'none' can be mapped to a different
+                            // level and we are not as strict as we are here
+                            // where 'none' can't be mapped at all. But at the
+                            // same time we make impossible to make uncontiguous
+                            // assignments as the user never specifies the
+                            // level, it's computed from the position in the
+                            // list.
+                            // :none_mapping_is_reserved_for_level1
+                            char *error_msg =
+                                pprintf (&state->pool,
+                                         "Can't map 'none' to level %d. It's reserved for level 1.\n", level);
+                            scanner_set_error (&state->scnr, error_msg);
+
+                        } else if (~type_modifier_mask & level_modifiers) {
+                            // TODO: Tell the user which modifiers are the
+                            // problematic ones.
+                            char *error_msg =
+                                pprintf (&state->pool,
+                                         "Modifier map for level %d uses modifiers not in the mask for type '%s'.\n",
+                                         level, new_type->name);
+                            scanner_set_error (&state->scnr, error_msg);
+                        }
+
                         if (!state->scnr.error) {
-                            keyboard_layout_type_set_level (new_type, level, level_modifiers);
+                            enum type_level_mapping_result_status_t status;
+                            keyboard_layout_type_new_level_map (state->keymap,
+                                                                new_type, level, level_modifiers,
+                                                                &status);
+                            if (status == KEYBOARD_LAYOUT_MOD_MAP_MAPPING_ALREADY_ASSIGNED) {
+                                // TODO: Print the modifier mask niceley like
+                                // Shift+Alt, not a hexadecimal value.
+                                char *error_msg =
+                                    pprintf (&state->pool,
+                                             "Modifier mask %x already assigned in type '%s'",
+                                             level_modifiers, new_type->name);
+                                scanner_set_error (&state->scnr, error_msg);
+                            }
                         }
 
                     } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "level_name") ||
@@ -516,9 +589,14 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
 
                 xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
-                // No matter what we parse, level1 will never have modifiers.
+                // No matter what we parse, level1 will have the mapping of no
+                // modifiers.
                 if (!state->scnr.error) {
-                    keyboard_layout_type_set_level (new_type, 1, 0);
+                    keyboard_layout_type_new_level_map (state->keymap, new_type, 1, 0, NULL);
+                    // We can ignore the error here because the only way we
+                    // could succed here is if 'none' was already assigned to
+                    // level 1.
+                    // :none_mapping_is_reserved_for_level1
                 }
 
                 mem_pool_destroy (&type_data);
@@ -554,7 +632,7 @@ void xkb_parser_symbol_list (struct xkb_parser_state_t *state,
             (*num_symbols_found)++;
         }
 
-        // TODO: I think xkbcomp parses numbers grater than 9 as a keycode
+        // TODO: I think xkbcomp parses numbers grater than 9 as a keysym
         // value. This is very counterintuitive, do we want to support this?
         // maybe multicharacter keysyms are more useful.
 
@@ -952,13 +1030,16 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
         xkb_file_write_modifier_mask (&state, &xkb_str, curr_type->modifier_mask);
         str_cat_c (&xkb_str, ";\n");
 
-        for (int i=0; i<curr_type->num_levels; i++) {
+        struct level_modifier_mapping_t *curr_modifier_mapping = curr_type->modifier_mappings;
+        while (curr_modifier_mapping != NULL) {
             str_cat_c (&xkb_str, "        map[");
-            xkb_file_write_modifier_mask (&state, &xkb_str, curr_type->modifiers[i]);
+            xkb_file_write_modifier_mask (&state, &xkb_str, curr_modifier_mapping->modifiers);
             str_cat_c (&xkb_str, "] = Level");
-            snprintf (buff, ARRAY_SIZE(buff), "%d", i+1);
+            snprintf (buff, ARRAY_SIZE(buff), "%d", curr_modifier_mapping->level);
             str_cat_c (&xkb_str, buff);
             str_cat_c (&xkb_str, ";\n");
+
+            curr_modifier_mapping = curr_modifier_mapping->next;
         }
 
         // According to some documentation level names are required. When

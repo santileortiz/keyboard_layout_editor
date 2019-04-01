@@ -39,15 +39,24 @@
 
 typedef uint32_t key_modifier_mask_t;
 
+struct level_modifier_mapping_t {
+    int level;
+    key_modifier_mask_t modifiers;
+
+    struct level_modifier_mapping_t *next;
+};
+
 struct key_type_t {
     char *name;
     int num_levels;
     key_modifier_mask_t modifier_mask;
-    // FIXME: A single level can have multiple modifier mappings, this
-    // representation only allows for one. This is important because the default
-    // ALPHABETIC type has this, Level2 is mapped to Shift but also to Lock.
-    // Which is different than mapping the Level2 to Shift+Lock.
-    key_modifier_mask_t modifiers[KEYBOARD_LAYOUT_MAX_LEVELS];
+    // NOTE: It's important to support multiple modifier masks to be assigned to
+    // a single level, while forbidding the same modifier mask to be assigned to
+    // multiple levels.
+    // This linked list will be sorted in increasing value of level, and this
+    // invariant is kept at insertion time.
+    // :modifier_map_insertion
+    struct level_modifier_mapping_t *modifier_mappings;
 
     struct key_type_t *next;
 };
@@ -222,12 +231,55 @@ struct key_type_t* keyboard_layout_type_lookup (struct keyboard_layout_t *keymap
     return curr_type;
 }
 
-void keyboard_layout_type_set_level (struct key_type_t *type, int level, key_modifier_mask_t modifiers)
+enum type_level_mapping_result_status_t {
+    KEYBOARD_LAYOUT_MOD_MAP_SUCCESS,
+    KEYBOARD_LAYOUT_MOD_MAP_MAPPING_ALREADY_ASSIGNED
+};
+
+void keyboard_layout_type_new_level_map (struct keyboard_layout_t *keymap, struct key_type_t *type,
+                                         int level, key_modifier_mask_t modifiers,
+                                         enum type_level_mapping_result_status_t *status)
 {
+    assert (keymap != NULL && type != NULL);
     assert (level > 0 && "Levels must be grater than 0");
 
-    type->modifiers[level-1] = modifiers;
-    type->num_levels = MAX (type->num_levels, level);
+    enum type_level_mapping_result_status_t status_l;
+    // First check that this mask isn't being used already
+    // :modifier_map_insertion
+    bool mask_found = false;
+    struct level_modifier_mapping_t *curr_modifier_mapping = type->modifier_mappings;
+    while (curr_modifier_mapping != NULL) {
+        if (curr_modifier_mapping->modifiers == modifiers) {
+            mask_found = true;
+            break;
+        }
+        curr_modifier_mapping = curr_modifier_mapping->next;
+    }
+
+    if (!mask_found) {
+        // Find the position where it will be inserted
+        // :modifier_map_insertion
+        struct level_modifier_mapping_t **pos = &type->modifier_mappings;
+        while (*pos != NULL && (*pos)->level < level) {
+            pos = &(*pos)->next;
+        }
+
+        struct level_modifier_mapping_t *new_mapping =
+            mem_pool_push_struct (&keymap->pool, struct level_modifier_mapping_t);
+        new_mapping->level = level;
+        new_mapping->modifiers = modifiers;
+        new_mapping->next = *pos;
+        *pos = new_mapping;
+
+        status_l = KEYBOARD_LAYOUT_MOD_MAP_SUCCESS;
+
+    } else {
+        status_l = KEYBOARD_LAYOUT_MOD_MAP_MAPPING_ALREADY_ASSIGNED;
+    }
+
+    if (status != NULL) {
+        *status = status_l;
+    }
 }
 
 struct key_t* keyboard_layout_new_key (struct keyboard_layout_t *keymap, int kc, struct key_type_t *type)
@@ -273,17 +325,17 @@ struct keyboard_layout_t* keyboard_layout_new_default (void)
 
     struct key_type_t *type_one_level;
     type_one_level = keyboard_layout_new_type (keymap, "ONE_LEVEL", 0);
-    keyboard_layout_type_set_level (type_one_level, 1, 0);
+    keyboard_layout_type_new_level_map (keymap, type_one_level, 1, 0, NULL);
 
     struct key_type_t *type;
     type = keyboard_layout_new_type (keymap, "TWO_LEVEL", 0);
-    keyboard_layout_type_set_level (type, 1, 0);
-    keyboard_layout_type_set_level (type, 2, 0);
+    keyboard_layout_type_new_level_map (keymap, type, 1, 0, NULL);
+    keyboard_layout_type_new_level_map (keymap, type, 2, 0, NULL);
 
     type = keyboard_layout_new_type (keymap, "ALPHABETIC", 0);
-    keyboard_layout_type_set_level (type, 1, 0);
-    keyboard_layout_type_set_level (type, 2, 0);
-    keyboard_layout_type_set_level (type, 3, 0);
+    keyboard_layout_type_new_level_map (keymap, type, 1, 0, NULL);
+    keyboard_layout_type_new_level_map (keymap, type, 2, 0, NULL);
+    keyboard_layout_type_new_level_map (keymap, type, 3, 0, NULL);
 
     struct key_t *key = keyboard_layout_new_key (keymap, KEY_ESC, type_one_level);
     keyboard_layout_key_set_level (key, 1, XKB_KEY_Escape, NULL);
@@ -313,6 +365,11 @@ struct keyboard_layout_t* keyboard_layout_new_from_xkb (char *xkb_str)
 
     return keymap;
 }
+
+// TODO: Add a funtion that checks the keymap is valid. We could check a lot of
+// things but we must start with checking that all levels in a type have a
+// mapping, meaning that they are all contiguous in the linked list, see
+// :none_mapping_is_reserved_for_level1 for more information.
 
 // TODO: Add a function that prunes all unused components and compacts limited
 // resources, for instance in xkb there can't be more than 16 modifiers. Should

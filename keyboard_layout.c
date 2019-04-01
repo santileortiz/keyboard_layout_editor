@@ -206,13 +206,22 @@ struct key_type_t* keyboard_layout_new_type (struct keyboard_layout_t *keymap,
     struct key_type_t *new_type = mem_pool_push_size (&keymap->pool, sizeof(struct key_type_t));
     *new_type = ZERO_INIT (struct key_type_t);
 
-    // TODO: For now, types will not be destroyed, if they do, the name will
-    // leak space inside the keymap's pool.
+    // TODO: For now, types will not be destroyed or renamed, if they do, the
+    // name will leak space inside the keymap's pool. This could be a good place
+    // to use pooled strings.
     new_type->name = pom_strdup (&keymap->pool, name);
     new_type->modifier_mask = modifier_mask;
 
-    new_type->next = keymap->types;
-    keymap->types = new_type;
+    // Get the end of the type linked list. Even though this does a linear
+    // search, we don't expect a lot of types, it shouldn't be a big concern.
+    // @performance
+    struct key_type_t **pos = &keymap->types;
+    while (*pos != NULL) {
+        pos = &(*pos)->next;
+    }
+
+    // Add the new type to the end
+    *pos = new_type;
 
     return new_type;
 }
@@ -221,7 +230,7 @@ struct key_type_t* keyboard_layout_new_type (struct keyboard_layout_t *keymap,
 struct key_type_t* keyboard_layout_type_lookup (struct keyboard_layout_t *keymap, char *name)
 {
     // TODO: Linear search for now. Is this really SO bad that we should use a
-    // tree or a hash table?
+    // tree or a hash table? @performance
     struct key_type_t *curr_type = keymap->types;
     while (curr_type != NULL) {
         if (strcmp (curr_type->name, name) == 0) break;

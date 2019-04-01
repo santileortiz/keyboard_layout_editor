@@ -1798,7 +1798,7 @@ enum alloc_opts {
 
 #define mem_pool_push_size_cb(pool, size, cb) mem_pool_push_size_full(pool, size, POOL_UNINITIALIZED, cb)
 #define mem_pool_push_size(pool, size) mem_pool_push_size_full(pool, size, POOL_UNINITIALIZED, NULL)
-#define mem_pool_push_struct(pool, type) mem_pool_push_size(pool, sizeof(type))
+#define mem_pool_push_struct(pool, type) ((type*)mem_pool_push_size(pool, sizeof(type)))
 #define mem_pool_push_array(pool, n, type) mem_pool_push_size(pool, (n)*sizeof(type))
 void* mem_pool_push_size_full (mem_pool_t *pool, uint32_t size, enum alloc_opts opts,
                                mem_pool_on_destroy_callback_t *cb)

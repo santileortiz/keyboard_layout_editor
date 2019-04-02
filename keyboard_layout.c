@@ -48,7 +48,6 @@ struct level_modifier_mapping_t {
 
 struct key_type_t {
     char *name;
-    int num_levels;
     key_modifier_mask_t modifier_mask;
     // NOTE: It's important to support multiple modifier masks to be assigned to
     // a single level, while forbidding the same modifier mask to be assigned to
@@ -238,6 +237,24 @@ struct key_type_t* keyboard_layout_type_lookup (struct keyboard_layout_t *keymap
     }
 
     return curr_type;
+}
+
+int keyboard_layout_type_get_num_levels (struct key_type_t *type)
+{
+    // NOTE: This assumes level numbers are contiguous. Also this traverses the
+    // type linked list every time it's called. @performance
+    int num_levels = 0;
+    int last_level = 0;
+    struct level_modifier_mapping_t *curr_modifier_mapping = type->modifier_mappings;
+    while (curr_modifier_mapping != NULL) {
+        if (last_level != curr_modifier_mapping->level) {
+            last_level = curr_modifier_mapping->level;
+            num_levels++;
+        }
+        curr_modifier_mapping = curr_modifier_mapping->next;
+    }
+
+    return num_levels;
 }
 
 enum type_level_mapping_result_status_t {

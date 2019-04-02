@@ -386,8 +386,9 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
         gtk_widget_set_margins (symbol_title, 6);
         gtk_grid_attach (GTK_GRID(per_level_data), symbol_title, 1, 0, 1, 1);
 
+        int num_levels = keyboard_layout_type_get_num_levels (key->type);
         char keysym_name[64];
-        for (int i=0; i<key->type->num_levels; i++) {
+        for (int i=0; i<num_levels; i++) {
             char *level_str = pprintf (&pool_l, "Level %i", i+1);
             GtkWidget *level_label = title_label_new (level_str);
             gtk_widget_set_margins (level_label, 6);

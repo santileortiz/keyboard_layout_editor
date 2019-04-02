@@ -770,7 +770,8 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                 if (type != NULL) {
                     // If there are more declared symbols for the key than levels in
                     // the type we just ignore the extra symbols.
-                    for (int i=0; i<type->num_levels; i++) {
+                    int num_levels = keyboard_layout_type_get_num_levels (type);
+                    for (int i=0; i<num_levels; i++) {
                         keyboard_layout_key_set_level (new_key, i+1, symbols[i], NULL);
                     }
                 }
@@ -1047,7 +1048,8 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
         // it doesn't check all mapped levels have a name. In any case, we
         // create generic names for all of them. Maybe in the future let the
         // user name them?.
-        for (int i=0; i<curr_type->num_levels; i++) {
+        int num_levels = keyboard_layout_type_get_num_levels (curr_type);
+        for (int i=0; i<num_levels; i++) {
             snprintf (buff, ARRAY_SIZE(buff), "%d", i+1);
 
             str_cat_c (&xkb_str, "        level_name[Level");

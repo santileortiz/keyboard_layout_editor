@@ -52,6 +52,12 @@ typedef enum {false, true} bool;
 
 #define invalid_code_path assert(0)
 
+#if __GNUC__ > 2
+#define GCC_PRINTF_FORMAT(fmt_idx, arg_idx) __attribute__((format (printf, fmt_idx, arg_idx)))
+#else
+#define GCC_PRINTF_FORMAT(fmt_idx, arg_idx)
+#endif
+
 ////////////
 // STRINGS
 //
@@ -420,6 +426,32 @@ char str_last (string_t *str)
 {
     return str_data(str)[str_len(str)-1];
 }
+
+// These string functions use the printf syntax, this lets code be more concise.
+#define _define_str_printf_func(FUNC_NAME,STRN_FUNC_NAME)       \
+GCC_PRINTF_FORMAT(2, 3)                                         \
+void FUNC_NAME (string_t *str, const char *format, ...)         \
+{                                                               \
+    va_list args1, args2;                                       \
+    va_start (args1, format);                                   \
+    va_copy (args2, args1);                                     \
+                                                                \
+    size_t size = vsnprintf (NULL, 0, format, args1) + 1;       \
+    va_end (args1);                                             \
+                                                                \
+    char *tmp_str = malloc (size);                              \
+    vsnprintf (tmp_str, size, format, args2);                   \
+    va_end (args2);                                             \
+                                                                \
+    STRN_FUNC_NAME (str, tmp_str, size - 1);                    \
+                                                                \
+    free (tmp_str);                                             \
+}
+
+_define_str_printf_func(str_set_printf, strn_set)
+_define_str_printf_func(str_cat_printf, strn_cat_c)
+
+#undef _define_str_printf_func
 
 //////////////////////
 // PARSING UTILITIES
@@ -2051,12 +2083,6 @@ void* pom_dup (mem_pool_t *pool, void *data, uint32_t size)
     memcpy (res, data, size);
     return res;
 }
-
-#if __GNUC__ > 2
-#define GCC_PRINTF_FORMAT(fmt_idx, arg_idx) __attribute__((format (printf, fmt_idx, arg_idx)))
-#else
-#define GCC_PRINTF_FORMAT(fmt_idx, arg_idx)
-#endif
 
 GCC_PRINTF_FORMAT(2, 3)
 char* pprintf (mem_pool_t *pool, const char *format, ...)

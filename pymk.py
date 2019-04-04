@@ -120,12 +120,13 @@ def generate_keysym_names ():
                         xkb_keysym_t keysym;
                     };
 
-                    static const struct named_keysym_t keysym_names[] = {
                     '''))
+    # Maybe these can be useful in the future? or maybe not...
+    #out_file.write ('int keysym_names_avg_len = {width};\n'.format (width=int(avg_len/len(res))))
+    #out_file.write ('int keysym_names_max_len = {width};\n'.format (width=col_width[0]))
+    out_file.write ('static const struct named_keysym_t keysym_names[] = {\n')
     out_file.write (',\n'.join(res))
     out_file.write ('\n};')
-    print (col_width)
-    print (avg_len/len(res))
 
 if __name__ == "__main__":
     # Everything above this line will be executed for each TAB press.

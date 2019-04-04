@@ -1068,6 +1068,28 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
     str_cat_c (&xkb_str, "};\n\n"); // end of compatibility section
 
     str_cat_c (&xkb_str, "xkb_symbols \"keys_s\" {\n");
+    for (int i=0; i<KEY_CNT; i++) {
+        struct key_t *curr_key = keymap->keys[i];
+        if (curr_key != NULL) {
+            str_cat_printf (&xkb_str, "    key <%d> {\n", i);
+            str_cat_printf (&xkb_str, "        type= \"%s\",\n", curr_key->type->name);
+
+            str_cat_c (&xkb_str, "        symbols[Group1]= [ ");
+            int num_levels = keyboard_layout_type_get_num_levels (curr_key->type);
+            for (int j=0; j<num_levels; j++) {
+                char keysym_name[64];
+                xkb_keysym_get_name (curr_key->levels[j].keysym, keysym_name, ARRAY_SIZE(keysym_name));
+                str_cat_printf (&xkb_str, "%s", keysym_name);
+
+                if (j < num_levels-1) {
+                    str_cat_c (&xkb_str, ", ");
+                }
+            }
+            str_cat_c (&xkb_str, " ]\n");
+
+            str_cat_c (&xkb_str, "    };\n");
+        }
+    }
     str_cat_c (&xkb_str, "};\n\n"); // end of symbols section
 
     str_cat_c (&xkb_str, "};\n\n"); // end of keymap

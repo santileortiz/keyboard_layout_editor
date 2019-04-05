@@ -951,7 +951,6 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
 {
     bool success = true;
     string_t xkb_str = {0};
-    char buff[100];
 
     // TODO: When we have a compact function, we should call it before creating
     // the output string. :keyboard_layout_compact
@@ -992,17 +991,10 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
     int i=0;
     for (i=0; i<KEY_CNT; i++) {
         if (keymap->keys[i] != NULL) {
-            str_cat_c (&xkb_str, "    ");
-            snprintf (buff, ARRAY_SIZE(buff), "<%d>", i);
-            str_cat_c (&xkb_str, buff);
-            str_cat_c (&xkb_str, " = ");
-            snprintf (buff, ARRAY_SIZE(buff), "%d", i+8);
-            str_cat_c (&xkb_str, buff);
+            str_cat_printf (&xkb_str, "    <%d> = %d", i, i+8);
 
             if (keycode_names[i] != NULL) {
-                str_cat_c (&xkb_str, "; // ");
-                str_cat_c (&xkb_str, keycode_names[i]);
-                str_cat_c (&xkb_str, "\n");
+                str_cat_printf (&xkb_str, "; // %s\n", keycode_names[i]);
 
             } else {
                 str_cat_c (&xkb_str, ";\n");
@@ -1024,9 +1016,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
 
     struct key_type_t *curr_type = keymap->types;
     while (curr_type != NULL) {
-        str_cat_c (&xkb_str, "    type \"");
-        str_cat_c (&xkb_str, curr_type->name);
-        str_cat_c (&xkb_str, "\" {\n");
+        str_cat_printf (&xkb_str, "    type \"%s\" {\n", curr_type->name);
         str_cat_c (&xkb_str, "        modifiers = ");
         xkb_file_write_modifier_mask (&state, &xkb_str, curr_type->modifier_mask);
         str_cat_c (&xkb_str, ";\n");
@@ -1035,10 +1025,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
         while (curr_modifier_mapping != NULL) {
             str_cat_c (&xkb_str, "        map[");
             xkb_file_write_modifier_mask (&state, &xkb_str, curr_modifier_mapping->modifiers);
-            str_cat_c (&xkb_str, "] = Level");
-            snprintf (buff, ARRAY_SIZE(buff), "%d", curr_modifier_mapping->level);
-            str_cat_c (&xkb_str, buff);
-            str_cat_c (&xkb_str, ";\n");
+            str_cat_printf (&xkb_str, "] = Level%d;\n", curr_modifier_mapping->level);
 
             curr_modifier_mapping = curr_modifier_mapping->next;
         }
@@ -1050,13 +1037,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
         // user name them?.
         int num_levels = keyboard_layout_type_get_num_levels (curr_type);
         for (int i=0; i<num_levels; i++) {
-            snprintf (buff, ARRAY_SIZE(buff), "%d", i+1);
-
-            str_cat_c (&xkb_str, "        level_name[Level");
-            str_cat_c (&xkb_str, buff);
-            str_cat_c (&xkb_str, "] = \"Level ");
-            str_cat_c (&xkb_str, buff);
-            str_cat_c (&xkb_str, "\";\n");
+            str_cat_printf (&xkb_str, "        level_name[Level%d] = \"Level %d\";\n", i+1, i+1);
         }
         str_cat_c (&xkb_str, "    };\n");
 

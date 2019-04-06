@@ -392,10 +392,36 @@ struct keyboard_layout_t* keyboard_layout_new_from_xkb (char *xkb_str)
     return keymap;
 }
 
-// TODO: Add a funtion that checks the keymap is valid. We could check a lot of
-// things but we must start with checking that all levels in a type have a
-// mapping, meaning that they are all contiguous in the linked list, see
-// :none_mapping_is_reserved_for_level1 for more information.
+bool keyboard_layout_is_valid (struct keyboard_layout_t *keymap)
+{
+    bool is_valid = true;
+
+    // Check levels in types are contiguous.
+    // For more information about why we don't allow non contiguous level
+    // mappings see :none_mapping_is_reserved_for_level1
+    struct key_type_t *curr_type = keymap->types;
+    while (curr_type != NULL) {
+        int level = 1;
+        struct level_modifier_mapping_t *curr_mapping = curr_type->modifier_mappings;
+        while (curr_mapping != NULL) {
+            if (curr_mapping->level != level) {
+                if (curr_mapping->level == level+1) {
+                    level++;
+                } else {
+                    is_valid = false;
+                    break;
+                }
+            }
+            curr_mapping = curr_mapping->next;
+        }
+
+        curr_type = curr_type->next;
+    }
+
+    // TODO: Which other checks are useful?
+
+    return is_valid;
+}
 
 // TODO: Add a function that prunes all unused components and compacts limited
 // resources, for instance in xkb there can't be more than 16 modifiers. Should

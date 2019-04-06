@@ -852,6 +852,10 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
     // functions, and will also run this maybe expensive computation less often.
     // :keyboard_layout_compact
 
+    if (success) {
+        success = keyboard_layout_is_valid (keymap);
+    }
+
     return success;
 }
 

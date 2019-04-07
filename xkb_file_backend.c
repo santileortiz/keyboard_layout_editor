@@ -616,6 +616,66 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
     state->scnr.eof_is_error = false;
 }
 
+// I have read a LOT about this compatibility section and it still baffles me.
+// The whole motivation behind it seems to be keeping compatibility between
+// servers using XKB and XKB unaware clients.
+//
+// As far as I've been able to gather, this section exists so that the X server
+// can quickly answer to requests from clients to make changes in the
+// configuration. [1] Talks about the 'compatibility problem' where a client
+// asks to remap a symbol that has an action bound to it, there is a problem
+// beacuse core keymaps don't have actions, the server needs to traverse the
+// FULL layout looking for the symbol, get the modifier state required, then
+// search for that action and remap it too. Although inconvenient and slow it
+// doesn't look impossible as Pascal describes it, maybe I'm missing something
+// here. From [2] I can see why having different kinds of clients is
+// problematic, and some data is required to map changes made from request
+// between core and XKB states. Still, I don't see why this trickeled all the
+// way down to being exposed in the XKB file format. Why not just support
+// actions in the symbols section, then programatically generate this
+// compatibility map data?, maybe we loose some data in the generation, maybe we
+// need to get more implicit data from the user about the behavior of the
+// translation, maybe it was too computationally expensive for the time, or
+// maybe this stuck as the way to define actions because it's more user friendly
+// for people hand editing XKB files, creating keymaps in the database, I don't
+// know.
+//
+// Whatever the case may be, we are at a point in time where most (maybe more
+// than 98%?) applications will be XKB aware, because they are written either in
+// Gtk or Qt, X11 is being replaced and computers are crazy fast. I think it's
+// time to try and get rid of this section and see how things go.
+//
+// Unfortunately the wole xkb database defines key actions using this section,
+// so we need to get them from it. This code parses the compatibility section
+// and stores it in the parser state, then translates all defined actions and
+// puts them besides its corresponding symbol. This needs to be done in 2 steps
+// because conflict resolution between interpret statements is done like in CSS:
+// the more specific one wins.
+//
+// [1] http://pascal.tsu.ru/en/xkb/gram-compat.html
+// [2] https://www.x.org/releases/X11R7.7/doc/libX11/XKB/xkblib.html#The_Xkb_Compatibility_Map
+void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
+{
+    state->scnr.eof_is_error = true;
+    xkb_parser_block_start (state, "xkb_compatibility");
+
+    // Skip the content of the block
+    // TODO: Actually parse this section!!!
+    int braces = 1;
+    do {
+        xkb_parser_next (state);
+        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{")) {
+            braces++;
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
+            braces--;
+        }
+    } while (!state->scnr.error && braces > 0);
+
+    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+    state->scnr.eof_is_error = false;
+}
+
 void xkb_parser_symbol_list (struct xkb_parser_state_t *state,
                              xkb_keysym_t *symbols, int size,
                              int *num_symbols_found)
@@ -817,7 +877,7 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
 
     xkb_parser_parse_keycodes (&state);
     xkb_parser_parse_types (&state);
-    xkb_parser_skip_block (&state, "xkb_compatibility");
+    xkb_parser_parse_compat (&state);
     xkb_parser_parse_symbols (&state);
 
     // Should we accept keymaps with geometry section? looks like xkbcomp does

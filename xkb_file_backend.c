@@ -218,7 +218,7 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
 
     // TODO: Get better error messages, show the line where we got stuck.
     if (!state->scnr.error) {
-        //printf ("Type: %d, Value: %s\n", state->tok_type, str_data(&state->tok_value));
+        printf ("Type: %d, Value: %s\n", state->tok_type, str_data(&state->tok_value));
     }
 }
 
@@ -420,6 +420,36 @@ void xkb_parser_parse_keycodes (struct xkb_parser_state_t *state)
     state->scnr.eof_is_error = false;
 }
 
+void xkb_parser_virtual_modifier_definition (struct xkb_parser_state_t *state)
+{
+    do {
+        xkb_parser_next (state);
+        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL)) {
+            enum modifier_result_status_t status;
+            keyboard_layout_new_modifier (state->keymap, str_data(&state->tok_value), &status);
+            if (status == KEYBOARD_LAYOUT_MOD_MAX_LIMIT_REACHED) {
+                scanner_set_error (&state->scnr, "Too many modifier definitions, maximum is 16.");
+
+            } else if (status == KEYBOARD_LAYOUT_MOD_REDEFINITION &&
+                       !xkb_parser_is_predefined_mod (state, str_data(&state->tok_value))) {
+                printf ("Modifier '%s' defined multiple times.\n", str_data(&state->tok_value));
+            }
+
+            xkb_parser_next (state);
+            if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";")) {
+                break;
+
+            } else if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",")) {
+                scanner_set_error (&state->scnr, "Expected ';' or ','");
+            }
+
+        } else {
+            scanner_set_error (&state->scnr, "Expected modifier name");
+        }
+
+    } while (!state->scnr.error);
+}
+
 void xkb_parser_parse_types (struct xkb_parser_state_t *state)
 {
     state->scnr.eof_is_error = true;
@@ -428,32 +458,7 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
     do {
         xkb_parser_next (state);
         if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "virtual_modifiers")) {
-            do {
-                xkb_parser_next (state);
-                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL)) {
-                    enum modifier_result_status_t status;
-                    keyboard_layout_new_modifier (state->keymap, str_data(&state->tok_value), &status);
-                    if (status == KEYBOARD_LAYOUT_MOD_MAX_LIMIT_REACHED) {
-                        scanner_set_error (&state->scnr, "Too many modifier definitions, maximum is 16.");
-
-                    } else if (status == KEYBOARD_LAYOUT_MOD_REDEFINITION &&
-                               !xkb_parser_is_predefined_mod (state, str_data(&state->tok_value))) {
-                        printf ("Modifier '%s' defined multiple times.\n", str_data(&state->tok_value));
-                    }
-
-                    xkb_parser_next (state);
-                    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";")) {
-                        break;
-
-                    } else if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",")) {
-                        scanner_set_error (&state->scnr, "Expected ';' or ','");
-                    }
-
-                } else {
-                    scanner_set_error (&state->scnr, "Expected modifier name");
-                }
-
-            } while (!state->scnr.error);
+            xkb_parser_virtual_modifier_definition (state);
 
         } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "type")) {
 
@@ -616,6 +621,36 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
     state->scnr.eof_is_error = false;
 }
 
+bool xkb_parser_match_real_modifier_mask (struct xkb_parser_state_t *state,
+                                          char *end_operator, key_modifier_mask_t *modifier_mask)
+{
+    // TODO: Implement this!!! see xkb_parser_modifier_mask()
+    return true;
+}
+
+bool xkb_parser_match_keysym (struct xkb_parser_state_t *state, xkb_keysym_t *keysym)
+{
+    assert (keysym != NULL);
+
+    bool success = true;
+
+    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL) ||
+        (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_NUMBER, NULL) && state->tok_value_int < 10)) {
+
+        xkb_keysym_t keysym_res = xkb_keysym_from_name (str_data(&state->tok_value), XKB_KEYSYM_NO_FLAGS);
+        if (strcmp (str_data(&state->tok_value), "NoSymbol") != 0 && keysym_res == XKB_KEY_NoSymbol) {
+            char *error_msg =
+                pprintf (&state->pool, "Invalid kesym name '%s.", str_data(&state->tok_value));
+            scanner_set_error (&state->scnr, error_msg);
+            success = false;
+        } else {
+            *keysym = keysym_res;
+        }
+    }
+
+    return success;
+}
+
 // I have read a LOT about this compatibility section and it still baffles me.
 // The whole motivation behind it seems to be keeping compatibility between
 // servers using XKB and XKB unaware clients.
@@ -652,6 +687,8 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
 // because conflict resolution between interpret statements is done like in CSS:
 // the more specific one wins.
 //
+// :compatibility_section
+//
 // [1] http://pascal.tsu.ru/en/xkb/gram-compat.html
 // [2] https://www.x.org/releases/X11R7.7/doc/libX11/XKB/xkblib.html#The_Xkb_Compatibility_Map
 void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
@@ -664,11 +701,101 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
     int braces = 1;
     do {
         xkb_parser_next (state);
-        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{")) {
-            braces++;
+
+        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "virtual_modifiers")) {
+            xkb_parser_virtual_modifier_definition (state);
+
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "interpret.useModMapMods") ||
+                   xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "interpret.repeat") ||
+                   xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "interpret.locking")) {
+            // These are the defaults for flags that can be set inside an
+            // interpret statement, we ignore them for now as we won't even
+            // handle these flags.
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL);
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "interpret")) {
+            bool all_keysyms = false;
+
+            // I will leave these undefined so the compiler can help us check
+            // all brances define them.
+            key_modifier_mask_t real_modifiers;
+            xkb_keysym_t keysym;
+
+            xkb_parser_next (state);
+            if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "Any")) {
+                all_keysyms = true;
+
+            } else if (xkb_parser_match_keysym (state, &keysym)) {
+                // keysym was set while evaluating the condition.
+
+            } else {
+                char *error_msg =
+                    pprintf (&state->pool, "Unexpected identifier '%s'.",
+                             str_data(&state->tok_value));
+                scanner_set_error (&state->scnr, error_msg);
+            }
+
+            // Parse the interpret declaration (before the block)
+            xkb_parser_next (state);
+            if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "+")) {
+                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "AnyOfOrNone") ||
+                    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "NoneOf") ||
+                    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "AnyOf") ||
+                    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "AllOf") ||
+                    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "Exactly")) {
+                    // TODO: Store the contidion somewhere, an enum? a string?.
+
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "(");
+                    xkb_parser_match_real_modifier_mask (state, ")", &real_modifiers);
+
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{");
+                    // GOTO :parse_interpret_block
+
+                } else if (xkb_parser_match_real_modifier_mask (state, "{", &real_modifiers)) {
+                    // GOTO :parse_interpret_block
+
+                } else {
+                    char *error_msg =
+                        pprintf (&state->pool, "Expected keysym or condition, got '%s'.",
+                                 str_data(&state->tok_value));
+                    scanner_set_error (&state->scnr, error_msg);
+                }
+
+            } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{")) {
+                // GOTO :parse_interpret_block
+            }
+
+            // Parse the content of the interpret block
+            // :parse_interpret_block
+            // TODO: Actually parse the contents of the block
+            xkb_parser_skip_until_operator (state, "}");
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+            // TODO: Store the interpret data in the parser state
+
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "group")) {
+            // Ignore
+            xkb_parser_skip_until_operator (state, ";");
+
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "indicator")) {
+            // Ignore
+            // TODO: Will ignoring these make leds not work at all? if we break
+            // them, then we need to be more careful about these.
+            xkb_parser_skip_until_operator (state, "}");
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
         } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
-            braces--;
+            break;
+
+        } else {
+            char *error_msg =
+                pprintf (&state->pool, "Invalid statement '%s' in compatibility section.",
+                         str_data(&state->tok_value));
+            scanner_set_error (&state->scnr, error_msg);
         }
+
     } while (!state->scnr.error && braces > 0);
 
     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
@@ -685,10 +812,9 @@ void xkb_parser_symbol_list (struct xkb_parser_state_t *state,
 
     do {
         xkb_parser_next (state);
-        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL) ||
-            (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_NUMBER, NULL) && state->tok_value_int < 10)) {
-            symbols[*num_symbols_found] =
-                xkb_keysym_from_name (str_data(&state->tok_value), XKB_KEYSYM_NO_FLAGS);
+        xkb_keysym_t keysym;
+        if (xkb_parser_match_keysym (state, &keysym)) {
+            symbols[*num_symbols_found] = keysym;
             (*num_symbols_found)++;
         }
 
@@ -730,8 +856,8 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
             do {
                 xkb_parser_next (state);
                 if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "[")) {
-                    // This is a shorthand used, in this case the type will be
-                    // guessed afterwards, and there are no actions set here.
+                    // This is a shorthand, the type will be guessed afterwards,
+                    // and there are no actions set here.
                     xkb_parser_symbol_list (state, symbols, ARRAY_SIZE(symbols), &num_symbols);
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}");
                     break;

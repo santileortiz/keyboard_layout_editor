@@ -138,8 +138,8 @@ key_modifier_mask_t keyboard_layout_new_modifier (struct keyboard_layout_t *keym
         num_modifiers = g_tree_nnodes(keymap->modifiers);
     }
 
-    if (num_modifiers < KEYBOARD_LAYOUT_MAX_MODIFIERS) {
-        if (!g_tree_lookup_extended (keymap->modifiers, name, NULL, NULL)) {
+    if (!g_tree_lookup_extended (keymap->modifiers, name, NULL, NULL)) {
+        if (num_modifiers < KEYBOARD_LAYOUT_MAX_MODIFIERS) {
             // FIXME: Sigh, I don't like this wrapping of values inside GTree,
             // it will make us leak memory when we add a way to delete
             // modifiers. Not leaking memory would require us keeping a linked
@@ -157,11 +157,11 @@ key_modifier_mask_t keyboard_layout_new_modifier (struct keyboard_layout_t *keym
             status_l = KEYBOARD_LAYOUT_MOD_SUCCESS;
 
         } else {
-            status_l = KEYBOARD_LAYOUT_MOD_REDEFINITION;
+            status_l = KEYBOARD_LAYOUT_MOD_MAX_LIMIT_REACHED;
         }
 
     } else {
-        status_l = KEYBOARD_LAYOUT_MOD_MAX_LIMIT_REACHED;
+        status_l = KEYBOARD_LAYOUT_MOD_REDEFINITION;
     }
 
     if (status != NULL) {

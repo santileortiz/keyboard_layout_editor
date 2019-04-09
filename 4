@@ -655,7 +655,7 @@ bool xkb_parser_match_real_modifier_mask (struct xkb_parser_state_t *state,
                 // NOTE: This is in the else to make clear that the following
                 // condition must be true:
                 //
-                //    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR,"+")
+                //    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR,"+") 
                 //
                 // This means we we expect a modifier to come next. This is
                 // important because we don't want to consume a token past the
@@ -786,7 +786,6 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
             // Parse the interpret declaration (before the block)
             xkb_parser_next (state);
             if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "+")) {
-                xkb_parser_next (state);
                 if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "AnyOfOrNone") ||
                     xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "NoneOf") ||
                     xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "AnyOf") ||
@@ -797,23 +796,7 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "(");
 
                     xkb_parser_next (state);
-                    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "all")) {
-                        // TODO: What should be assigned to real_modifiers here?
-                        // Maybe lookup the assigned values for all real
-                        // modifiers and OR them together? maybe just have a
-                        // boolean flag that means 'any' modifier.
-                        real_modifiers = 0;
-                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ")");
-
-                    } else if (xkb_parser_match_real_modifier_mask (state, ")", &real_modifiers)) {
-                        // Real modifier parsing successful, continue.
-
-                    } else {
-                        char *error_msg =
-                            pprintf (&state->pool, "Expected real modifier or 'Any', got '%s'.",
-                                     str_data(&state->tok_value));
-                        scanner_set_error (&state->scnr, error_msg);
-                    }
+                    xkb_parser_match_real_modifier_mask (state, ")", &real_modifiers);
 
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{");
                     // GOTO :parse_interpret_block

@@ -41,6 +41,31 @@ bool codepoint_to_xkb_keysym (uint32_t cp, xkb_keysym_t *res)
     return is_cp_valid;
 }
 
+// Internal representation for the compatibility section. The reasoning behind
+// puting it here and not in out keymap internal representation is discussed in
+// :compatibility_section
+#define XKB_PARSER_COMPAT_CONDITIONS \
+    XKB_PARSER_COMPAT_CONDITION(COMPAT_CONDITION_ANY_OF_OR_NONE,"AnyOfOrNone") \
+    XKB_PARSER_COMPAT_CONDITION(COMPAT_CONDITION_NONE_OF,"NoneOf")             \
+    XKB_PARSER_COMPAT_CONDITION(COMPAT_CONDITION_ANY_OF,"AnyOf")               \
+    XKB_PARSER_COMPAT_CONDITION(COMPAT_CONDITION_ALL_OF,"AllOf")               \
+    XKB_PARSER_COMPAT_CONDITION(COMPAT_CONDITION_EXACTLY,"Exactly")
+
+enum xkb_parser_compat_condition_t {
+#define XKB_PARSER_COMPAT_CONDITION(name,str) name,
+    XKB_PARSER_COMPAT_CONDITIONS
+#undef XKB_PARSER_COMPAT_CONDITION
+    NUM_XKB_PARSER_COMPAT_CONDITIONS
+};
+
+char *xkb_parser_compat_condition_names[] = {
+#define XKB_PARSER_COMPAT_CONDITION(name,str) str,
+    XKB_PARSER_COMPAT_CONDITIONS
+#undef XKB_PARSER_COMPAT_CONDITION
+};
+
+#undef XKB_PARSER_COMPAT_CONDITIONS
+
 enum xkb_parser_token_type_t {
     XKB_PARSER_TOKEN_IDENTIFIER,
     XKB_PARSER_TOKEN_KEY_IDENTIFIER,
@@ -742,8 +767,6 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
     state->scnr.eof_is_error = true;
     xkb_parser_block_start (state, "xkb_compatibility");
 
-    // Skip the content of the block
-    // TODO: Actually parse this section!!!
     int braces = 1;
     do {
         xkb_parser_next (state);
@@ -787,13 +810,22 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
             xkb_parser_next (state);
             if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "+")) {
                 xkb_parser_next (state);
-                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "AnyOfOrNone") ||
-                    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "NoneOf") ||
-                    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "AnyOf") ||
-                    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "AllOf") ||
-                    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "Exactly")) {
-                    // TODO: Store the contidion somewhere, an enum? a string?.
 
+                // Is this the correct default?
+                enum xkb_parser_compat_condition_t condition = COMPAT_CONDITION_ANY_OF_OR_NONE;
+                bool next_is_condition = false;
+                for (int i=0; i<ARRAY_SIZE(xkb_parser_compat_condition_names); i++) {
+                    if (xkb_parser_match_tok (state,
+                                              XKB_PARSER_TOKEN_IDENTIFIER,
+                                              xkb_parser_compat_condition_names[i]))
+                    {
+                        next_is_condition = true;
+                        condition = i;
+                        break;
+                    }
+                }
+
+                if (next_is_condition) {
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "(");
 
                     xkb_parser_next (state);
@@ -909,7 +941,7 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
             int kc;
             if (!xkb_parser_key_identifier_lookup (state, str_data(&state->tok_value), &kc)) {
                 char *error_msg =
-                    pprintf (&state->pool, "Undefined key identifier '%s.", str_data(&state->tok_value));
+                    pprintf (&state->pool, "Undefined key identifier '%s'.", str_data(&state->tok_value));
                 scanner_set_error (&state->scnr, error_msg);
             }
 
@@ -948,7 +980,7 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                             keyboard_layout_type_lookup (state->keymap, str_data(&state->tok_value));
                         if (type == NULL) {
                             char *error_msg =
-                                pprintf (&state->pool, "Unknown type '%s.", str_data(&state->tok_value));
+                                pprintf (&state->pool, "Unknown type '%s'.", str_data(&state->tok_value));
                             scanner_set_error (&state->scnr, error_msg);
 
                         }

@@ -209,9 +209,6 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
         }
 
     } else if (scanner_char (scnr, '<')) {
-        // TODO: There is a list of valid key identifiers somewhere as xkbcom
-        // crashes when adding unknown ones. Where is this coming from? xkbcomp,
-        // X11's spec or XKB's spec. For now we trust they will be valid.
         state->tok_type = XKB_PARSER_TOKEN_KEY_IDENTIFIER;
 
         tok_start = scnr->pos;
@@ -722,6 +719,18 @@ bool xkb_parser_match_keysym (struct xkb_parser_state_t *state, xkb_keysym_t *ke
     return success;
 }
 
+bool xkb_parser_parse_boolean_assign (struct xkb_parser_state_t *state, char *name)
+{
+    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, name);
+
+    xkb_parser_next (state);
+
+    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=")) {
+    } else {
+    }
+
+}
+
 // I have read a LOT about this compatibility section and it still baffles me.
 // The whole motivation behind it seems to be keeping compatibility between
 // servers using XKB and XKB unaware clients.
@@ -848,26 +857,308 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
                     }
 
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{");
-                    // GOTO :parse_interpret_block
+                    // GOTO :parse_interpret_block_statements
 
                 } else if (xkb_parser_match_real_modifier_mask (state, "{", &real_modifiers)) {
-                    // GOTO :parse_interpret_block
+                    // GOTO :parse_interpret_block_statements
 
                 } else {
                     char *error_msg =
-                        pprintf (&state->pool, "Expected keysym or condition, got '%s'.",
+                        pprintf (&state->pool, "Expected a real modifier or a condition, got '%s'.",
                                  str_data(&state->tok_value));
                     scanner_set_error (&state->scnr, error_msg);
                 }
 
             } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{")) {
-                // GOTO :parse_interpret_block
+                // GOTO :parse_interpret_block_statements
+
+            } else {
+                char *error_msg =
+                    pprintf (&state->pool, "Expected + or {, got '%s'.",
+                             str_data(&state->tok_value));
+                scanner_set_error (&state->scnr, error_msg);
             }
 
             // Parse the content of the interpret block
-            // :parse_interpret_block
-            // TODO: Actually parse the contents of the block
-            xkb_parser_skip_until_operator (state, "}");
+            // :parse_interpret_block_statements
+            bool level_one_only = false;
+            do {
+                xkb_parser_next (state);
+
+                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "virtualModifier") ||
+                    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "locking") ||
+                    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "repeat")) {
+
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL);
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "action")) {
+
+                    enum action_type_t action_type = KEY_ACTION_TYPE_NONE;
+
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+
+                    xkb_parser_next (state);
+                    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "SetMods")) {
+                        action_type = KEY_ACTION_TYPE_MOD_SET;
+                        // TODO: Check if clearLocks is set, if it is, what do
+                        // we do with it?
+                    } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LatchMods")) {
+                        action_type = KEY_ACTION_TYPE_MOD_LATCH;
+
+                    } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LockMods")) {
+                        action_type = KEY_ACTION_TYPE_MOD_LOCK;
+
+                    } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "NoAction")) {
+                        // Do nothing as it's the default.
+                        //action_type = KEY_ACTION_TYPE_NONE;
+
+                    } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "SetGroup") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LatchGroup") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LockGroup") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "SetControls") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LockControls") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "ISOLock") ||
+
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "MovePtr") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "MovePointer") ||
+
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "PtrBtn") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "PointerButton") ||
+
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LockPtrBtn") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LockPointerButton") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LockPtrButton") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LockPointerBtn") ||
+
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "SetPtrDflt") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "SetPointerDefault") ||
+
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "ActionMessage") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "MessageAction") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "Message") ||
+
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "Redirect") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "RedirectKey") ||
+
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "Terminate") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "TerminateServer") ||
+
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "SwitchScreen") ||
+
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "DevBtn") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "DeviceBtn") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "DevButton") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "DeviceButton") ||
+
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LockDevBtn") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LockDeviceBtn") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LockDevButton") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LockDeviceButton") ||
+
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "Private")) {
+
+                        // Ignore all these actions.
+                        // TODO: Which of these are useful/required? If some are
+                        // required, how do we store them in our IR without
+                        // adding a lot of stuff that won't be available in
+                        // other platforms?.
+
+                    } else {
+                        char *error_msg =
+                            pprintf (&state->pool, "Invalid action name '%s'.",
+                                     str_data(&state->tok_value));
+                        scanner_set_error (&state->scnr, error_msg);
+                    }
+
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "(");
+                    if (action_type == KEY_ACTION_TYPE_NONE) {
+                        // NOTE: This is not just the case for NoAction() here
+                        // we will also skip all ignored actions.
+                        xkb_parser_skip_until_operator (state, ")");
+                    } else {
+                        // Currently we only support modifier actions, so that's
+                        // the kind of action we parse here.
+
+                        // Because boolean arguments of an action can use the
+                        // shorthand of the name, they can have 3 syntaxes:
+                        //
+                        //      clearLocks              (1)
+                        //      ~clearLocks             (2)
+                        //      clearLocks=yes          (3)
+                        //
+                        // To distinguish (1) from (3) we need to get the next
+                        // token. If it's a ',' or ')' then the value of the
+                        // flag is true and we are parsing (1), if instead it's
+                        // an '=' we need to keep parsing to get the value
+                        // because we are parsing (3).
+                        //
+                        // Now, the ',' and ')' are supposed to be consumed at
+                        // the beginning of the do loop, not inside the argument
+                        // parsing. The following variable is used to know if we
+                        // need to parse a token at the begining of the loop or
+                        // it was already done as part of the previous
+                        // iteration.
+                        //
+                        // This also happens when parsong the modifier mask:
+                        //
+                        //      modifiers = VMOD1 + VMOD2 ...
+                        //
+                        // To detect the end of the list we need to parse the
+                        // next token, if it's + then this still the mask, but
+                        // if it's ',' or ')' then we need to stop parsing the
+                        // mask but we already parsed the next list separator.
+                        //
+                        // :action_arguments_use_lookehead
+                        //
+                        // TODO: A cleaner approach to this would be to have a
+                        // xkb_parser_peek() function, that stores the next
+                        // token somewhere else, then the followng call to
+                        // xkb_parser_next() instead of advancing the scanner,
+                        // copies the available peek into the normal tok_*
+                        // variables in the parser state.
+                        // :parser_peek_function
+                        bool list_separator_consumed = false;
+
+                        do {
+
+                            // :action_arguments_use_lookahead
+                            if (!list_separator_consumed) {
+                                xkb_parser_next (state);
+                            }
+                            list_separator_consumed = false;
+
+                            if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "modifiers")) {
+                                xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+
+                                key_modifier_mask_t modifier_mask = 0;
+                                bool mod_map_mods = false;
+
+                                // We could also use a xkb_parser_peek()
+                                // function here. :parser_peek_function
+                                xkb_parser_next (state);
+                                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "modMapMods")) {
+                                    mod_map_mods = true;
+
+                                } else {
+
+                                    // NOTE: xkb_parser_parse_modifier_mask() isn't
+                                    // used here because end_operator can have 2
+                                    // possible values either ',' or ')'. Also,
+                                    // we already parsed the first token in
+                                    // xkb_parser_next() above.
+                                    do {
+                                        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL)) {
+                                            modifier_mask |= xkb_parser_modifier_lookup (state, str_data(&state->tok_value));
+                                        }
+
+                                        xkb_parser_next (state);
+                                        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",") ||
+                                            xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ")") ) {
+                                            break;
+
+                                        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "+")) {
+                                            xkb_parser_next (state);
+
+                                        } else {
+                                            char *error_msg =
+                                                pprintf (&state->pool, "Expected ')', ',' or '+', got '%s'.",
+                                                         str_data(&state->tok_value));
+                                            scanner_set_error (&state->scnr, error_msg);
+                                        }
+
+                                    } while (!state->scnr.error);
+
+                                    list_separator_consumed = true;
+                                }
+
+                            } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "clearLocks")) {
+
+                                // TODO: Correctly handle ~clearLocks too.
+
+                                bool clear_locks = false;
+                                xkb_parser_next (state);
+                                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",") ||
+                                    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ")")) {
+                                    clear_locks = true;
+                                    list_separator_consumed = true;
+
+                                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=")) {
+
+                                    xkb_parser_next (state);
+                                    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "no") ||
+                                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "false") ||
+                                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "off")) {
+                                        clear_locks = false;
+
+                                    } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "yes") ||
+                                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "true") ||
+                                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "on")) {
+                                        clear_locks = true;
+
+                                    } else {
+                                        char *error_msg =
+                                            pprintf (&state->pool, "Invalid truth value for clearLocks: '%s'.",
+                                                     str_data(&state->tok_value));
+                                        scanner_set_error (&state->scnr, error_msg);
+                                    }
+                                }
+
+                            } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "latchToLock")) {
+                                // TODO: Do something like with clearLocks
+
+                            } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ")")) {
+                                break;
+
+                            } else if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",")) {
+                                char *error_msg =
+                                    pprintf (&state->pool, "Expected ')' or ',', got '%s'.",
+                                             str_data(&state->tok_value));
+                                scanner_set_error (&state->scnr, error_msg);
+                            }
+
+                        } while (!state->scnr.error);
+                    }
+
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "useModMapMods")) {
+
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+
+                    xkb_parser_next (state);
+                    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_LEVEL_IDENTIFIER, "level1") ||
+                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "levelone")) {
+                        level_one_only = true;
+
+                    } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "anylevel") ||
+                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "any")) {
+                        // Do nothing as this is the default.
+                        // level_one_only = false;
+
+                    } else {
+                        char *error_msg =
+                            pprintf (&state->pool, "Invalid value for useModMapMods '%s'.",
+                                     str_data(&state->tok_value));
+                        scanner_set_error (&state->scnr, error_msg);
+                    }
+
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
+                    break;
+
+                } else {
+                    char *error_msg =
+                        pprintf (&state->pool, "Invalid statement '%s' in compatibility section.",
+                                 str_data(&state->tok_value));
+                    scanner_set_error (&state->scnr, error_msg);
+                }
+
+            } while (!state->scnr.error);
+
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
             // TODO: Store the interpret data in the parser state

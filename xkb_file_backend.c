@@ -44,6 +44,17 @@ bool codepoint_to_xkb_keysym (uint32_t cp, xkb_keysym_t *res)
 // Internal representation for the compatibility section. The reasoning behind
 // puting it here and not in out keymap internal representation is discussed in
 // :compatibility_section
+//
+// For other sections we parse and ignore what our internal representation
+// doesn't care about. For the compatibility section we have a more accurate
+// representation for all the information available in the xkb file. Later we
+// translate it to our real representation that is less cluttered and hopefully
+// will work on several platforms in the future.
+//
+// The reason for this extra step is that I want to keep xkb specific stuff that
+// is maybe unnecessary contained here, and not let it trickle to our internal
+// representation unless it's absoluteley necessary.
+// :platform_specific_data_in_internal_representation
 #define XKB_PARSER_COMPAT_CONDITIONS \
     XKB_PARSER_COMPAT_CONDITION(COMPAT_CONDITION_ANY_OF_OR_NONE,"AnyOfOrNone") \
     XKB_PARSER_COMPAT_CONDITION(COMPAT_CONDITION_NONE_OF,"NoneOf")             \
@@ -65,6 +76,50 @@ char *xkb_parser_compat_condition_names[] = {
 };
 
 #undef XKB_PARSER_COMPAT_CONDITIONS
+
+// This is different than key_action_t because it has more xkb specific data.
+// The idea of the keyboard_layout.c internal representation is for it to be
+// less cluttered than the one in xkbcomp or libxkbcommon and maybe be even
+// mutiplatform in the future. Here we store what we parse but later we
+// transform it into our internal representation.
+//
+// It may be the case in the future that some data from here must be preserved
+// in our representation so we can get a working representation back, for this
+// we wpuld require a new mechanism to be implemented in our internal
+// representation (keyboard_layout.c).
+// :platform_specific_data_in_internal_representation
+struct xkb_key_action_t {
+    enum action_type_t type;
+
+    bool mod_map_mods;
+    key_modifier_mask_t modifiers;
+
+    bool clear_locks;
+    bool latch_to_lock;
+};
+
+struct xkb_compat_interpret_t {
+    key_modifier_mask_t real_modifiers;
+    enum xkb_parser_compat_condition_t condition;
+
+    bool level_one_only;
+    key_modifier_mask_t virtual_modifier;
+    struct xkb_key_action_t action;
+
+    struct xkb_compat_interpret_t *next;
+};
+
+struct xkb_compat_t {
+    // Interpret defaults
+    bool level_one_only;
+    bool repeat;
+    bool locking;
+
+    // Linked list of all interpret statements
+    struct xkb_compat_interpret_t *interprets;
+
+    // group and indicator statements are ignored, will they be required?
+};
 
 enum xkb_parser_token_type_t {
     XKB_PARSER_TOKEN_IDENTIFIER,

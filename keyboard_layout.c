@@ -8,6 +8,14 @@
 // moment. For now I want to start small, and add features incrementally
 // depending on how the UI evolves. I don't want to add a dependency on an file
 // people isn't supposed to depend on (yet).
+//
+// Also, because I'm trying to keep this representation simpler than the one
+// from xkb, it may be multiplatform in the future.
+//
+// TODO: Maybe in the future there will be platform specific data that must be
+// kept here so we don't break layouts, we would need to add a mechanism for
+// backends to store custom data here that only they know how to write/read.
+// :platform_specific_data_in_internal_representation
 
 // TODO: XKB seems to support an arbitrary number of levels, in practice xkbcomp
 // seems to complain if there are more than 8 levels. Maybe remove this in the

@@ -164,6 +164,27 @@ void xkb_parser_state_destory (struct xkb_parser_state_t *state)
     g_tree_destroy (state->key_identifiers_to_keycodes);
 }
 
+// Shorthand error for when the only replacement being done is the current value
+// of the token.
+#define xkb_parser_error_tok(state,format) xkb_parser_error(state,format,str_data(&(state->tok_value)))
+GCC_PRINTF_FORMAT(2, 3)
+void xkb_parser_error (struct xkb_parser_state_t *state, const char *format, ...)
+{
+    va_list args1, args2;
+    va_start (args1, format);
+    va_copy (args2, args1);
+
+    size_t size = vsnprintf (NULL, 0, format, args1) + 1;
+    va_end (args1);
+
+    char *str = mem_pool_push_size (&state->pool, size);
+
+    vsnprintf (str, size, format, args2);
+    va_end (args2);
+
+    scanner_set_error (&state->scnr, str);
+}
+
 // NOTE: key_identifier is expected to already be allocated inside state->pool,
 // we do this to avoid double allocation/copying. The parser needs to copy it
 // anyway to be able to call this at the end of a keycode assignment statement.
@@ -180,9 +201,7 @@ bool xkb_parser_define_key_identifier (struct xkb_parser_state_t *state, char *k
         new_identifier_defined = true;
 
     } else {
-        char *error_msg =
-            pprintf (&state->pool, "Key identifier '%s' already defined.", key_identifier);
-        scanner_set_error (&state->scnr, error_msg);
+        xkb_parser_error (state, "Key identifier '%s' already defined.", key_identifier);
     }
 
     return new_identifier_defined;
@@ -313,15 +332,11 @@ void xkb_parser_expect_tok (struct xkb_parser_state_t *state, enum xkb_parser_to
     if (!xkb_parser_match_tok (state, type, value)) {
         if (state->tok_type != type) {
             // TODO: show identifier types as strings.
-            char *error_msg =
-                pprintf (&state->pool, "Expected Identifier of type '%d', got '%d'.", type, state->tok_type);
-            scanner_set_error (&state->scnr, error_msg);
+            xkb_parser_error (state, "Expected Identifier of type '%d', got '%d'.", type, state->tok_type);
 
         } else {
             assert (value != NULL);
-            char *error_msg =
-                pprintf (&state->pool, "Expected '%s', got '%s'.", value, str_data(&state->tok_value));
-            scanner_set_error (&state->scnr, error_msg);
+            xkb_parser_error (state, "Expected '%s', got '%s'.", value, str_data(&state->tok_value));
         }
     }
 }
@@ -391,9 +406,7 @@ key_modifier_mask_t xkb_parser_modifier_lookup (struct xkb_parser_state_t *state
             assert (status == KEYBOARD_LAYOUT_MOD_SUCCESS);
 
         } else {
-            char *error_msg =
-                pprintf (&state->pool, "Reference to undefined modifier '%s'.", str_data(&state->tok_value));
-            scanner_set_error (&state->scnr, error_msg);
+            xkb_parser_error_tok (state, "Reference to undefined modifier '%s'.");
         }
     }
 
@@ -419,10 +432,7 @@ void xkb_parser_parse_modifier_mask (struct xkb_parser_state_t *state,
             break;
 
         } else if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "+")) {
-            char *error_msg =
-                pprintf (&state->pool, "Expected '%s' or '+', got '%s'.",
-                         end_operator, str_data(&state->tok_value));
-            scanner_set_error (&state->scnr, error_msg);
+            xkb_parser_error (state, "Expected '%s' or '+', got '%s'.", end_operator, str_data(&state->tok_value));
         }
 
     } while (!state->scnr.error);
@@ -624,19 +634,14 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
                             // level, it's computed from the position in the
                             // list.
                             // :none_mapping_is_reserved_for_level1
-                            char *error_msg =
-                                pprintf (&state->pool,
-                                         "Can't map 'none' to level %d. It's reserved for level 1.\n", level);
-                            scanner_set_error (&state->scnr, error_msg);
+                            xkb_parser_error (state, "Can't map 'none' to level %d. It's reserved for level 1.\n", level);
 
                         } else if (~type_modifier_mask & level_modifiers) {
                             // TODO: Tell the user which modifiers are the
                             // problematic ones.
-                            char *error_msg =
-                                pprintf (&state->pool,
-                                         "Modifier map for level %d uses modifiers not in the mask for type '%s'.\n",
-                                         level, new_type->name);
-                            scanner_set_error (&state->scnr, error_msg);
+                            xkb_parser_error (state,
+                                              "Modifier map for level %d uses modifiers not in the mask for type '%s'.\n",
+                                              level, new_type->name);
                         }
 
                         if (!state->scnr.error) {
@@ -647,11 +652,8 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
                             if (status == KEYBOARD_LAYOUT_MOD_MAP_MAPPING_ALREADY_ASSIGNED) {
                                 // TODO: Print the modifier mask niceley like
                                 // Shift+Alt, not a hexadecimal value.
-                                char *error_msg =
-                                    pprintf (&state->pool,
-                                             "Modifier mask %x already assigned in type '%s'",
-                                             level_modifiers, new_type->name);
-                                scanner_set_error (&state->scnr, error_msg);
+                                xkb_parser_error (state, "Modifier mask %x already assigned in type '%s'",
+                                                  level_modifiers, new_type->name);
                             }
                         }
 
@@ -723,10 +725,7 @@ bool xkb_parser_match_real_modifier_mask (struct xkb_parser_state_t *state,
                 break;
 
             } else if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "+")) {
-                char *error_msg =
-                    pprintf (&state->pool, "Expected '%s' or '+', got '%s'.",
-                             end_operator, str_data(&state->tok_value));
-                scanner_set_error (&state->scnr, error_msg);
+                xkb_parser_error (state, "Expected '%s' or '+', got '%s'.", end_operator, str_data(&state->tok_value));
 
             } else {
                 // NOTE: This is in the else to make clear that the following
@@ -741,9 +740,7 @@ bool xkb_parser_match_real_modifier_mask (struct xkb_parser_state_t *state,
             }
 
         } else {
-            char *error_msg =
-                pprintf (&state->pool, "Expected a real modifier, got '%s'.", str_data(&state->tok_value));
-            scanner_set_error (&state->scnr, error_msg);
+            xkb_parser_error_tok (state, "Expected a real modifier, got '%s'.");
         }
 
     } while (!state->scnr.error);
@@ -762,9 +759,7 @@ bool xkb_parser_match_keysym (struct xkb_parser_state_t *state, xkb_keysym_t *ke
 
         xkb_keysym_t keysym_res = xkb_keysym_from_name (str_data(&state->tok_value), XKB_KEYSYM_NO_FLAGS);
         if (strcmp (str_data(&state->tok_value), "NoSymbol") != 0 && keysym_res == XKB_KEY_NoSymbol) {
-            char *error_msg =
-                pprintf (&state->pool, "Invalid kesym name '%s'.", str_data(&state->tok_value));
-            scanner_set_error (&state->scnr, error_msg);
+            xkb_parser_error_tok (state, "Invalid kesym name '%s'.");
             success = false;
         } else {
             *keysym = keysym_res;
@@ -847,10 +842,7 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
     // available in other platforms?.
 
     } else {
-        char *error_msg =
-            pprintf (&state->pool, "Invalid action name '%s'.",
-                     str_data(&state->tok_value));
-        scanner_set_error (&state->scnr, error_msg);
+        xkb_parser_error_tok (state, "Invalid action name '%s'.");
     }
 
     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "(");
@@ -937,10 +929,7 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
                             xkb_parser_next (state);
 
                         } else {
-                            char *error_msg =
-                                pprintf (&state->pool, "Expected ')', ',' or '+', got '%s'.",
-                                         str_data(&state->tok_value));
-                            scanner_set_error (&state->scnr, error_msg);
+                            xkb_parser_error_tok (state, "Expected ')', ',' or '+', got '%s'.");
                         }
 
                     } while (!state->scnr.error);
@@ -972,10 +961,7 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
                         action->clear_locks = true;
 
                     } else {
-                        char *error_msg =
-                            pprintf (&state->pool, "Invalid truth value for clearLocks: '%s'.",
-                                     str_data(&state->tok_value));
-                        scanner_set_error (&state->scnr, error_msg);
+                        xkb_parser_error_tok (state, "Invalid truth value for clearLocks: '%s'.");
                     }
                 }
 
@@ -986,10 +972,7 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
                 break;
 
             } else if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",")) {
-                char *error_msg =
-                    pprintf (&state->pool, "Expected ')' or ',', got '%s'.",
-                             str_data(&state->tok_value));
-                scanner_set_error (&state->scnr, error_msg);
+                xkb_parser_error_tok (state, "Expected ')' or ',', got '%s'.");
             }
 
         } while (!state->scnr.error);
@@ -1074,10 +1057,7 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
                 // keysym was set while evaluating the condition.
 
             } else {
-                char *error_msg =
-                    pprintf (&state->pool, "Unexpected identifier '%s'.",
-                             str_data(&state->tok_value));
-                scanner_set_error (&state->scnr, error_msg);
+                xkb_parser_error_tok (state, "Unexpected identifier '%s'.");
             }
 
             // Parse the interpret declaration (before the block)
@@ -1115,10 +1095,7 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
                         // Real modifier parsing successful, continue.
 
                     } else {
-                        char *error_msg =
-                            pprintf (&state->pool, "Expected real modifier or 'Any', got '%s'.",
-                                     str_data(&state->tok_value));
-                        scanner_set_error (&state->scnr, error_msg);
+                        xkb_parser_error_tok (state, "Expected real modifier or 'Any', got '%s'.");
                     }
 
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{");
@@ -1128,20 +1105,14 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
                     // GOTO :parse_interpret_block_statements
 
                 } else {
-                    char *error_msg =
-                        pprintf (&state->pool, "Expected a real modifier or a condition, got '%s'.",
-                                 str_data(&state->tok_value));
-                    scanner_set_error (&state->scnr, error_msg);
+                    xkb_parser_error_tok (state, "Expected a real modifier or a condition, got '%s'.");
                 }
 
             } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{")) {
                 // GOTO :parse_interpret_block_statements
 
             } else {
-                char *error_msg =
-                    pprintf (&state->pool, "Expected + or {, got '%s'.",
-                             str_data(&state->tok_value));
-                scanner_set_error (&state->scnr, error_msg);
+                xkb_parser_error_tok (state, "Expected + or {, got '%s'.");
             }
 
             // Parse the content of the interpret block
@@ -1182,10 +1153,7 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
                         // level_one_only = false;
 
                     } else {
-                        char *error_msg =
-                            pprintf (&state->pool, "Invalid value for useModMapMods '%s'.",
-                                     str_data(&state->tok_value));
-                        scanner_set_error (&state->scnr, error_msg);
+                        xkb_parser_error_tok (state, "Invalid value for useModMapMods '%s'.");
                     }
 
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
@@ -1194,10 +1162,7 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
                     break;
 
                 } else {
-                    char *error_msg =
-                        pprintf (&state->pool, "Invalid statement '%s' in compatibility section.",
-                                 str_data(&state->tok_value));
-                    scanner_set_error (&state->scnr, error_msg);
+                    xkb_parser_error_tok (state, "Invalid statement '%s' in compatibility section.");
                 }
 
             } while (!state->scnr.error);
@@ -1221,10 +1186,7 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
             break;
 
         } else {
-            char *error_msg =
-                pprintf (&state->pool, "Invalid statement '%s' in compatibility section.",
-                         str_data(&state->tok_value));
-            scanner_set_error (&state->scnr, error_msg);
+            xkb_parser_error_tok (state, "Invalid statement '%s' in compatibility section.");
         }
 
     } while (!state->scnr.error && braces > 0);
@@ -1274,9 +1236,7 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_KEY_IDENTIFIER, NULL);
             int kc;
             if (!xkb_parser_key_identifier_lookup (state, str_data(&state->tok_value), &kc)) {
-                char *error_msg =
-                    pprintf (&state->pool, "Undefined key identifier '%s'.", str_data(&state->tok_value));
-                scanner_set_error (&state->scnr, error_msg);
+                xkb_parser_error_tok (state, "Undefined key identifier '%s'.");
             }
 
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{");
@@ -1313,10 +1273,7 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                         type =
                             keyboard_layout_type_lookup (state->keymap, str_data(&state->tok_value));
                         if (type == NULL) {
-                            char *error_msg =
-                                pprintf (&state->pool, "Unknown type '%s'.", str_data(&state->tok_value));
-                            scanner_set_error (&state->scnr, error_msg);
-
+                            xkb_parser_error_tok (state, "Unknown type '%s'.");
                         }
                     }
 

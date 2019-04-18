@@ -99,6 +99,23 @@ struct xkb_key_action_t {
 };
 
 struct xkb_compat_interpret_t {
+    bool any_keysym;
+    key_modifier_mask_t keysym;
+
+    // This flag means real_modifiers has all real modifiers set. We use a flag
+    // because computing it means querying the modifier registry 8 times. Maybe
+    // it's too wasteful to do this every time the user has 'all' as argument to
+    // the interpret condition.
+    //
+    // TODO: Maybe compute it once, then set it when parsing interpret
+    // statements. The problem is I'm not sure at which point in the parsing
+    // process we can be sure we know which real modifiers will be used. We
+    // can't just register all real modifiers and OR their values. This may
+    // exceed the limit of 16 modifiers if the user uses more than 8 virtual
+    // modifiers (there are 8 real modifiers). Maybe leave this flag, and
+    // compute the value for this mask at a point we are sure all used real
+    // modifiers are registered?.
+    bool all_real_modifiers;
     key_modifier_mask_t real_modifiers;
     enum xkb_parser_compat_condition_t condition;
 
@@ -111,6 +128,11 @@ struct xkb_compat_interpret_t {
 
 struct xkb_compat_t {
     // Interpret defaults
+    // TODO: I beleive interpret structures can be initialized to the user's
+    // defaults while parsing, so we don't need to store them here. Then if
+    // this struct will just have interprets, we can remove it and put that
+    // directly in xkb_parser_state_t.
+    // :interpret_defaults
     bool level_one_only;
     bool repeat;
     bool locking;
@@ -146,6 +168,9 @@ struct xkb_parser_state_t {
 
     char **real_modifiers;
     int real_modifiers_len;
+
+    // :compatibility_section
+    struct xkb_compat_t compatibility;
 };
 
 void xkb_parser_state_init (struct xkb_parser_state_t *state, char *xkb_str, struct keyboard_layout_t *keymap)
@@ -1080,18 +1105,20 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
         } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "interpret")) {
-            bool all_keysyms = false;
+            struct xkb_compat_interpret_t new_interpret_data = {0};
+            // TODO: Set the correct defaults for the interpret. The correct
+            // handling would be to use the configured defaults from the xkb
+            // file, if a default is not present then use the same as xkbcomp
+            // and libxkbcommon would use.
+            // :interpret_defaults
 
-            // I will leave these undefined so the compiler can help us check
-            // all brances define them.
-            key_modifier_mask_t real_modifiers;
-            xkb_keysym_t keysym;
+            new_interpret_data.all_real_modifiers = false;
 
             xkb_parser_next (state);
             if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "Any")) {
-                all_keysyms = true;
+                new_interpret_data.any_keysym = true;
 
-            } else if (xkb_parser_match_keysym (state, &keysym)) {
+            } else if (xkb_parser_match_keysym (state, &new_interpret_data.keysym)) {
                 // keysym was set while evaluating the condition.
 
             } else {
@@ -1103,8 +1130,6 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
             if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "+")) {
                 xkb_parser_next (state);
 
-                // Is this the correct default?
-                enum xkb_parser_compat_condition_t condition = COMPAT_CONDITION_ANY_OF_OR_NONE;
                 bool next_is_condition = false;
                 for (int i=0; i<ARRAY_SIZE(xkb_parser_compat_condition_names); i++) {
                     if (xkb_parser_match_tok (state,
@@ -1112,7 +1137,7 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
                                               xkb_parser_compat_condition_names[i]))
                     {
                         next_is_condition = true;
-                        condition = i;
+                        new_interpret_data.condition = i;
                         break;
                     }
                 }
@@ -1122,14 +1147,10 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
 
                     xkb_parser_next (state);
                     if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "all")) {
-                        // TODO: What should be assigned to real_modifiers here?
-                        // Maybe lookup the assigned values for all real
-                        // modifiers and OR them together? maybe just have a
-                        // boolean flag that means 'any' modifier.
-                        real_modifiers = 0;
+                        new_interpret_data.all_real_modifiers = true;
                         xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ")");
 
-                    } else if (xkb_parser_match_real_modifier_mask (state, ")", &real_modifiers)) {
+                    } else if (xkb_parser_match_real_modifier_mask (state, ")", &new_interpret_data.real_modifiers)) {
                         // Real modifier parsing successful, continue.
 
                     } else {
@@ -1139,7 +1160,7 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{");
                     // GOTO :parse_interpret_block_statements
 
-                } else if (xkb_parser_match_real_modifier_mask (state, "{", &real_modifiers)) {
+                } else if (xkb_parser_match_real_modifier_mask (state, "{", &new_interpret_data.real_modifiers)) {
                     // GOTO :parse_interpret_block_statements
 
                 } else {
@@ -1155,25 +1176,28 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
 
             // Parse the content of the interpret block
             // :parse_interpret_block_statements
-            bool level_one_only = false;
-            struct xkb_key_action_t action;
             do {
                 xkb_parser_next (state);
 
-                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "virtualModifier") ||
-                    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "locking") ||
+                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "locking") ||
                     xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "repeat")) {
+                    // TODO: Parse these. What are the values the boolean can
+                    // take? (yes,no,on,off,true,false)
 
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
 
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL);
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "virtualModifier")) {
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+                    xkb_parser_parse_modifier_mask (state, ";", &new_interpret_data.virtual_modifier);
+
                 } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "action")) {
 
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
 
-                    xkb_parser_parse_action (state, &action);
+                    xkb_parser_parse_action (state, &new_interpret_data.action);
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
                 } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "useModMapMods")) {
@@ -1183,12 +1207,11 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
                     xkb_parser_next (state);
                     if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_LEVEL_IDENTIFIER, "level1") ||
                         xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "levelone")) {
-                        level_one_only = true;
+                        new_interpret_data.level_one_only = true;
 
                     } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "anylevel") ||
                         xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "any")) {
-                        // Do nothing as this is the default.
-                        // level_one_only = false;
+                        new_interpret_data.level_one_only = false;
 
                     } else {
                         xkb_parser_error_tok (state, "Invalid value for useModMapMods '%s'.");
@@ -1200,14 +1223,21 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
                     break;
 
                 } else {
-                    xkb_parser_error_tok (state, "Invalid statement '%s' in compatibility section.");
+                    xkb_parser_error_tok (state, "Invalid statement '%s' inside interpret block.");
                 }
 
             } while (!state->scnr.error);
 
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
-            // TODO: Store the interpret data in the parser state
+            if (!state->scnr.error) {
+                struct xkb_compat_interpret_t *new_interpret =
+                    mem_pool_push_struct (&state->pool, struct xkb_compat_interpret_t);
+                *new_interpret = new_interpret_data;
+
+                new_interpret->next = state->compatibility.interprets;
+                state->compatibility.interprets = new_interpret;
+            }
 
         } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "group")) {
             // Ignore

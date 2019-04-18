@@ -937,10 +937,25 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
                     list_separator_consumed = true;
                 }
 
+            } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "~")) {
+                xkb_parser_next (state);
+                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "clearLocks")) {
+                    action->clear_locks = false;
+
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "latchToLock")) {
+                    action->latch_to_lock = false;
+
+                } else {
+                    xkb_parser_error_tok (state, "Expected clearLocks or latchToLock, got '%s'");
+                }
+
             } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "clearLocks")) {
-
-                // TODO: Correctly handle ~clearLocks too.
-
+                // TODO: This is almost the same as for latchToLock, maybe
+                // abstract them out? the cases starting with ~ would be left
+                // out... or the abstraction would have to include them.
+                // :abstract_action_boolean_flags
+                //
+                // This could also be nicer if we had :parser_peek_function
                 xkb_parser_next (state);
                 if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",") ||
                     xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ")")) {
@@ -966,7 +981,30 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
                 }
 
             } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "latchToLock")) {
-                // TODO: Do something like with clearLocks
+                // :abstract_action_boolean_flags
+                xkb_parser_next (state);
+                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",") ||
+                    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ")")) {
+                    action->latch_to_lock = true;
+                    list_separator_consumed = true;
+
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=")) {
+
+                    xkb_parser_next (state);
+                    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "no") ||
+                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "false") ||
+                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "off")) {
+                        action->latch_to_lock = false;
+
+                    } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "yes") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "true") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "on")) {
+                        action->latch_to_lock = true;
+
+                    } else {
+                        xkb_parser_error_tok (state, "Invalid truth value for latchToLock: '%s'.");
+                    }
+                }
 
             } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ")")) {
                 break;

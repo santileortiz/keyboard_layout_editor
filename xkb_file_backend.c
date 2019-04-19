@@ -794,6 +794,29 @@ bool xkb_parser_match_keysym (struct xkb_parser_state_t *state, xkb_keysym_t *ke
     return success;
 }
 
+void xkb_parser_parse_boolean_literal (struct xkb_parser_state_t *state, bool *value)
+{
+    assert (value != NULL);
+
+    // TODO: Should all of these be case insensitive?
+    xkb_parser_next (state);
+    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "no") ||
+        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "false") ||
+        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "False") ||
+        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "off")) {
+        *value = false;
+
+    } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "yes") ||
+               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "true") ||
+               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "True") ||
+               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "on")) {
+        *value = true;
+
+    } else {
+        xkb_parser_error_tok (state, "Invalid truth value for clearLocks: '%s'.");
+    }
+}
+
 // NOTE: This does not set any default value in action, if a value is not parsed
 // it's left as it was before.
 void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_action_t *action)
@@ -988,21 +1011,7 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
                     list_separator_consumed = true;
 
                 } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=")) {
-
-                    xkb_parser_next (state);
-                    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "no") ||
-                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "false") ||
-                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "off")) {
-                        action->clear_locks = false;
-
-                    } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "yes") ||
-                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "true") ||
-                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "on")) {
-                        action->clear_locks = true;
-
-                    } else {
-                        xkb_parser_error_tok (state, "Invalid truth value for clearLocks: '%s'.");
-                    }
+                    xkb_parser_parse_boolean_literal (state, &action->clear_locks);
                 }
 
             } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "latchToLock")) {
@@ -1014,21 +1023,7 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
                     list_separator_consumed = true;
 
                 } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=")) {
-
-                    xkb_parser_next (state);
-                    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "no") ||
-                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "false") ||
-                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "off")) {
-                        action->latch_to_lock = false;
-
-                    } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "yes") ||
-                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "true") ||
-                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "on")) {
-                        action->latch_to_lock = true;
-
-                    } else {
-                        xkb_parser_error_tok (state, "Invalid truth value for latchToLock: '%s'.");
-                    }
+                    xkb_parser_parse_boolean_literal (state, &action->clear_locks);
                 }
 
             } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ")")) {
@@ -1094,14 +1089,33 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
         if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "virtual_modifiers")) {
             xkb_parser_virtual_modifier_definition (state);
 
-        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "interpret.useModMapMods") ||
-                   xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "interpret.repeat") ||
-                   xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "interpret.locking")) {
-            // These are the defaults for flags that can be set inside an
-            // interpret statement, we ignore them for now as we won't even
-            // handle these flags.
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "interpret.useModMapMods")) {
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
-            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL);
+
+            xkb_parser_next (state);
+            if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_LEVEL_IDENTIFIER, "level1") ||
+                xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "levelone")) {
+                state->compatibility.level_one_only = true;
+
+            } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "anylevel") ||
+                       xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "AnyLevel") ||
+                       xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "any")) {
+                state->compatibility.level_one_only = false;
+
+            } else {
+                xkb_parser_error_tok (state, "Invalid value for useModMapMods '%s'.");
+            }
+
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "interpret.repeat")) {
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+            xkb_parser_parse_boolean_literal (state, &state->compatibility.repeat);
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "interpret.locking")) {
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+            xkb_parser_parse_boolean_literal (state, &state->compatibility.locking);
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
         } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "interpret")) {
@@ -1210,7 +1224,8 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
                         new_interpret_data.level_one_only = true;
 
                     } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "anylevel") ||
-                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "any")) {
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "AnyLevel") ||
+                               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "any")) {
                         new_interpret_data.level_one_only = false;
 
                     } else {

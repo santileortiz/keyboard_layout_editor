@@ -102,6 +102,9 @@ struct xkb_compat_interpret_t {
     bool any_keysym;
     key_modifier_mask_t keysym;
 
+    bool repeat;
+    bool locking;
+
     // This flag means real_modifiers has all real modifiers set. We use a flag
     // because computing it means querying the modifier registry 8 times. Maybe
     // it's too wasteful to do this every time the user has 'all' as argument to
@@ -998,11 +1001,6 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
                 }
 
             } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "clearLocks")) {
-                // TODO: This is almost the same as for latchToLock, maybe
-                // abstract them out? the cases starting with ~ would be left
-                // out... or the abstraction would have to include them.
-                // :abstract_action_boolean_flags
-                //
                 // This could also be nicer if we had :parser_peek_function
                 xkb_parser_next (state);
                 if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",") ||
@@ -1015,7 +1013,6 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
                 }
 
             } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "latchToLock")) {
-                // :abstract_action_boolean_flags
                 xkb_parser_next (state);
                 if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",") ||
                     xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ")")) {
@@ -1023,7 +1020,7 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
                     list_separator_consumed = true;
 
                 } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=")) {
-                    xkb_parser_parse_boolean_literal (state, &action->clear_locks);
+                    xkb_parser_parse_boolean_literal (state, &action->latch_to_lock);
                 }
 
             } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ")")) {
@@ -1193,14 +1190,14 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
             do {
                 xkb_parser_next (state);
 
-                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "locking") ||
-                    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "repeat")) {
-                    // TODO: Parse these. What are the values the boolean can
-                    // take? (yes,no,on,off,true,false)
-
+                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "locking")) {
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+                    xkb_parser_parse_boolean_literal (state, &new_interpret_data.locking);
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
-                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL);
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "repeat")) {
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+                    xkb_parser_parse_boolean_literal (state, &new_interpret_data.repeat);
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
                 } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "virtualModifier")) {

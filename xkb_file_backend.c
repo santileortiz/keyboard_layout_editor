@@ -355,6 +355,14 @@ bool xkb_parser_match_tok (struct xkb_parser_state_t *state, enum xkb_parser_tok
         (value == NULL || strcmp (str_data(&state->tok_value), value) == 0);
 }
 
+// Case insensitive version of xkb_parser_match_tok()
+static inline
+bool xkb_parser_match_tok_i (struct xkb_parser_state_t *state, enum xkb_parser_token_type_t type, char *value)
+{
+    return state->tok_type == type &&
+        (value == NULL || strcasecmp (str_data(&state->tok_value), value) == 0);
+}
+
 void xkb_parser_expect_tok (struct xkb_parser_state_t *state, enum xkb_parser_token_type_t type, char *value)
 {
     if (!xkb_parser_match_tok (state, type, value)) {
@@ -801,18 +809,15 @@ void xkb_parser_parse_boolean_literal (struct xkb_parser_state_t *state, bool *v
 {
     assert (value != NULL);
 
-    // TODO: Should all of these be case insensitive?
     xkb_parser_next (state);
-    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "no") ||
-        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "false") ||
-        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "False") ||
-        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "off")) {
+    if (xkb_parser_match_tok_i (state, XKB_PARSER_TOKEN_IDENTIFIER, "no") ||
+        xkb_parser_match_tok_i (state, XKB_PARSER_TOKEN_IDENTIFIER, "false") ||
+        xkb_parser_match_tok_i (state, XKB_PARSER_TOKEN_IDENTIFIER, "off")) {
         *value = false;
 
-    } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "yes") ||
-               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "true") ||
-               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "True") ||
-               xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "on")) {
+    } else if (xkb_parser_match_tok_i (state, XKB_PARSER_TOKEN_IDENTIFIER, "yes") ||
+               xkb_parser_match_tok_i (state, XKB_PARSER_TOKEN_IDENTIFIER, "true") ||
+               xkb_parser_match_tok_i (state, XKB_PARSER_TOKEN_IDENTIFIER, "on")) {
         *value = true;
 
     } else {

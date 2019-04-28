@@ -924,9 +924,10 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
         // because we are parsing (3).
         //
         // Now, the ',' and ')' are supposed to be consumed at the beginning of
-        // the do loop, not inside the argument parsing. The following variable
-        // is used to know if we need to parse a token at the begining of the
-        // loop or it was already done as part of the previous iteration.
+        // the do loop, not inside the argument parsing. The
+        // list_separator_consumed flag is used to know if we need to parse a
+        // token at the begining of the loop or it was already done as part of
+        // the previous iteration.
         //
         // This also happens when parsong the modifier mask:
         //
@@ -1413,6 +1414,11 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                     type = keyboard_layout_type_lookup (state->keymap, "ONE_LEVEL");
                 } else if (num_symbols == 2) {
                     type = keyboard_layout_type_lookup (state->keymap, "TWO_LEVEL");
+                    // TODO: It looks like xkbcomp does something fancier here.
+                    // If it contains capitalized letters instead of TWO_LEVEL
+                    // it becomes ALPHABETIC. I'm not sure how this
+                    // capitalization is detected though.
+
                 } else {
                     // TODO: I'm not sure this is the actual default in xkbcomp
                     // for this situation. Research that.
@@ -1499,7 +1505,7 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
     // TODO: This parser does not care if some elements in the internal
     // representation are unused. We will maybe need to add functionality into
     // keyboard_layout.c that compacts layout elements. For example if the xkb
-    // file defines 16 modifiers but only uses 10 fo those, we don't want to
+    // file defines 16 modifiers but only uses 10 of those, we don't want to
     // tell the user there are no modifiers left if they try to define a new
     // one. This will also become an issue when we start creating functions that
     // remove IR components like keyboard_layout_remove_type(). I don't like the
@@ -1650,7 +1656,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
     str_cat_c (&xkb_str, "    maximum = 255\n");
 
     // TODO: This could be faster if keys were in a linked list. But more cache
-    // unfriendly?. If it ever becomes an issue, see which on is better.
+    // unfriendly?. If it ever becomes an issue, see which one is better.
     int i=0;
     for (i=0; i<KEY_CNT; i++) {
         if (keymap->keys[i] != NULL) {

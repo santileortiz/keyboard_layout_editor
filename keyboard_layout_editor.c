@@ -604,6 +604,29 @@ void ungrab_input (GtkButton *button, gpointer user_data)
     }
 }
 
+GtkWidget* new_install_layout_button ()
+{
+    GtkWidget *install_layout_button =
+        intro_button_new ("document-save", "Install Layout", "Install an .xkb file into the system.");
+    g_signal_connect (G_OBJECT(install_layout_button), "clicked", G_CALLBACK (install_layout_handler), NULL);
+
+    return install_layout_button;
+}
+
+GtkWidget* new_open_layout_button ()
+{
+    GtkWidget *open_layout_button =
+        intro_button_new ("document-open", "Open Layout", "Open an existing .xkb file.");
+    return open_layout_button;
+}
+
+GtkWidget* new_new_layout_button ()
+{
+    GtkWidget *new_layout_button =
+        intro_button_new ("document-new", "New Layout", "Create a layout based on an existing one.");
+    return new_layout_button;
+}
+
 void on_sidebar_allocated (GtkWidget *widget, GdkRectangle *allocation, gpointer user_data)
 {
     app.sidebar_min_width = allocation->width;
@@ -653,10 +676,8 @@ GtkWidget* new_welcome_sidebar (char **custom_layouts, int num_custom_layouts)
         gtk_widget_show_all (layout_list);
     }
 
-    GtkWidget *new_layout_button =
-        intro_button_new ("document-new", "New Layout", "Create a layout based on an existing one.");
-    GtkWidget *open_layout_button =
-        intro_button_new ("document-open", "Open Layout", "Open an existing .xkb file.");
+    GtkWidget *new_layout_button = new_new_layout_button ();
+    GtkWidget *open_layout_button = new_open_layout_button ();
 
     GtkWidget *sidebar = gtk_grid_new ();
     g_signal_connect (sidebar, "size-allocate", G_CALLBACK(on_sidebar_allocated), NULL);
@@ -710,17 +731,13 @@ GtkWidget* new_welcome_screen_no_custom_layouts ()
     GtkWidget *welcome_screen = new_welcome_screen ("No Custom Keymaps", "Open an .xkb file to edit it.",
                                                     &buttons);
 
-    GtkWidget *new_layout_button =
-        intro_button_new ("document-new", "New Layout", "Create a layout based on an existing one.");
+    GtkWidget *new_layout_button = new_new_layout_button ();
     gtk_container_add (GTK_CONTAINER(buttons), new_layout_button);
 
-    GtkWidget *open_layout_button =
-        intro_button_new ("document-open", "Open Layout", "Open an existing .xkb file.");
+    GtkWidget *open_layout_button = new_open_layout_button ();
     gtk_container_add (GTK_CONTAINER(buttons), open_layout_button);
 
-    GtkWidget *install_layout_button =
-        intro_button_new ("document-save", "Install Layout", "Install an .xkb file into the system.");
-    g_signal_connect (G_OBJECT(install_layout_button), "clicked", G_CALLBACK (install_layout_handler), NULL);
+    GtkWidget *install_layout_button = new_install_layout_button();
     gtk_container_add (GTK_CONTAINER(buttons), install_layout_button);
 
     return welcome_screen;

@@ -306,6 +306,8 @@ bool scanner_int (struct scanner_t *scnr, int *value)
     return false;
 }
 
+// NOTE: The definition of a space demends on the locale. In the POSIX locale
+// it means space, \n, \f, \r, \t and \v.
 // TODO: We should have a scanner_is_space that uses an internal definition of
 // what a space is.
 void scanner_consume_spaces (struct scanner_t *scnr)

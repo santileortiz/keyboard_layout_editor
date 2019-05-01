@@ -194,7 +194,7 @@ void xkb_parser_state_destory (struct xkb_parser_state_t *state)
 
 // Shorthand error for when the only replacement being done is the current value
 // of the token.
-#define xkb_parser_error_tok(state,format) xkb_parser_error(state,format,str_data(&(state->tok_value)))
+#define xkb_parser_error_tok(state,format) xkb_parser_error(state,format,str_data(&((state)->tok_value)))
 GCC_PRINTF_FORMAT(2, 3)
 void xkb_parser_error (struct xkb_parser_state_t *state, const char *format, ...)
 {
@@ -255,6 +255,11 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
     struct scanner_t *scnr = &state->scnr;
 
     char *identifier_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.";
+
+    scanner_consume_spaces (scnr);
+    if (scnr->is_eof) {
+        return;
+    }
 
     // Scan out all comments
     while (scanner_str (scnr, "//")) {
@@ -337,7 +342,7 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
         }
 
     } else {
-        scanner_set_error (scnr, "Unexpected character");
+        xkb_parser_error (state, "Unexpected character %c (0x%x).", *scnr->pos, *scnr->pos);
     }
 
     // TODO: Get better error messages, show the line where we got stuck.
@@ -1485,14 +1490,39 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
     xkb_parser_parse_compat (&state);
     xkb_parser_parse_symbols (&state);
 
-    // Should we accept keymaps with geometry section? looks like xkbcomp does
-    // not return one.
-    //xkb_parser_skip_block (&state, "xkb_geometry");
+    // Skip the geometry block if there is one otherwise parse the end of the
+    // keymap block.
+    // TODO: We don't just call xkb_parser_skip_block (&state, "xkb_geometry")
+    // because this saction may or may not be here, so we don't requiere it
+    // here, but if it is there then we want to skip it. If we could peek ahead
+    // then we could use that and make this much more concise. For now I just
+    // took the xkb_parser_block_start() and xkb_parser_skip_block() functions
+    // and copied them here.
+    // :parser_peek_function
+    xkb_parser_next (&state);
+    if (xkb_parser_match_tok (&state, XKB_PARSER_TOKEN_IDENTIFIER, "xkb_geometry")) {
+        xkb_parser_consume_tok (&state, XKB_PARSER_TOKEN_STRING, NULL);
+        xkb_parser_consume_tok (&state, XKB_PARSER_TOKEN_OPERATOR, "{");
 
-    xkb_parser_consume_tok (&state, XKB_PARSER_TOKEN_OPERATOR, "}");
-    xkb_parser_consume_tok (&state, XKB_PARSER_TOKEN_OPERATOR, ";");
+        // Skip the content of the block
+        int braces = 1;
+        do {
+            xkb_parser_next (&state);
+            if (xkb_parser_match_tok (&state, XKB_PARSER_TOKEN_OPERATOR, "{")) {
+                braces++;
+            } else if (xkb_parser_match_tok (&state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
+                braces--;
+            }
+        } while (!state.scnr.is_eof && !state.scnr.error && braces > 0);
+        xkb_parser_consume_tok (&state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
-    // TODO: Make sure we reach EOF here?
+    } else if (xkb_parser_match_tok (&state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
+        xkb_parser_consume_tok (&state, XKB_PARSER_TOKEN_OPERATOR, ";");
+        // TODO: Make sure we reach EOF here?
+
+    } else {
+        xkb_parser_error_tok (&state, "Expected geometry block or the end of the keymap, got %s.");
+    }
 
     bool success = true;
     if (state.scnr.error) {

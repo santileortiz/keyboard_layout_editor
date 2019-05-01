@@ -420,6 +420,7 @@ bool keyboard_layout_is_valid (struct keyboard_layout_t *keymap)
                 if (curr_mapping->level == level+1) {
                     level++;
                 } else {
+                    printf ("Type '%s' has non contiguous levels\n", curr_type->name);
                     is_valid = false;
                     break;
                 }

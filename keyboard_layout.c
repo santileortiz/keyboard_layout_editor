@@ -345,6 +345,8 @@ void keyboard_layout_key_set_level (struct key_t *key, int level, xkb_keysym_t k
 
 void keyboard_layout_destroy (struct keyboard_layout_t *keymap)
 {
+    if (keymap == NULL) return;
+
     mem_pool_destroy (&keymap->pool);
     // TODO: We should add a way of adding single callbacks to a pool.
     g_tree_destroy (keymap->modifiers);
@@ -378,6 +380,8 @@ struct keyboard_layout_t* keyboard_layout_new_default (void)
 }
 
 // NOTE: This can return NULL if parsing fails.
+// TODO: If parsing fails, somehow return the error message so we can then show
+// it to the user.
 bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap);
 void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res);
 struct keyboard_layout_t* keyboard_layout_new_from_xkb (char *xkb_str)

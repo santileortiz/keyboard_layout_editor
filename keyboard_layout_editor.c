@@ -487,23 +487,19 @@ void return_to_welcome_handler (GtkButton *button, gpointer   user_data)
     mem_pool_destroy (&tmp);
 }
 
-void edit_layout_handler (GtkButton *button, gpointer user_data)
+bool edit_xkb_str (struct kle_app_t *app, char *keymap_name, char *xkb_str)
 {
-    // TODO: The current xkb string should be able to be set from different
-    // sources, besides an installed layout it may come from a source file or
-    // from an autosave. Source file paths should be persisted but not required.
-    // This will need to be abstracted to take into account these posibilities
-    // and the priorities between them, also this will also be required in the
-    // handler for the open xkb button.
-    str_free (&app.curr_xkb_str);
-    str_set (&app.curr_xkb_str, str_data(&app.curr_keymap_name));
-    app.curr_xkb_str = reconstruct_installed_custom_layout_str (str_data(&app.curr_keymap_name));
-    app.keymap = keyboard_layout_new_from_xkb (str_data(&app.curr_xkb_str));
+    bool success = true;
 
-    if (app.keymap != NULL) {
-        app.is_edit_mode = true;
+    struct keyboard_layout_t *new_layout = keyboard_layout_new_from_xkb (xkb_str);
 
-        gtk_header_bar_set_title (GTK_HEADER_BAR(app.header_bar), str_data(&app.curr_keymap_name));
+    if (new_layout != NULL) {
+        keyboard_layout_destroy (app->keymap);
+        app->keymap = new_layout;
+
+        app->is_edit_mode = true;
+
+        gtk_header_bar_set_title (GTK_HEADER_BAR(app->header_bar), keymap_name);
 
         // Set the headerbar buttons
         {
@@ -514,18 +510,18 @@ void edit_layout_handler (GtkButton *button, gpointer user_data)
 
             GtkWidget *headerbar_buttons = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
             gtk_container_add (GTK_CONTAINER (headerbar_buttons), return_to_welcome_button);
-            app.keymap_test_button = new_keymap_test_button();
-            gtk_container_add (GTK_CONTAINER (headerbar_buttons), app.keymap_test_button);
-            replace_wrapped_widget (&app.headerbar_buttons, headerbar_buttons);
+            app->keymap_test_button = new_keymap_test_button();
+            gtk_container_add (GTK_CONTAINER (headerbar_buttons), app->keymap_test_button);
+            replace_wrapped_widget (&app->headerbar_buttons, headerbar_buttons);
             gtk_widget_show_all (headerbar_buttons);
         }
 
         GtkWidget *stack = gtk_stack_new ();
         gtk_widget_set_halign (stack, GTK_ALIGN_CENTER);
         {
-            kv_set_preview_keys (app.keyboard_view);
-            app.keys_sidebar = app_keys_sidebar_new (&app, app.keyboard_view->preview_keys_selection->kc);
-            gtk_stack_add_titled (GTK_STACK(stack), wrap_gtk_widget(app.keys_sidebar), "keys", "Keys");
+            kv_set_preview_keys (app->keyboard_view);
+            app->keys_sidebar = app_keys_sidebar_new (app, app->keyboard_view->preview_keys_selection->kc);
+            gtk_stack_add_titled (GTK_STACK(stack), wrap_gtk_widget(app->keys_sidebar), "keys", "Keys");
         }
 
         {
@@ -542,11 +538,88 @@ void edit_layout_handler (GtkButton *button, gpointer user_data)
         gtk_widget_set_halign (grid, GTK_ALIGN_CENTER);
         gtk_grid_attach (GTK_GRID(grid), stack_buttons, 0, 0, 1, 1);
         gtk_grid_attach (GTK_GRID(grid), stack, 0, 1, 1, 1);
-        replace_wrapped_widget (&app.sidebar, grid);
+        replace_wrapped_widget (&app->sidebar, grid);
 
     } else {
         // TODO: xkb file parsing failed, show an error message.
+        success = false;
     }
+
+    return success;
+}
+
+void edit_layout_handler (GtkButton *button, gpointer user_data)
+{
+    str_free (&app.curr_xkb_str);
+    app.curr_xkb_str = reconstruct_installed_custom_layout_str (str_data(&app.curr_keymap_name));
+
+    edit_xkb_str (&app, str_data(&app.curr_keymap_name), str_data(&app.curr_xkb_str));
+}
+
+// TODO: Do we want to add opened xkb files to the layout list?. It can be
+// useful so it's easy to open a file we recently worked on. The problem is it
+// becomes confusing what the layout list contains. How do we distinguish
+// between installed layouts and opened layouts that are not installed? Maybe
+// we can add a "Install" button to rows of uninstalled layouts.
+//
+// There are some things left to be thought about (and implemented) regarding
+// the life cycle of a layout. We should track source files for installed
+// layouts, but not fail if the source file of an installed layout is deleted.
+// If the source file is available user saves will write to it and internally we
+// will constantly create autosaves. If the source file is missing then we will
+// have an internal source file where user saves are written and we will also
+// hace internal autosaves. Whenever there are updates in a source file we
+// prompt the user with a button to update the layout installation. This button
+// can be located in the row of the layout list.
+//
+// Going back to adding opened (but not installed) layouts to the list, note
+// that things look complex enough just for installed layouts. Probably the best
+// approach is to leave the layout list just for installed layouts. If a layout
+// is opened and not installed, the user will have to open it again.
+void open_xkb_file_handler (GtkButton *button, gpointer user_data)
+{
+    GtkWidget *dialog =
+        gtk_file_chooser_dialog_new ("Open Layout",
+                                     GTK_WINDOW(app.window),
+                                     GTK_FILE_CHOOSER_ACTION_OPEN,
+                                     "_Cancel",
+                                     GTK_RESPONSE_CANCEL,
+                                     "_Open",
+                                     GTK_RESPONSE_ACCEPT,
+                                     NULL);
+
+    char *fname;
+    gint result = gtk_dialog_run (GTK_DIALOG (dialog));
+    if (result == GTK_RESPONSE_ACCEPT) {
+        fname = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER(dialog));
+    }
+    gtk_widget_destroy (dialog);
+
+    mem_pool_t tmp = {0};
+    char *file_content = full_file_read (&tmp, fname);
+
+    char *name;
+    path_split (&tmp, fname, NULL, &name);
+
+    // We only set curr_xkb_str and curr_keymap_name if parsing of the file is
+    // successful.
+    // TODO: data is originally stored in a temporary pool and then maybe copied
+    // into strings here. Is it useful for common.h to have functions that write
+    // directly to strings?, then here we would just free the old ones and
+    // replace them with the new ones. This won't necessarily be faster, we are
+    // comparing the speed of copying the full file content, with the speed of
+    // freeing the old one. My thinking is a free 'should' be faster than a
+    // copy, but who knows. I won't think much about this for now.
+    // @performance
+    if (edit_xkb_str (&app, name, file_content)) {
+        str_set (&app.curr_xkb_str, file_content);
+        str_set (&app.curr_keymap_name, name);
+
+    } else {
+        // TODO: Show some kind of feedback about what happened during parsing.
+    }
+
+    mem_pool_destroy (&tmp);
 }
 
 gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
@@ -617,6 +690,8 @@ GtkWidget* new_open_layout_button ()
 {
     GtkWidget *open_layout_button =
         intro_button_new ("document-open", "Open Layout", "Open an existing .xkb file.");
+    g_signal_connect (G_OBJECT(open_layout_button), "clicked", G_CALLBACK (open_xkb_file_handler), NULL);
+
     return open_layout_button;
 }
 
@@ -650,7 +725,7 @@ GtkWidget* new_welcome_sidebar (char **custom_layouts, int num_custom_layouts)
         GtkWidget *install_layout_button =
             gtk_button_new_from_icon_name ("list-add-symbolic",
                                            GTK_ICON_SIZE_SMALL_TOOLBAR);
-        gtk_widget_set_tooltip_text (install_layout_button, "Install a custom layout from an .xkb file");
+        gtk_widget_set_tooltip_text (install_layout_button, "Install an .xkb file into the system.");
         g_signal_connect (G_OBJECT(install_layout_button), "clicked", G_CALLBACK(install_layout_handler), NULL);
 
         GtkWidget *edit_layout_button =

@@ -588,38 +588,38 @@ void open_xkb_file_handler (GtkButton *button, gpointer user_data)
                                      GTK_RESPONSE_ACCEPT,
                                      NULL);
 
-    char *fname;
+    char *fname = NULL;
     gint result = gtk_dialog_run (GTK_DIALOG (dialog));
     if (result == GTK_RESPONSE_ACCEPT) {
         fname = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER(dialog));
+
+        mem_pool_t tmp = {0};
+        char *file_content = full_file_read (&tmp, fname);
+
+        char *name;
+        path_split (&tmp, fname, NULL, &name);
+
+        // We only set curr_xkb_str and curr_keymap_name if parsing of the file is
+        // successful.
+        // TODO: data is originally stored in a temporary pool and then maybe copied
+        // into strings here. Is it useful for common.h to have functions that write
+        // directly to strings?, then here we would just free the old ones and
+        // replace them with the new ones. This won't necessarily be faster, we are
+        // comparing the speed of copying the full file content, with the speed of
+        // freeing the old one. My thinking is a free 'should' be faster than a
+        // copy, but who knows. I won't think much about this for now.
+        // @performance
+        if (edit_xkb_str (&app, name, file_content)) {
+            str_set (&app.curr_xkb_str, file_content);
+            str_set (&app.curr_keymap_name, name);
+
+        } else {
+            // TODO: Show some kind of feedback about what happened during parsing.
+        }
+
+        mem_pool_destroy (&tmp);
     }
     gtk_widget_destroy (dialog);
-
-    mem_pool_t tmp = {0};
-    char *file_content = full_file_read (&tmp, fname);
-
-    char *name;
-    path_split (&tmp, fname, NULL, &name);
-
-    // We only set curr_xkb_str and curr_keymap_name if parsing of the file is
-    // successful.
-    // TODO: data is originally stored in a temporary pool and then maybe copied
-    // into strings here. Is it useful for common.h to have functions that write
-    // directly to strings?, then here we would just free the old ones and
-    // replace them with the new ones. This won't necessarily be faster, we are
-    // comparing the speed of copying the full file content, with the speed of
-    // freeing the old one. My thinking is a free 'should' be faster than a
-    // copy, but who knows. I won't think much about this for now.
-    // @performance
-    if (edit_xkb_str (&app, name, file_content)) {
-        str_set (&app.curr_xkb_str, file_content);
-        str_set (&app.curr_keymap_name, name);
-
-    } else {
-        // TODO: Show some kind of feedback about what happened during parsing.
-    }
-
-    mem_pool_destroy (&tmp);
 }
 
 gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)

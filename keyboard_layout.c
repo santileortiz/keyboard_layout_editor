@@ -396,7 +396,7 @@ struct keyboard_layout_t* keyboard_layout_new_from_xkb (char *xkb_str)
         keymap = NULL;
 
     } else {
-        string_t out;
+        string_t out = {0};
         xkb_file_write (keymap, &out);
         printf ("%s\n", str_data(&out));
     }

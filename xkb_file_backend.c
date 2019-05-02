@@ -267,11 +267,11 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
             scanner_set_error (scnr, "Stale '/' character");
         }
         scanner_to_char (scnr, '\n');
-    }
 
-    scanner_consume_spaces (scnr);
-    if (scnr->is_eof) {
-        return;
+        scanner_consume_spaces (scnr);
+        if (scnr->is_eof) {
+            return;
+        }
     }
 
     char *tok_start;

@@ -83,10 +83,12 @@ xkb_types "minimal+all_levels" {
     };
 };
 
-xkb_compatibility "complete" {
+xkb_compatibility "minimal" {
 
-    virtual_modifiers NumLock,Alt,LevelThree,LAlt,RAlt,RControl,LControl,ScrollLock,LevelFive,AltGr,Meta,Super,Hyper;
+    virtual_modifiers ScrollLock;
 
+    // At least one interpret and one indicator statement is required. It does
+    // not seem to matter their content, but this section can't be empty.
     interpret Any+AnyOf(all) {
         action= SetMods(modifiers=modMapMods,clearLocks);
     };

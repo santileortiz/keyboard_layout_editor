@@ -4530,41 +4530,56 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
     return show_tooltip;
 }
 
-void keyboard_view_set_keymap (struct keyboard_view_t *kv, const char *keymap_name)
+bool keyboard_view_set_keymap (struct keyboard_view_t *kv, const char *keymap_name, const char *xkb_str)
 {
-    if (kv->xkb_keymap != NULL) {
-        xkb_keymap_unref(kv->xkb_keymap);
-    }
+    bool success = true;
+    struct xkb_state *new_xkb_state;
+    struct xkb_keymap *new_xkb_keymap;
 
-    if (kv->xkb_state != NULL) {
-        xkb_state_unref(kv->xkb_state);
-    }
+    struct xkb_context *new_xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    if (new_xkb_ctx) {
+        new_xkb_keymap = xkb_keymap_new_from_string (new_xkb_ctx, xkb_str,
+                                                     XKB_KEYMAP_FORMAT_TEXT_V1,
+                                                     XKB_KEYMAP_COMPILE_NO_FLAGS);
 
-    mem_pool_t pool = {0};
-    char *keymap_str = reconstruct_installed_custom_layout (&pool, keymap_name);
+        if (new_xkb_keymap) {
+            new_xkb_state = xkb_state_new(new_xkb_keymap);
+            if (!new_xkb_state) {
+                // TODO: Better error message
+                printf ("Error creating xkb_state.\n");
+                success = false;
+            }
 
-    struct xkb_context *xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    if (!xkb_ctx) {
+        } else {
+            // TODO: Better error message
+            printf ("Error creating xkb_keymap.\n");
+            success = false;
+        }
+
+        xkb_context_unref (new_xkb_ctx);
+
+    } else {
+        // TODO: Better error message
         printf ("Error creating xkb_context.\n");
+        success = false;
     }
 
-    kv->xkb_keymap = xkb_keymap_new_from_string (xkb_ctx, keymap_str,
-                                                 XKB_KEYMAP_FORMAT_TEXT_V1,
-                                                 XKB_KEYMAP_COMPILE_NO_FLAGS);
-    xkb_context_unref (xkb_ctx);
+    if (success) {
+        if (kv->xkb_keymap != NULL) {
+            xkb_keymap_unref(kv->xkb_keymap);
+        }
 
-    if (!kv->xkb_keymap) {
-        printf ("Error creating xkb_keymap.\n");
+        if (kv->xkb_state != NULL) {
+            xkb_state_unref(kv->xkb_state);
+        }
+
+        kv->xkb_keymap = new_xkb_keymap;
+        kv->xkb_state = new_xkb_state;
+
+        gtk_widget_queue_draw (kv->widget);
     }
 
-    kv->xkb_state = xkb_state_new(kv->xkb_keymap);
-    if (!kv->xkb_state) {
-        printf ("Error creating xkb_state.\n");
-    }
-
-    gtk_widget_queue_draw (kv->widget);
-
-    mem_pool_destroy (&pool);
+    return success;
 }
 
 // A keyboard view created with this is useful to test the data structure

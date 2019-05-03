@@ -151,10 +151,15 @@ void on_custom_layout_selected (GtkListBox *box, GtkListBoxRow *row, gpointer us
 
     GtkWidget *label = gtk_bin_get_child (GTK_BIN(row));
     const gchar *curr_layout = gtk_label_get_text (GTK_LABEL (label));
-    keyboard_view_set_keymap (app.keyboard_view, curr_layout);
 
-    str_free (&app.curr_keymap_name);
-    str_set (&app.curr_keymap_name, curr_layout);
+    string_t xkb_str = reconstruct_installed_custom_layout_str (curr_layout);
+
+    if (keyboard_view_set_keymap (app.keyboard_view, curr_layout, str_data(&xkb_str))) {
+        str_free (&app.curr_xkb_str);
+        app.curr_xkb_str = xkb_str;
+
+        str_set (&app.curr_keymap_name, curr_layout);
+    }
 }
 
 GtkWidget* new_custom_layout_list (char **custom_layouts, int num_custom_layouts)
@@ -550,9 +555,6 @@ bool edit_xkb_str (struct kle_app_t *app, char *keymap_name, char *xkb_str)
 
 void edit_layout_handler (GtkButton *button, gpointer user_data)
 {
-    str_free (&app.curr_xkb_str);
-    app.curr_xkb_str = reconstruct_installed_custom_layout_str (str_data(&app.curr_keymap_name));
-
     edit_xkb_str (&app, str_data(&app.curr_keymap_name), str_data(&app.curr_xkb_str));
 }
 
@@ -600,7 +602,8 @@ void open_xkb_file_handler (GtkButton *button, gpointer user_data)
         path_split (&tmp, fname, NULL, &name);
 
         // We only set curr_xkb_str and curr_keymap_name if parsing of the file is
-        // successful.
+        // successful. Both, from our parser, and from libxkbcommon's parser for
+        // the view's state.
         // TODO: data is originally stored in a temporary pool and then maybe copied
         // into strings here. Is it useful for common.h to have functions that write
         // directly to strings?, then here we would just free the old ones and
@@ -609,16 +612,19 @@ void open_xkb_file_handler (GtkButton *button, gpointer user_data)
         // freeing the old one. My thinking is a free 'should' be faster than a
         // copy, but who knows. I won't think much about this for now.
         // @performance
-        if (edit_xkb_str (&app, name, file_content)) {
+        if (edit_xkb_str (&app, name, file_content) &&
+            keyboard_view_set_keymap (app.keyboard_view, name, file_content)) {
             str_set (&app.curr_xkb_str, file_content);
             str_set (&app.curr_keymap_name, name);
 
         } else {
-            // TODO: Show some kind of feedback about what happened during parsing.
+            // TODO: Show some kind of feedback about what went wrong with the
+            // keymap file.
         }
 
         mem_pool_destroy (&tmp);
     }
+
     gtk_widget_destroy (dialog);
 }
 

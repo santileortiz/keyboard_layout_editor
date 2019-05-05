@@ -184,9 +184,19 @@ GtkWidget* new_custom_layout_list (char **custom_layouts, int num_custom_layouts
     gtk_widget_show (custom_layout_list);
 
     // Select first row
+    // NOTE: I previously selected the row before connecting to the row-selected
+    // event, because for some reason the call to gtk_widget_show_all() on
+    // startup, triggers the row-selected event. I wanted to avoid the callback
+    // being called here once and then twice there. The problem is this fails
+    // to trigger the row-selected event when the user edits a layout and then
+    // goes back to the installed layout list.
+    //
+    // It would be nice not to trigger this twice on startup and not break
+    // things somewhere else. I don't have time to fight GTK so it will be this
+    // way for now.
+    g_signal_connect (G_OBJECT(custom_layout_list), "row-selected", G_CALLBACK (on_custom_layout_selected), NULL);
     GtkListBoxRow *first_row = gtk_list_box_get_row_at_index (GTK_LIST_BOX(custom_layout_list), 0);
     gtk_list_box_select_row (GTK_LIST_BOX(custom_layout_list), GTK_LIST_BOX_ROW(first_row));
-    g_signal_connect (G_OBJECT(custom_layout_list), "row-selected", G_CALLBACK (on_custom_layout_selected), NULL);
 
     return custom_layout_list;
 }
@@ -499,7 +509,6 @@ bool edit_xkb_str (struct kle_app_t *app, char *keymap_name, char *xkb_str)
     struct keyboard_layout_t *new_layout = keyboard_layout_new_from_xkb (xkb_str);
 
     if (new_layout != NULL) {
-        keyboard_layout_destroy (app->keymap);
         app->keymap = new_layout;
 
         app->is_edit_mode = true;

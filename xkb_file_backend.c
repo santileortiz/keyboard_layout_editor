@@ -1397,8 +1397,9 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                     // TODO: I think loading a layout that includes any of the
                     // above symbols will show this data as compat declarations,
                     // but I'm not sure. Check we won't get these from xkbcomp.
-                    xkb_parser_skip_until_operator (state, ";");
-                    scanner_set_error (&state->scnr, "Parsing of actions in key definitions not implemented yet");
+                    xkb_parser_skip_until_operator (state, "]");
+                    xkb_parser_skip_until_operator (state, "]");
+                    //scanner_set_error (&state->scnr, "Parsing of actions in key definitions not implemented yet");
                 }
 
                 xkb_parser_next (state);

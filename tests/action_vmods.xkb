@@ -1,0 +1,253 @@
+// Name: my_layout
+// Description: Test custom layout
+// Short description: su
+// Languages: es, us
+
+xkb_keymap {
+xkb_keycodes "evdev+aliases(qwerty)" {
+    minimum = 8;
+    maximum = 255;
+     <ESC> = 9;
+    <BKSP> = 22;
+     <TAB> = 23;
+    <LCTL> = 37;
+    <LFSH> = 50;
+    <RTSH> = 62;
+    <LALT> = 64;
+    <CAPS> = 66;
+    <FK01> = 67;
+    <FK02> = 68;
+    <FK03> = 69;
+    <FK04> = 70;
+    <FK05> = 71;
+    <FK06> = 72;
+    <FK07> = 73;
+    <FK08> = 74;
+    <FK09> = 75;
+    <FK10> = 76;
+    <NMLK> = 77;
+    <LVL3> = 92;
+    <FK11> = 95;
+    <FK12> = 96;
+    <RCTL> = 105;
+    <RALT> = 108;
+    <LWIN> = 133;
+    <RWIN> = 134;
+     <ALT> = 204;
+    <META> = 205;
+    <SUPR> = 206;
+    <HYPR> = 207;
+};
+
+xkb_types "minimal+all_levels" {
+
+    virtual_modifiers NumLock, Alt;
+    type "ONE_LEVEL" {
+        modifiers= none;
+        level_name[Level1]= "Any";
+    };
+    type "TWO_LEVEL" {
+        modifiers= Shift;
+        map[Shift ]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Shift";
+    };
+    type "ALPHABETIC" {
+        modifiers= Shift+Lock;
+        map[Shift]= Level2;
+        map[Lock]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Caps";
+    };
+    type "KEYPAD" {
+        modifiers= Shift+NumLock;
+        map[Shift]= Level2;
+        map[NumLock]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Number";
+    };
+    type "ALL_LEVELS" {
+        modifiers= Shift+Alt+Control;
+        map[Control + Shift + Alt]= level8;
+        map[Control + Alt]= level7;
+        map[Control + Shift]= level6;
+        map[Control]= level5;
+        map[Shift + Alt]= level4;
+        map[Alt]= level3;
+        map[Shift]= level2;
+
+        // At least one level name is required. xkbcomp won't work if all are
+        // missing, but it doesn't check that all defined levels have a name.
+        level_name[Level1]= "Base";
+    };
+};
+
+xkb_compatibility "minimal" {
+
+    virtual_modifiers ScrollLock;
+
+    // At least one interpret and one indicator statement is required. It does
+    // not seem to matter their content, but this section can't be empty.
+    interpret Any+AnyOf(all) {
+        action= SetMods(modifiers=modMapMods,clearLocks);
+    };
+    indicator "Scroll Lock" {
+        whichModState= locked;
+        modifiers= ScrollLock;
+    };
+};
+
+xkb_symbols "pc+us+inet(evdev)" {
+
+    name[group1]="English (US)";
+
+    key  <ESC> {
+        type= "ALL_LEVELS",
+        symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
+    };
+    key <FK01> {
+        type= "ALL_LEVELS",
+        symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
+    };
+    key <FK02> {
+        type= "ALL_LEVELS",
+        symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
+    };
+    key <FK03> {
+        type= "ALL_LEVELS",
+        symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
+    };
+    key <FK04> {
+        type= "ALL_LEVELS",
+        symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
+    };
+    key <FK05> {
+        type= "ALL_LEVELS",
+        symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
+    };
+    key <FK06> {
+        type= "ALL_LEVELS",
+        symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
+    };
+    key <FK07> {
+        type= "ALL_LEVELS",
+        symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
+    };
+    key <FK08> {
+        type= "ALL_LEVELS",
+        symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
+    };
+    key <FK09> {
+        type= "ALL_LEVELS",
+        symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
+    };
+    key <FK10> {
+        type= "ALL_LEVELS",
+        symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
+    };
+    key <FK11> {
+        type= "ALL_LEVELS",
+        symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
+    };
+    key <FK12> {
+        type= "ALL_LEVELS",
+        symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
+    };
+
+    key <BKSP> {
+        type= "ALL_LEVELS",
+        symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
+    };
+    key  <TAB> {
+        type= "ALL_LEVELS",
+        symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
+    };
+    key <LCTL> { [ Control_L ] };
+    key <RCTL> { [ Control_R ] };
+    key <LFSH> { [ Shift_L ] };
+    key <RTSH> { [ Shift_R ] };
+    key  <RALT> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [Alt_R],
+        actions[Group1]= [SetMods(modifiers=Alt,clearLocks)]
+    };
+    key  <LALT> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [Alt_R],
+        actions[Group1]= [SetMods(modifiers=Alt,clearLocks)]
+    };
+    key <CAPS> { [ Caps_Lock ] };
+    key <NMLK> { [ Num_Lock ] };
+    key <LVL3> { [ ISO_Level3_Shift ] };
+    key  <ALT> { [ Alt_L ] };
+    key <LWIN> { [ Super_L ] };
+    key <RWIN> { [ Super_R ] };
+    key <META> { [ Meta_L ] };
+    key <SUPR> { [ Super_L ] };
+    key <HYPR> { [ Hyper_L ] };
+
+    modifier_map Control { <RCTL> };
+    modifier_map Control { <LCTL> };
+    modifier_map Shift { <LFSH> };
+    modifier_map Shift { <RTSH> };
+    modifier_map Lock { <CAPS> };
+    modifier_map Mod2 { <NMLK> };
+    modifier_map Mod4 { <LWIN> };
+    modifier_map Mod4 { <RWIN> };
+    modifier_map Mod4 { <SUPR> };
+    modifier_map Mod4 { <HYPR> };
+    modifier_map Mod5 { <LVL3> };
+};
+
+xkb_geometry "pc(pc105)" {
+
+    width=       470;
+    height=      180;
+
+    alias <AC00> = <CAPS>;
+    alias <AA00> = <LCTL>;
+
+    baseColor=   "white";
+    labelColor=  "black";
+    xfont=       "-*-helvetica-medium-r-normal--*-120-*-*-*-*-iso8859-1";
+    description= "Generic 105";
+
+    shape "NORM" {
+        corner= 1,
+        { [  18,  18 ] },
+        { [   2,   1 ], [  16,  16 ] }
+    };
+    section "Function" {
+        key.color= "grey20";
+        priority=  7;
+        top=       22;
+        left=      19;
+        width=     351;
+        height=    19;
+        row {
+            top=  1;
+            left= 1;
+            keys {
+                {  <ESC>, "NORM",   1 },
+                { <FK01>, "NORM",  20, color="white" },
+                { <FK02>, "NORM",   1, color="white" },
+                { <FK03>, "NORM",   1, color="white" },
+                { <FK04>, "NORM",   1, color="white" },
+                { <FK05>, "NORM",  11, color="white" },
+                { <FK06>, "NORM",   1, color="white" },
+                { <FK07>, "NORM",   1, color="white" },
+                { <FK08>, "NORM",   1, color="white" },
+                { <FK09>, "NORM",  11, color="white" },
+                { <FK10>, "NORM",   1, color="white" },
+                { <FK11>, "NORM",   1, color="white" },
+                { <FK12>, "NORM",   1, color="white" },
+                { <PRSC>, "NORM",   8, color="white" },
+                { <SCLK>, "NORM",   1, color="white" },
+                { <PAUS>, "NORM",   1, color="white" }
+            };
+        };
+    }; // End of "Function" section
+
+};
+
+};

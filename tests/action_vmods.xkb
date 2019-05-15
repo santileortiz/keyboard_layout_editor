@@ -9,7 +9,7 @@ xkb_keycodes "evdev+aliases(qwerty)" {
     maximum = 255;
 
     // Function keys row
-     <ESC> = 9;
+    //<ESC> = 9;
     //<FK01> = 67;
     //<FK02> = 68;
     //<FK03> = 69;
@@ -25,7 +25,8 @@ xkb_keycodes "evdev+aliases(qwerty)" {
     //<BKSP> = 22;
     // <TAB> = 23;
 
-     // Numbers
+     // Numbers row
+    //<TLDE> = 49;
     <AE01> = 10;
     <AE02> = 11;
     //<AE03> = 12;
@@ -41,7 +42,7 @@ xkb_keycodes "evdev+aliases(qwerty)" {
 
     // QWERTY row
     <AD01> = 24;
-    //<AD02> = 25;
+    <AD02> = 25;
     //<AD03> = 26;
     //<AD04> = 27;
     //<AD05> = 28;
@@ -148,14 +149,14 @@ xkb_symbols "pc+us+inet(evdev)" {
 
     name[group1]="English (US)";
 
-    key <ESC> {
+    key <AD02> {
         type= "ALL_LEVELS",
         symbols[Group1]= [1, 2, 3, 4, 5, 6, 7, 8]
     };
 
     key <AE01> {
         type= "KEYPAD",
-            symbols[Group1]= [k, 0]
+        symbols[Group1]= [k, 0]
     };
 
     key <AE02> {

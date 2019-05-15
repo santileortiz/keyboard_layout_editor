@@ -135,7 +135,7 @@ xkb_compatibility "minimal" {
     // At least one interpret and one indicator statement is required. It does
     // not seem to matter their content, but this section can't be empty.
     interpret Any+AnyOf(all) {
-        action= SetMods(modifiers=modMapMods,clearLocks);
+        action= NoAction();
     };
 
     indicator "Scroll Lock" {
@@ -168,10 +168,26 @@ xkb_symbols "pc+us+inet(evdev)" {
         symbols[Group1]= [a, A]
     };
 
-    key <LCTL> { [ Control_L ] };
-    key <RCTL> { [ Control_R ] };
-    key <LFSH> { [ Shift_L ] };
-    key <RTSH> { [ Shift_R ] };
+    key <LCTL> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [Control_L],
+        actions[Group1]= [SetMods(modifiers=Control,clearLocks)]
+    };
+    key <RCTL> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [Control_R],
+        actions[Group1]= [SetMods(modifiers=Control,clearLocks)]
+    };
+    key <LFSH> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [Shift_L],
+        actions[Group1]= [SetMods(modifiers=Shift,clearLocks)]
+    };
+    key <RTSH> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [Shift_R],
+        actions[Group1]= [SetMods(modifiers=Shift,clearLocks)]
+    };
     key  <RALT> {
         vmods= Alt,
         type= "ONE_LEVEL",

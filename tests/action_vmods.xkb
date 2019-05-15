@@ -72,8 +72,21 @@ xkb_keycodes "evdev+aliases(qwerty)" {
 };
 
 xkb_types "minimal+all_levels" {
+    // For some reason not having LevelThree here freezes the system, it may be
+    // related to https://github.com/elementary/gala/issues/220. I don't think
+    // it is either the xkbcomp or libxkbcommon. I ran
+    //
+    //      time xkbcomp tests/action_vmods.xkb $DISPLAY
+    //
+    // and the real time is 0,026s, but everything freezes several seconds
+    // before seeing the output. This looks more like a clutter/mutter issue,
+    // probably specific to the X11 backend?.
+    //
+    // TODO: Test this from a virtual terminal and see what happens. Be careful
+    // not to be left stuck there because there is no way to change the
+    // keyboard layout back.
+    virtual_modifiers NumLock, Alt, LevelThree;
 
-    virtual_modifiers NumLock, Alt;
     type "ONE_LEVEL" {
         modifiers= none;
         level_name[Level1]= "Any";
@@ -98,6 +111,7 @@ xkb_types "minimal+all_levels" {
         level_name[Level1]= "Base";
         level_name[Level2]= "Number";
     };
+
     type "ALL_LEVELS" {
         modifiers= Shift+Alt+Control;
         map[Control + Shift + Alt]= level8;
@@ -123,6 +137,7 @@ xkb_compatibility "minimal" {
     interpret Any+AnyOf(all) {
         action= SetMods(modifiers=modMapMods,clearLocks);
     };
+
     indicator "Scroll Lock" {
         whichModState= locked;
         modifiers= ScrollLock;

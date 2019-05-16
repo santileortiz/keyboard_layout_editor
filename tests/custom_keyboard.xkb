@@ -90,7 +90,6 @@ xkb_keycodes "evdev+aliases(qwerty)" {
      <KP3> = 89;
      <KP0> = 90;
     <KPDL> = 91;
-    <LVL3> = 92;
     <LSGT> = 94;
     <FK11> = 95;
     <FK12> = 96;
@@ -840,7 +839,6 @@ xkb_symbols "pc+us+inet(evdev)" {
     key  <KP3> {         [         KP_Next,            KP_3 ] };
     key  <KP0> {         [       KP_Insert,            KP_0 ] };
     key <KPDL> {         [       KP_Delete,      KP_Decimal ] };
-    key <LVL3> {         [ ISO_Level3_Shift ] };
     key <LSGT> {
         type= "FOUR_LEVEL",
         symbols[Group1]= [            less,         greater,             bar,       brokenbar ]
@@ -1004,7 +1002,7 @@ xkb_symbols "pc+us+inet(evdev)" {
     modifier_map Mod1 { <LALT> };
     modifier_map Lock { <CAPS> };
     modifier_map Mod2 { <NMLK> };
-    modifier_map Mod5 { <LVL3> };
+    modifier_map Mod5 { <RALT> };
     modifier_map Control { <RCTL> };
     modifier_map Mod4 { <LWIN> };
     modifier_map Mod4 { <RWIN> };

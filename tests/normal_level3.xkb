@@ -3,6 +3,35 @@
 // Short description: su
 // Languages: es, us
 
+// This layout shows the way the third level gets setup in the xkb database. I
+// think things could be simpler, I don't see why a virtual modifier is
+// necessary here other than adding a better name to the modifier than "Mod5".
+// Roughly what this layout does is the following:
+//
+// <LVL3> --symbol--> ISO_Level3_Shift
+//   \--RealMod--> Mod5
+//   \--useModMapMods=level1           |from interpret1|
+//   \--VirtualMod--> LevelThree       |from interpret1|
+//   \--Action--> SetMods(LevelThree)  |from interpret1|
+//
+// <RALT> --symbol--> ISO_Level3_Shift
+//   \--Action--> SetMods(LevelThree)  |from interpret2|
+//
+// My computer sends the <RALT> keycode, things will be brittle for this case.
+// By itself <RALT> keycode has no real modifier mapped to it, this mapping
+// happens through the interpret statements and the LevelThree virtual
+// modifier, if any of them is missing the third level will not work. Also note
+// that <RALT> does not have the LevelThree vmod mapped to it, it's as if it
+// guesses it must be there because the SetMods action uses it?.
+//
+// Also, the interpret matching the <RALT> keycode doesn't have the
+// useModMapMods option set. As far as I understand the point of this option is
+// to override how many levels and symbols the keycode has assigned to it and
+// make it behave as if it was of type ONE_LEVEL. Probably weird things will
+// happen if multiple symbols are bound to <RALT>, I had several issues related
+// to this, this was probably the reason (I should dig deeper and see if this
+// was actually the case).
+
 xkb_keymap {
 xkb_keycodes "evdev+aliases(qwerty)" {
     minimum = 8;
@@ -118,12 +147,16 @@ xkb_compatibility "minimal" {
 
     virtual_modifiers ScrollLock,Alt,LevelThree;
 
+    // interpret1
+    // This will match <LVL3> because it has Mod5 mapped to it.
     interpret ISO_Level3_Shift+AnyOf(all) {
         virtualModifier= LevelThree;
         useModMapMods=level1;
         action= SetMods(modifiers=LevelThree,clearLocks);
     };
 
+    // interpret2
+    // This will match <RALT> because it has no real modifier mapped to it.
     interpret ISO_Level3_Shift+AnyOfOrNone(all) {
         action= SetMods(modifiers=LevelThree,clearLocks);
     };
@@ -166,7 +199,11 @@ xkb_symbols "pc+us+inet(evdev)" {
 
     modifier_map Mod1 { <LALT> };
 
-    // Note how there is no modifier mapped to <RALT>
+    // Note how there is no modifier mapped to <RALT>, even though the keycode
+    // we get from the keyboard is <RALT> things work fine. We've established
+    // that a virtual modifier needs to be mapped to a real modifier to work.
+    // The fact that things work here means Mod5 is being mapped to <RALT> too,
+    // via the LevelThree virtual modifier.
     modifier_map Mod5 { <LVL3> };
 };
 

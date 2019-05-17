@@ -1,0 +1,119 @@
+// Name: simplest_xkb_layout
+// Description: Minimal layout
+// Short description: a
+// Languages: us
+
+// The idea for this test was to find the simplest layout that would assign a
+// symbol to a key. So that it would work in xkbcommon, setxkbmap and
+// libxkbcommon. Then this turned into the reason why I don't care about
+// creating xkbcomp or setxkbmap compatible xkb files.
+//
+// The only thing this layout does is assign letter A to the keycode for letter
+// Q in a QWERTY layout. Trying to use this layout with either xkbcomp or
+// setxkbmap causes lots of strange issues.
+//
+//   - Pressing the Q key triggers the 'show windows' action from Gala in
+//     elementary OS. I don't know what's going on here as the keybinding for
+//     this in elementary OS is set to Super+W, we're not using Super nor W
+//     anywhere.
+//
+//   - Removing the FOUR_LEVEL_ALPHABETIC type breaks things even worse.
+//     xkbcomp will exit printing:
+//
+//        Error: success in unknown
+//               Couldn't write keyboard description to :0
+//     
+//     What does this even mean?. This does not make any sense, as the only
+//     required types are ONE_LEVEL, TWO_LEVEL, ALPHABETIC and KEYPAD, and
+//     those are here.
+//
+//   - Removing all interpret statements in the compatibility section will
+//     cause the same error.
+//
+// When I install this layout and set it from the operating system's panel
+// things work like they should: pressing Q prints a letter 'a'.
+//
+// So, the decision has been made: I will not care about creating xkb files
+// that are compatible with xkbcomp or setxkbmap. I'm certain that some people
+// may find this too harsh and backwards incompatible, but these tools are not
+// even available in Wayland. We will provide CLI commands to install layouts
+// in a way that actually works. If someone can tell me why this does not work
+// and what exactly is necessary to be xkbcomp compatible I may take a look,
+// but right now it looks like a waste of time.
+
+xkb_keymap {
+xkb_keycodes "evdev+aliases(qwerty)" {
+    minimum = 8;
+    maximum = 255;
+
+    <AD01> = 24;
+};
+
+xkb_types "minimal" {
+
+    virtual_modifiers NumLock, Alt, LevelThree;
+    type "ONE_LEVEL" {
+        modifiers= none;
+        level_name[Level1]= "Any";
+    };
+    type "TWO_LEVEL" {
+        modifiers= Shift;
+        map[Shift ]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Shift";
+    };
+    type "ALPHABETIC" {
+        modifiers= Shift+Lock;
+        map[Shift]= Level2;
+        map[Lock]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Caps";
+    };
+    type "KEYPAD" {
+        modifiers= Shift+NumLock;
+        map[Shift]= Level2;
+        map[NumLock]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Number";
+    };
+
+    // This is required. Why?
+    type "FOUR_LEVEL_ALPHABETIC" {
+        modifiers= Shift+Lock+LevelThree;
+        map[Shift]= Level2;
+        map[Lock]= Level2;
+        map[LevelThree]= Level3;
+        map[Shift+LevelThree]= Level4;
+        map[Lock+LevelThree]= Level4;
+        map[Shift+Lock+LevelThree]= Level3;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Shift";
+        level_name[Level3]= "Alt Base";
+        level_name[Level4]= "Shift Alt";
+    };
+};
+
+xkb_compatibility "minimal" {
+
+    virtual_modifiers ScrollLock;
+
+    // This is required. Why?
+    interpret Any+AnyOf(all) {
+        action= NoAction();
+    };
+
+    // This is required. Why?
+    indicator "Scroll Lock" {
+        whichModState= locked;
+        modifiers= ScrollLock;
+    };
+};
+
+xkb_symbols "minimal" {
+
+    name[group1]="English (US)";
+
+    key <AD01> { [ a ] };
+};
+
+};

@@ -1,0 +1,181 @@
+// Name: my_layout
+// Description: Test custom layout
+// Short description: su
+// Languages: es, us
+
+// This is an even simpler setup for a 3rd level where we don't even use a
+// virtual modifier:
+//
+// <LVL3> --symbol--> ISO_Level3_Shift
+//   \--RealMod--> Mod5
+//   \--Action--> SetMods(Mod5) |from interpret0|
+//
+// <RALT> --symbol--> ISO_Level3_Shift
+//   \--RealMod--> Mod5
+//   \--Action--> SetMods(Mod5) |from interpret0|
+//
+// Here we use the base interpret statement that sets all real modifier
+// mappings by default (interpret0). In this layout keycode configurations do
+// break if their corresponding mapping to Mod5 is missing, so they are
+// completely independent.
+//
+// I still don't see the real need for virtual modifiers besides adding the
+// ability to rename real modifiers. I need to do further testing and get to a
+// layout that won't be possible without virtual modifiers. If the point of
+// virtual modifiers was conciseness in the syntax, I find this setup for 3rd
+// level much simpler than any of the other ones. And this is not the one used
+// in the layout database.
+
+xkb_keymap {
+xkb_keycodes "evdev+aliases(qwerty)" {
+    minimum = 8;
+    maximum = 255;
+
+    // Function keys row
+    //<ESC> = 9;
+    //<FK01> = 67;
+    //<FK02> = 68;
+    //<FK03> = 69;
+    //<FK04> = 70;
+    //<FK05> = 71;
+    //<FK06> = 72;
+    //<FK07> = 73;
+    //<FK08> = 74;
+    //<FK09> = 75;
+    //<FK10> = 76;
+    //<FK11> = 95;
+    //<FK12> = 96;
+    //<BKSP> = 22;
+    // <TAB> = 23;
+
+     // Numbers row
+    //<TLDE> = 49;
+    //<AE01> = 10;
+    //<AE02> = 11;
+    //<AE03> = 12;
+    //<AE04> = 13;
+    //<AE05> = 14;
+    //<AE06> = 15;
+    //<AE07> = 16;
+    //<AE08> = 17;
+    //<AE09> = 18;
+    //<AE10> = 19;
+    //<AE11> = 20;
+    //<AE12> = 21;
+
+    // QWERTY row
+    <AD01> = 24;
+    //<AD02> = 25;
+    //<AD03> = 26;
+    //<AD04> = 27;
+    //<AD05> = 28;
+    //<AD06> = 29;
+    //<AD07> = 30;
+    //<AD08> = 31;
+    //<AD09> = 32;
+    //<AD10> = 33;
+    //<AD11> = 34;
+    //<AD12> = 35;
+
+    // Modifiers
+    //<LCTL> = 37;
+    <LFSH> = 50;
+    <RTSH> = 62;
+    <LALT> = 64;
+    <CAPS> = 66;
+    //<RCTL> = 105;
+    <RALT> = 108;
+    //<LWIN> = 133;
+    //<RWIN> = 134;
+    // <ALT> = 204;
+    //<NMLK> = 77;
+    <LVL3> = 92;
+    //<META> = 205;
+    //<SUPR> = 206;
+    //<HYPR> = 207;
+};
+
+xkb_types "minimal+all_levels" {
+
+    virtual_modifiers NumLock, Alt;
+    type "ONE_LEVEL" {
+        modifiers= none;
+        level_name[Level1]= "Any";
+    };
+    type "TWO_LEVEL" {
+        modifiers= Shift;
+        map[Shift ]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Shift";
+    };
+    type "ALPHABETIC" {
+        modifiers= Shift+Lock;
+        map[Shift]= Level2;
+        map[Lock]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Caps";
+    };
+    type "KEYPAD" {
+        modifiers= Shift+NumLock;
+        map[Shift]= Level2;
+        map[NumLock]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Number";
+    };
+    type "FOUR_LEVEL_ALPHABETIC" {
+        modifiers= Shift+Lock+Mod5;
+        map[Shift]= Level2;
+        map[Lock]= Level2;
+        map[Mod5]= Level3;
+        map[Shift+Mod5]= Level4;
+        map[Lock+Mod5]= Level4;
+        map[Shift+Lock+Mod5]= Level3;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Shift";
+        level_name[Level3]= "Alt Base";
+        level_name[Level4]= "Shift Alt";
+    };
+};
+
+xkb_compatibility "minimal" {
+
+    virtual_modifiers ScrollLock,Alt;
+
+    //interpret0
+    interpret Any+AnyOf(all) {
+        action= SetMods(modifiers=modMapMods,clearLocks);
+    };
+    indicator "Scroll Lock" {
+        whichModState= locked;
+        modifiers= ScrollLock;
+    };
+};
+
+xkb_symbols "pc+us+inet(evdev)" {
+
+    name[group1]="English (US)";
+
+    key <AD01> {
+        type= "FOUR_LEVEL_ALPHABETIC",
+        symbols[Group1]= [ a, A, aacute, Aacute ]
+    };
+
+    key <LVL3> { [ ISO_Level3_Shift ] };
+    key <RALT> { [ ISO_Level3_Shift ] };
+    key <LALT> { [ Alt_L] };
+
+    key <LFSH> { [ Shift_L ] };
+    key <RTSH> { [ Shift_R ] };
+    key <CAPS> { [ Caps_Lock ] };
+
+    modifier_map Shift { <LFSH> };
+    modifier_map Shift { <RTSH> };
+    modifier_map Lock { <CAPS> };
+
+    modifier_map Mod1 { <LALT> };
+
+    modifier_map Mod5 { <LVL3> };
+    modifier_map Mod5 { <RALT> };
+};
+
+};

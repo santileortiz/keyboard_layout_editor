@@ -1,0 +1,212 @@
+// Name: my_layout
+// Description: Test custom layout
+// Short description: su
+// Languages: es, us
+
+xkb_keymap {
+xkb_keycodes "evdev+aliases(qwerty)" {
+    minimum = 8;
+    maximum = 255;
+
+    // Function keys row
+    //<ESC> = 9;
+    //<FK01> = 67;
+    //<FK02> = 68;
+    //<FK03> = 69;
+    //<FK04> = 70;
+    //<FK05> = 71;
+    //<FK06> = 72;
+    //<FK07> = 73;
+    //<FK08> = 74;
+    //<FK09> = 75;
+    //<FK10> = 76;
+    //<FK11> = 95;
+    //<FK12> = 96;
+    //<BKSP> = 22;
+    // <TAB> = 23;
+
+     // Numbers row
+    //<TLDE> = 49;
+    <AE01> = 10;
+    <AE02> = 11;
+    //<AE03> = 12;
+    //<AE04> = 13;
+    //<AE05> = 14;
+    //<AE06> = 15;
+    //<AE07> = 16;
+    //<AE08> = 17;
+    //<AE09> = 18;
+    //<AE10> = 19;
+    //<AE11> = 20;
+    //<AE12> = 21;
+
+    // QWERTY row
+    <AD01> = 24;
+    //<AD02> = 25;
+    //<AD03> = 26;
+    //<AD04> = 27;
+    //<AD05> = 28;
+    //<AD06> = 29;
+    //<AD07> = 30;
+    //<AD08> = 31;
+    //<AD09> = 32;
+    //<AD10> = 33;
+    //<AD11> = 34;
+    //<AD12> = 35;
+
+    // Modifiers
+    <LCTL> = 37;
+    <LFSH> = 50;
+    <RTSH> = 62;
+    <LALT> = 64;
+    <CAPS> = 66;
+    <RCTL> = 105;
+    <RALT> = 108;
+    //<LWIN> = 133;
+    //<RWIN> = 134;
+    // <ALT> = 204;
+    <NMLK> = 77;
+    //<LVL3> = 92;
+    //<META> = 205;
+    //<SUPR> = 206;
+    //<HYPR> = 207;
+};
+
+xkb_types "minimal+all_levels" {
+
+    type "ONE_LEVEL" {
+        modifiers= none;
+        level_name[Level1]= "Any";
+    };
+    type "TWO_LEVEL" {
+        modifiers= Shift;
+        map[Shift ]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Shift";
+    };
+    type "ALPHABETIC" {
+        modifiers= Shift+Lock;
+        map[Shift]= Level2;
+        map[Lock]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Caps";
+    };
+    type "KEYPAD" {
+        modifiers= Shift+Mod2;
+        map[Shift]= Level2;
+        map[Mod2]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Number";
+    };
+};
+
+xkb_compatibility "minimal" {
+
+    virtual_modifiers ScrollLock;
+
+    interpret Any+AnyOf(all) {
+        action= NoAction();
+    };
+
+    indicator "Scroll Lock" {
+        whichModState= locked;
+        modifiers= ScrollLock;
+    };
+};
+
+xkb_symbols "pc+us+inet(evdev)" {
+
+    name[group1]="English (US)";
+
+    key <AE01> {
+        type= "KEYPAD",
+        symbols[Group1]= [k, 0]
+    };
+
+    key <AE02> {
+        type= "TWO_LEVEL",
+        symbols[Group1]= [2, at]
+    };
+
+    key <AD01> {
+        type= "ALPHABETIC",
+        symbols[Group1]= [a, A]
+    };
+
+    key <LFSH> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [Shift_L],
+        actions[Group1]= [SetMods(modifiers=Shift,clearLocks)]
+    };
+    key <RTSH> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [Shift_R],
+        actions[Group1]= [SetMods(modifiers=Shift,clearLocks)]
+    };
+
+    key <CAPS> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [Caps_Lock],
+        actions[Group1]= [LockMods(modifiers=Lock)]
+    };
+
+    key <NMLK> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [Num_Lock],
+        actions[Group1]= [LockMods(modifiers=Mod2)]
+    };
+
+};
+
+xkb_geometry "pc(pc105)" {
+
+    width=       470;
+    height=      180;
+
+    alias <AC00> = <CAPS>;
+    alias <AA00> = <LCTL>;
+
+    baseColor=   "white";
+    labelColor=  "black";
+    xfont=       "-*-helvetica-medium-r-normal--*-120-*-*-*-*-iso8859-1";
+    description= "Generic 105";
+
+    shape "NORM" {
+        corner= 1,
+        { [  18,  18 ] },
+        { [   2,   1 ], [  16,  16 ] }
+    };
+    section "Function" {
+        key.color= "grey20";
+        priority=  7;
+        top=       22;
+        left=      19;
+        width=     351;
+        height=    19;
+        row {
+            top=  1;
+            left= 1;
+            keys {
+                {  <ESC>, "NORM",   1 },
+                { <FK01>, "NORM",  20, color="white" },
+                { <FK02>, "NORM",   1, color="white" },
+                { <FK03>, "NORM",   1, color="white" },
+                { <FK04>, "NORM",   1, color="white" },
+                { <FK05>, "NORM",  11, color="white" },
+                { <FK06>, "NORM",   1, color="white" },
+                { <FK07>, "NORM",   1, color="white" },
+                { <FK08>, "NORM",   1, color="white" },
+                { <FK09>, "NORM",  11, color="white" },
+                { <FK10>, "NORM",   1, color="white" },
+                { <FK11>, "NORM",   1, color="white" },
+                { <FK12>, "NORM",   1, color="white" },
+                { <PRSC>, "NORM",   8, color="white" },
+                { <SCLK>, "NORM",   1, color="white" },
+                { <PAUS>, "NORM",   1, color="white" }
+            };
+        };
+    }; // End of "Function" section
+
+};
+
+};

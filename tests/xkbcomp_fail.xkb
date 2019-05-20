@@ -4,7 +4,7 @@
 // Languages: us
 
 // The idea for this test was to find the simplest layout that would assign a
-// symbol to a key. So that it would work in xkbcommon, setxkbmap and
+// symbol to a key. So that it would work in xkbcomp, setxkbmap and
 // libxkbcommon. Then this turned into the reason why I don't care about
 // creating xkbcomp or setxkbmap compatible xkb files.
 //

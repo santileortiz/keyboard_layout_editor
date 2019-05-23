@@ -836,8 +836,6 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
 {
     assert (state != NULL && action != NULL);
 
-    action->type = KEY_ACTION_TYPE_NONE;
-
     xkb_parser_next (state);
     if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "SetMods")) {
         action->type = KEY_ACTION_TYPE_MOD_SET;
@@ -849,8 +847,7 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
         action->type = KEY_ACTION_TYPE_MOD_LOCK;
 
     } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "NoAction")) {
-        // Do nothing as it's the default.
-        //action->type = KEY_ACTION_TYPE_NONE;
+        action->type = KEY_ACTION_TYPE_NONE;
 
     } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "SetGroup") ||
                xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LatchGroup") ||
@@ -897,10 +894,11 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
 
                xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "Private")) {
 
-    // Ignore all these actions.
-    // TODO: Which of these are useful/required? If some are required, how do we
-    // store them in our IR without adding a lot of stuff that won't be
-    // available in other platforms?.
+        // Ignore all these actions.
+        // TODO: Which of these are useful/required? If some are required, how do we
+        // store them in our IR without adding a lot of stuff that won't be
+        // available in other platforms?.
+        action->type = KEY_ACTION_TYPE_NONE;
 
     } else {
         xkb_parser_error_tok (state, "Invalid action name '%s'.");
@@ -943,7 +941,7 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
         // to stop parsing the mask but we already parsed the next list
         // separator.
         //
-        // :action_arguments_use_lookehead
+        // :action_arguments_use_lookahead
         //
         // TODO: A cleaner approach to this would be to have a xkb_parser_peek()
         // function, that stores the next token somewhere else, then the
@@ -1334,8 +1332,11 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
 
             struct key_type_t *type = NULL;
             xkb_keysym_t symbols[KEYBOARD_LAYOUT_MAX_LEVELS];
+            struct xkb_key_action_t actions[KEYBOARD_LAYOUT_MAX_LEVELS];
             int num_symbols = 0;
             do {
+                bool consumed_list_separator = false;
+
                 xkb_parser_next (state);
                 if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "[")) {
                     // This is a shorthand, the type will be guessed afterwards,
@@ -1385,6 +1386,8 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                         xkb_parser_symbol_list (state, symbols, ARRAY_SIZE(symbols), &num_symbols);
 
                     } else {
+                        // For now we only support a single group per key.
+                        // :single_group_per_key
                         xkb_parser_skip_until_operator (state, "]");
                     }
 
@@ -1397,12 +1400,90 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                     // TODO: I think loading a layout that includes any of the
                     // above symbols will show this data as compat declarations,
                     // but I'm not sure. Check we won't get these from xkbcomp.
-                    xkb_parser_skip_until_operator (state, "]");
-                    xkb_parser_skip_until_operator (state, "]");
-                    //scanner_set_error (&state->scnr, "Parsing of actions in key definitions not implemented yet");
+
+                    int group = 1;
+                    xkb_parser_next (state);
+                    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "[")) {
+                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_GROUP_IDENTIFIER, NULL);
+                        group = state->tok_value_int;
+                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "]");
+
+                        xkb_parser_next (state);
+                    }
+
+                    xkb_parser_expect_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "[");
+                    if (group == 1) {
+                        // Parse actions list
+                        int num_actions_found = 0;
+                        do {
+                            struct xkb_key_action_t action = {0};
+                            xkb_parser_parse_action (state, &action);
+                            if (!state->scnr.error) {
+                                actions[num_actions_found++] = action;
+                            }
+
+                            xkb_parser_next (state);
+                            if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "]")) {
+                                break;
+                            } else {
+                                xkb_parser_expect_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",");
+                            }
+
+                        } while (!state->scnr.error && num_actions_found < ARRAY_SIZE(actions));
+
+                    } else {
+                        // :single_group_per_key
+                        xkb_parser_skip_until_operator (state, "]");
+                    }
+
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "vmods") ||
+                           xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "virtualmodifiers") ||
+                           xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "virtualmods")) {
+                    // TODO: Research more about this field. There are several
+                    // things I don't yet understand about it. It looks like in
+                    // the compatibility section interpret statements can only
+                    // have a single modifier defined in them, and an action can
+                    // only set, latch or lock a single modifier. Then, why is
+                    // this field plural and accepts multiple virtual
+                    // modifiers?. Maybe it's just for the case in which
+                    // different levels have different actions that modify
+                    // different modifiers. But if that's the case, what's the
+                    // point of this field? can't we just assume all used
+                    // virtual modifiers in the actions are defined
+                    // automatically?.
+                    //
+                    // Note that this is different than the virtual modifiers in
+                    // a type definition. Here a modifier that is defined but
+                    // not used in a level means it should explicitly be unset
+                    // so that the corresponding level is set.
+                    //
+                    // Maybe we can get away with ignoring this field when
+                    // parsing and generating it automatically when translating
+                    // out IR into xkb.
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+                    do {
+                        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL);
+
+                        xkb_parser_next (state);
+                        if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "+")) {
+                            continue;
+                        } else {
+                            consumed_list_separator = true;
+                            break;
+                        }
+                    } while (!state->scnr.error);
+
                 }
 
-                xkb_parser_next (state);
+                // When parsing the virtualmodifiers field we will advance into
+                // the list delimiter, in that case we don't want to advance
+                // again here.
+                // :parser_peek_function
+                if (!consumed_list_separator) {
+                    xkb_parser_next (state);
+                }
+
                 if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
                     break;
                 } else {
@@ -1443,7 +1524,17 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                     // the type we just ignore the extra symbols.
                     int num_levels = keyboard_layout_type_get_num_levels (type);
                     for (int i=0; i<num_levels; i++) {
-                        keyboard_layout_key_set_level (new_key, i+1, symbols[i], NULL);
+                        // Here we translate between the full xkb action and the
+                        // one used by our internal representation. For now we
+                        // just ignore the extra data. I have only tested this
+                        // data in the context of the compatibility section so
+                        // I'm not sure about the semantics of that here in the
+                        // symbols section.
+                        struct key_action_t layout_action = {0};
+                        layout_action.type = actions[i].type;
+                        layout_action.modifiers = actions[i].modifiers;
+
+                        keyboard_layout_key_set_level (new_key, i+1, symbols[i], &layout_action);
                     }
                 }
             }

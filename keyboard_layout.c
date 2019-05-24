@@ -336,6 +336,7 @@ void keyboard_layout_key_set_level (struct key_t *key, int level, xkb_keysym_t k
     assert (level > 0 && "Levels must be grater than 0");
 
     struct key_level_t *lvl = &key->levels[level-1];
+    *lvl = ZERO_INIT (struct key_level_t);
     lvl->keysym = keysym;
 
     if (action != NULL) {

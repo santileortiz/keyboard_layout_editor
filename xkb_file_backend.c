@@ -1333,6 +1333,10 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
             struct key_type_t *type = NULL;
             xkb_keysym_t symbols[KEYBOARD_LAYOUT_MAX_LEVELS];
             struct xkb_key_action_t actions[KEYBOARD_LAYOUT_MAX_LEVELS];
+            for (int i=0; i<KEYBOARD_LAYOUT_MAX_LEVELS; i++) {
+                actions[i] = ZERO_INIT(struct xkb_key_action_t);
+            }
+
             int num_symbols = 0;
             do {
                 bool consumed_list_separator = false;
@@ -1736,6 +1740,13 @@ gboolean print_modifiers_foreach (gpointer modifier_name, gpointer mask_ptr, gpo
     return FALSE;
 }
 
+void xkb_file_write_modifier_action_arguments (struct xkb_writer_state_t *state, string_t *xkb_str,
+                                               struct key_action_t *action)
+{
+    str_cat_c (xkb_str, "modifiers=");
+    xkb_file_write_modifier_mask (state, xkb_str, action->modifiers);
+}
+
 // Can we guarantee this will never fail? if we do then we can write the output
 // directly into res.
 void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
@@ -1799,7 +1810,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
     str_cat_c (&xkb_str, "    virtual_modifiers ");
     // NOTE: We print modifier definitions from the internal representation's
     // tree and not from the reverse mapping because we want them in alphabetic
-    // ordes so their ordering does not depend on the value of the mask assigned
+    // order so their ordering does not depend on the value of the mask assigned
     // to it.
     state.is_first = true;
     g_tree_foreach (keymap->modifiers, print_modifiers_foreach, &state);
@@ -1858,6 +1869,38 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
                 }
             }
             str_cat_c (&xkb_str, " ]\n");
+
+            // TODO: We could not print any action statement if all of them are
+            // NoAction(). On the other hand, probably we want to always be very
+            // explicit about this?
+            str_cat_c (&xkb_str, "        actions[Group1]= [ ");
+            for (int j=0; j<num_levels; j++) {
+                struct key_action_t *action = &curr_key->levels[j].action;
+
+                if (action->type == KEY_ACTION_TYPE_MOD_SET) {
+                    str_cat_printf (&xkb_str, "SetMods(");
+                    xkb_file_write_modifier_action_arguments (&state, &xkb_str, action);
+
+                } else if (action->type == KEY_ACTION_TYPE_MOD_LATCH) {
+                    str_cat_printf (&xkb_str, "LatchMods(");
+                    xkb_file_write_modifier_action_arguments (&state, &xkb_str, action);
+
+                } else if (action->type == KEY_ACTION_TYPE_MOD_LOCK) {
+                    str_cat_printf (&xkb_str, "LockMods(");
+                    xkb_file_write_modifier_action_arguments (&state, &xkb_str, action);
+
+                } else {
+                    str_cat_printf (&xkb_str, "NoAction(");
+                }
+
+                str_cat_printf (&xkb_str, ")");
+
+                if (j < num_levels-1) {
+                    str_cat_c (&xkb_str, ", ");
+                }
+            }
+            str_cat_c (&xkb_str, " ]\n");
+
 
             str_cat_c (&xkb_str, "    };\n");
         }

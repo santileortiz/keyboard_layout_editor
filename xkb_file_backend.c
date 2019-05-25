@@ -41,7 +41,11 @@ bool codepoint_to_xkb_keysym (uint32_t cp, xkb_keysym_t *res)
     return is_cp_valid;
 }
 
-// Internal representation for the compatibility section. The reasoning behind
+////////////////////////////////////////////////////////////////////////////////
+//
+// Internal representation for the compatibility section
+//
+// The reasoning behind
 // puting it here and not in out keymap internal representation is discussed in
 // :compatibility_section
 //
@@ -77,6 +81,19 @@ char *xkb_parser_compat_condition_names[] = {
 
 #undef XKB_PARSER_COMPAT_CONDITIONS
 
+// We don't use the action_type_t enum because here we want to keep track of
+// actions that have not been set and ones that have (maybe as NoAction()), so
+// that we can later decide which one has priority if it was set from the
+// compatibility section.
+// :platform_specific_data_in_internal_representation
+enum xkb_backend_action_type_t {
+    XKB_BACKEND_KEY_ACTION_TYPE_UNSET = 0,
+    XKB_BACKEND_KEY_ACTION_TYPE_MOD_SET,
+    XKB_BACKEND_KEY_ACTION_TYPE_MOD_LATCH,
+    XKB_BACKEND_KEY_ACTION_TYPE_MOD_LOCK,
+    XKB_BACKEND_KEY_ACTION_TYPE_NO_ACTION
+};
+
 // This is different than key_action_t because it has more xkb specific data.
 // The idea of the keyboard_layout.c internal representation is for it to be
 // less cluttered than the one in xkbcomp or libxkbcommon and maybe be even
@@ -88,8 +105,8 @@ char *xkb_parser_compat_condition_names[] = {
 // we wpuld require a new mechanism to be implemented in our internal
 // representation (keyboard_layout.c).
 // :platform_specific_data_in_internal_representation
-struct xkb_key_action_t {
-    enum action_type_t type;
+struct xkb_backend_key_action_t {
+    enum xkb_backend_action_type_t type;
 
     bool mod_map_mods;
     key_modifier_mask_t modifiers;
@@ -124,7 +141,7 @@ struct xkb_compat_interpret_t {
 
     bool level_one_only;
     key_modifier_mask_t virtual_modifier;
-    struct xkb_key_action_t action;
+    struct xkb_backend_key_action_t action;
 
     struct xkb_compat_interpret_t *next;
 };
@@ -832,22 +849,22 @@ void xkb_parser_parse_boolean_literal (struct xkb_parser_state_t *state, bool *v
 
 // NOTE: This does not set any default value in action, if a value is not parsed
 // it's left as it was before.
-void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_action_t *action)
+void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_backend_key_action_t *action)
 {
     assert (state != NULL && action != NULL);
 
     xkb_parser_next (state);
     if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "SetMods")) {
-        action->type = KEY_ACTION_TYPE_MOD_SET;
+        action->type = XKB_BACKEND_KEY_ACTION_TYPE_MOD_SET;
 
     } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LatchMods")) {
-        action->type = KEY_ACTION_TYPE_MOD_LATCH;
+        action->type = XKB_BACKEND_KEY_ACTION_TYPE_MOD_LATCH;
 
     } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LockMods")) {
-        action->type = KEY_ACTION_TYPE_MOD_LOCK;
+        action->type = XKB_BACKEND_KEY_ACTION_TYPE_MOD_LOCK;
 
     } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "NoAction")) {
-        action->type = KEY_ACTION_TYPE_NONE;
+        action->type = XKB_BACKEND_KEY_ACTION_TYPE_NO_ACTION;
 
     } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "SetGroup") ||
                xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "LatchGroup") ||
@@ -898,19 +915,19 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_key_a
         // TODO: Which of these are useful/required? If some are required, how do we
         // store them in our IR without adding a lot of stuff that won't be
         // available in other platforms?.
-        action->type = KEY_ACTION_TYPE_NONE;
+        action->type = XKB_BACKEND_KEY_ACTION_TYPE_UNSET;
 
     } else {
         xkb_parser_error_tok (state, "Invalid action name '%s'.");
     }
 
     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "(");
-    if (action->type == KEY_ACTION_TYPE_NONE) {
-        // NOTE: This is not just the case for NoAction() here
-        // we will also skip all ignored actions.
+    if (action->type == XKB_BACKEND_KEY_ACTION_TYPE_UNSET) {
+        // Skip all ignored actions
         xkb_parser_skip_until_operator (state, ")");
+        *action = ZERO_INIT(struct xkb_backend_key_action_t);
 
-    } else {
+    } else if (action->type != XKB_BACKEND_KEY_ACTION_TYPE_NO_ACTION) {
         // Currently we only support modifier actions, so that's the kind of
         // action we parse here.
 
@@ -1332,9 +1349,9 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
 
             struct key_type_t *type = NULL;
             xkb_keysym_t symbols[KEYBOARD_LAYOUT_MAX_LEVELS];
-            struct xkb_key_action_t actions[KEYBOARD_LAYOUT_MAX_LEVELS];
+            struct xkb_backend_key_action_t actions[KEYBOARD_LAYOUT_MAX_LEVELS];
             for (int i=0; i<KEYBOARD_LAYOUT_MAX_LEVELS; i++) {
-                actions[i] = ZERO_INIT(struct xkb_key_action_t);
+                actions[i] = ZERO_INIT(struct xkb_backend_key_action_t);
             }
 
             int num_symbols = 0;
@@ -1421,7 +1438,7 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                         // Parse actions list
                         int num_actions_found = 0;
                         do {
-                            struct xkb_key_action_t action = {0};
+                            struct xkb_backend_key_action_t action = {0};
                             xkb_parser_parse_action (state, &action);
                             if (!state->scnr.error) {
                                 actions[num_actions_found++] = action;
@@ -1530,12 +1547,17 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                     for (int i=0; i<num_levels; i++) {
                         // Here we translate between the full xkb action and the
                         // one used by our internal representation. For now we
-                        // just ignore the extra data. I have only tested this
-                        // data in the context of the compatibility section so
-                        // I'm not sure about the semantics of that here in the
-                        // symbols section.
+                        // map the unset type to no action, copy the modifiers
+                        // and then ignore the extra data. I have only tested
+                        // this data in the context of the compatibility section
+                        // so I'm not sure about the semantics of that here in
+                        // the symbols section.
                         struct key_action_t layout_action = {0};
-                        layout_action.type = actions[i].type;
+                        if (actions[i].type == XKB_BACKEND_KEY_ACTION_TYPE_NO_ACTION) {
+                            layout_action.type = KEY_ACTION_TYPE_NONE;
+                        } else {
+                            layout_action.type = actions[i].type;
+                        }
                         layout_action.modifiers = actions[i].modifiers;
 
                         keyboard_layout_key_set_level (new_key, i+1, symbols[i], &layout_action);

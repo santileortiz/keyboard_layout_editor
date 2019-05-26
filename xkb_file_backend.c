@@ -941,7 +941,10 @@ void xkb_parser_parse_action (struct xkb_parser_state_t *state, struct xkb_backe
         xkb_parser_skip_until_operator (state, ")");
         *action = ZERO_INIT(struct xkb_backend_key_action_t);
 
-    } else if (action->type != XKB_BACKEND_KEY_ACTION_TYPE_NO_ACTION) {
+    } else if (action->type == XKB_BACKEND_KEY_ACTION_TYPE_NO_ACTION) {
+        xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ")");
+
+    } else {
         // Currently we only support modifier actions, so that's the kind of
         // action we parse here.
 

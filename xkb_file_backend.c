@@ -191,6 +191,20 @@ struct xkb_parser_state_t {
 
     // :compatibility_section
     struct xkb_compat_t compatibility;
+
+    // We don't know the mapping of real modifiers to keycodes until the
+    // end of the symbols sections, so we can't resolve actions during parsing
+    // of this section. Instead, it's done after parsing is complete.
+    //
+    // To compute the effective action between those in the compatibility
+    // section and those in the symbols section we require the data from
+    // xkb_backend_key_action_t not just key_action_t. We store all actions from
+    // the symbols section here so we can then compute the effective action for
+    // our internal representation.
+    // :symbol_actions_array
+    // TODO: I'm not 100% sure this is required, but right now it looks like it.
+    // If it doesn't we can then remove this big array from here.
+    struct xkb_backend_key_action_t symbol_actions[KEY_CNT][KEYBOARD_LAYOUT_MAX_LEVELS];
 };
 
 void xkb_parser_state_init (struct xkb_parser_state_t *state, char *xkb_str, struct keyboard_layout_t *keymap)
@@ -1545,22 +1559,16 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                     // the type we just ignore the extra symbols.
                     int num_levels = keyboard_layout_type_get_num_levels (type);
                     for (int i=0; i<num_levels; i++) {
-                        // Here we translate between the full xkb action and the
-                        // one used by our internal representation. For now we
-                        // map the unset type to no action, copy the modifiers
-                        // and then ignore the extra data. I have only tested
-                        // this data in the context of the compatibility section
-                        // so I'm not sure about the semantics of that here in
-                        // the symbols section.
-                        struct key_action_t layout_action = {0};
-                        if (actions[i].type == XKB_BACKEND_KEY_ACTION_TYPE_NO_ACTION) {
-                            layout_action.type = KEY_ACTION_TYPE_NONE;
-                        } else {
-                            layout_action.type = actions[i].type;
-                        }
-                        layout_action.modifiers = actions[i].modifiers;
+                        keyboard_layout_key_set_level (new_key, i+1, symbols[i], NULL);
 
-                        keyboard_layout_key_set_level (new_key, i+1, symbols[i], &layout_action);
+                        // We set the action of our internal represntation to
+                        // NULL but store the resulting actions in this array in
+                        // the state. After parsing is complete we will compute
+                        // the effective actions between those in the
+                        // compatibility sections and these explicit ones, then
+                        // store the result in our internal representation.
+                        // :symbol_actions_array
+                        state->symbol_actions[kc][i] = actions[i];
                     }
                 }
             }

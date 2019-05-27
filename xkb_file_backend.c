@@ -1595,6 +1595,126 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
     state->scnr.eof_is_error = false;
 }
 
+void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
+{
+    struct xkb_compat_t *compatibility = &state->compatibility;
+
+    if (compatibility->interprets == NULL) {
+        return;
+    }
+
+    for (int kc=0; kc<KEY_CNT; kc++) {
+        struct key_t *curr_key = state->keymap->keys[kc];
+
+        if (curr_key != NULL) {
+            // Here we decide wich levels of the key have not been set
+            // explicitly in the symbols section. These levels may be then set
+            // by a matching interpret statement.
+            int num_unset_levels = 0;
+            int unset_levels[KEYBOARD_LAYOUT_MAX_LEVELS];
+            int num_levels = keyboard_layout_type_get_num_levels (curr_key->type);
+            for (int j=0; j<num_levels; j++) {
+                if (state->symbol_actions[kc][j].type == XKB_BACKEND_KEY_ACTION_TYPE_UNSET) {
+                    unset_levels[num_unset_levels++] = j;
+                }
+            }
+
+            if (num_unset_levels > 0) {
+                // This array contains the winning interpret statement for each of
+                // the levels that may be modified according to the unset_levels
+                // array. Although this is of size KEYBOARD_LAYOUT_MAX_LEVELS only
+                // the first num_unset_levels values are used. A winning interpret
+                // here corresponds to the level of the content of unset_levels at
+                // the same index.
+                struct xkb_compat_interpret_t *winning_interpret[KEYBOARD_LAYOUT_MAX_LEVELS];
+                for (int i=0; i<num_unset_levels; i++) {
+                    winning_interpret[i] = NULL;
+                }
+
+                // Iterate over all interpret statements and update the winning
+                // one for each one of the unset levels.
+                struct xkb_compat_interpret_t *curr_interpret = compatibility->interprets;
+                while (curr_interpret != NULL) {
+                    // Of the levels in the unset_levels array, set a boolean flag
+                    // in the keysym_match array if this interpret may affect it.
+                    // Same as with the winning_interpret array above, only the
+                    // first num_unset_levels are important.
+                    bool keysym_match[KEYBOARD_LAYOUT_MAX_LEVELS];
+
+                    for (int j=0; j<num_unset_levels; j++) {
+                        int curr_level = unset_levels[j];
+
+                        if (curr_interpret->any_keysym ||
+                            curr_interpret->keysym == curr_key->levels[curr_level].keysym) {
+                            keysym_match[j] = true;
+                            // we can't break here because we want to know all
+                            // levels that match.
+                        }
+                    }
+
+                    // Determine if interpret's modifiers match
+                    bool modifiers_match = false;
+                    if (curr_interpret->all_real_modifiers) {
+                        modifiers_match = true;
+
+                    } else {
+                        // TODO: Determine if the modifier map of the key matches
+                        // this interpret. We don't even yet know how to store the
+                        // modifier map. I want to write this and then decide a good
+                        // structure for this query.
+                    }
+
+                    if (modifiers_match) {
+                        for (int j=0; j<num_unset_levels; j++) {
+                            // Choose the more "specific" interpret statement as
+                            // the winner for this level. I haven't read much
+                            // about the formal definition of "specificity".  So
+                            // I will make guesses and define what looks more
+                            // specific to me.  This could break some layouts,
+                            // but I think doing this and then seeing what
+                            // breaks and fixing it is the fastest thing to do.
+                            //
+                            // Also, I don't see all the functionality of
+                            // interpret statements being used in the actual
+                            // database, so probably this guesswork, plus some
+                            // small fixes will allow us to cover all existing
+                            // layouts.
+                            // TODO: For now I will set the last matching
+                            // interpret as the winning one, do this the proper
+                            // way.
+                            if (keysym_match[j]) {
+                                winning_interpret[j] = curr_interpret;
+                            }
+                        }
+                    }
+
+                    curr_interpret = curr_interpret->next;
+                }
+
+                // Set the winning interpret actions into our internal
+                // representation for curr_key.
+                for (int j=0; j<num_unset_levels; j++) {
+                    int curr_level = unset_levels[j];
+
+                    // Here we translate between the full xkb action and the
+                    // one used by our internal representation.
+                    // TODO: For now we map the unset type to no action, copy
+                    // the modifiers and then ignore the extra data.
+                    if (winning_interpret[j] != NULL) {
+                        struct key_action_t *ir_action = &curr_key->levels[curr_level].action;
+                        if (winning_interpret[j]->action.type == XKB_BACKEND_KEY_ACTION_TYPE_NO_ACTION) {
+                            ir_action->type = KEY_ACTION_TYPE_NONE;
+                        } else {
+                            ir_action->type = winning_interpret[j]->action.type;
+                        }
+                        ir_action->modifiers = winning_interpret[j]->action.type;
+                    }
+                }
+            }
+        }
+    }
+}
+
 // This parses a subset of the xkb file syntax into our internal representation
 // keyboard_layout_t. We only care about parsing resolved layouts as returned by
 // xkbcomp. Notable differences from a full xkb compiler are the lack of include
@@ -1658,6 +1778,10 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
         printf ("Error: %s\n", state.scnr.error_message);
         success = false;
     }
+
+    // Here we translate the compatibility section into actions that are stored
+    // the way symbols are stored.
+    xkb_parser_resolve_compatibility (&state);
 
     xkb_parser_state_destory (&state);
 

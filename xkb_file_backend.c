@@ -1737,6 +1737,9 @@ void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
     }
 }
 
+#define XKB_FILE_BACKEND_REAL_MODIFIER_NAMES_LIST \
+    {"Shift", "Control", "Lock", "Mod1", "Mod2", "Mod3", "Mod5", "Mod5"}
+
 // This parses a subset of the xkb file syntax into our internal representation
 // keyboard_layout_t. We only care about parsing resolved layouts as returned by
 // xkbcomp. Notable differences from a full xkb compiler are the lack of include
@@ -1746,7 +1749,7 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
     struct xkb_parser_state_t state;
     xkb_parser_state_init (&state, xkb_str, keymap);
 
-    char *real_modifiers[] = {"Shift", "Control", "Lock", "Mod1", "Mod2", "Mod3", "Mod5", "Mod5"};
+    char *real_modifiers[] = XKB_FILE_BACKEND_REAL_MODIFIER_NAMES_LIST;
     // These modifiers will not be added into the keymap yet, they will be added
     // lazily when they are referenced somewhere in the keymap.
     // :lazy_add_predefined_modifiers
@@ -1933,6 +1936,18 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
     bool success = true;
     string_t xkb_str = {0};
 
+    key_modifier_mask_t real_modifiers = 0;
+    {
+        char *real_modifier_names[] = XKB_FILE_BACKEND_REAL_MODIFIER_NAMES_LIST;
+        for (int i=0; i<ARRAY_SIZE(real_modifier_names); i++) {
+            enum modifier_result_status_t status = 0;
+            key_modifier_mask_t mask = keyboard_layout_get_modifier (keymap, real_modifier_names[i], &status);
+            if (status == KEYBOARD_LAYOUT_MOD_SUCCESS) {
+                real_modifiers |= mask;
+            }
+        }
+    }
+
     // TODO: When we have a compact function, we should call it before creating
     // the output string. :keyboard_layout_compact
 
@@ -2033,11 +2048,31 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
     for (int i=0; i<KEY_CNT; i++) {
         struct key_t *curr_key = keymap->keys[i];
         if (curr_key != NULL) {
+            int num_levels = keyboard_layout_type_get_num_levels (curr_key->type);
+
             str_cat_printf (&xkb_str, "    key <%d> {\n", i);
+
+            // If any virtual modifiers are used in the actions for this key
+            // then we print their definition.
+            key_modifier_mask_t used_virtual_modifiers;
+            {
+                key_modifier_mask_t used_modifiers = 0;
+                for (int j=0; j<num_levels; j++) {
+                    if (curr_key->levels[j].action.type != KEY_ACTION_TYPE_NONE) {
+                        used_modifiers |= curr_key->levels[j].action.modifiers;
+                    }
+                }
+                used_virtual_modifiers = (~real_modifiers) & used_modifiers;
+            }
+            if (used_virtual_modifiers) {
+                str_cat_c (&xkb_str, "        vmods= ");
+                xkb_file_write_modifier_mask (&state, &xkb_str, used_virtual_modifiers);
+                str_cat_c (&xkb_str, ",\n");
+            }
+
             str_cat_printf (&xkb_str, "        type= \"%s\",\n", curr_key->type->name);
 
             str_cat_c (&xkb_str, "        symbols[Group1]= [ ");
-            int num_levels = keyboard_layout_type_get_num_levels (curr_key->type);
             for (int j=0; j<num_levels; j++) {
                 char keysym_name[64];
                 xkb_keysym_get_name (curr_key->levels[j].keysym, keysym_name, ARRAY_SIZE(keysym_name));

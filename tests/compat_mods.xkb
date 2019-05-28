@@ -59,17 +59,17 @@ xkb_keycodes "evdev+aliases(qwerty)" {
     <LFSH> = 50;
     <RTSH> = 62;
     <LALT> = 64;
-    <CAPS> = 66;
+    //<CAPS> = 66;
     <RCTL> = 105;
     <RALT> = 108;
-    <LWIN> = 133;
-    <RWIN> = 134;
-     <ALT> = 204;
-    <NMLK> = 77;
-    <LVL3> = 92;
-    <META> = 205;
-    <SUPR> = 206;
-    <HYPR> = 207;
+    //<LWIN> = 133;
+    //<RWIN> = 134;
+    // <ALT> = 204;
+    //<NMLK> = 77;
+    //<LVL3> = 92;
+    //<META> = 205;
+    //<SUPR> = 206;
+    //<HYPR> = 207;
 };
 
 xkb_types "minimal+all_levels" {
@@ -128,8 +128,7 @@ xkb_compatibility "minimal" {
         action= SetMods(modifiers=Alt,clearLocks);
     };
 
-    // At least one interpret and one indicator statement is required. It does
-    // not seem to matter their content, but this section can't be empty.
+    // This interpret will set actions for each modifier mapping.
     interpret Any+AnyOf(all) {
         action= SetMods(modifiers=modMapMods,clearLocks);
     };
@@ -169,15 +168,6 @@ xkb_symbols "pc+us+inet(evdev)" {
     key <RTSH> { [ Shift_R ] };
     key <RALT> { [ Alt_R] };
     key <LALT> { [ Alt_L] };
-    key <CAPS> { [ Caps_Lock ] };
-    key <NMLK> { [ Num_Lock ] };
-    key <LVL3> { [ ISO_Level3_Shift ] };
-    key  <ALT> { [ Alt_L ] };
-    key <LWIN> { [ Super_L ] };
-    key <RWIN> { [ Super_R ] };
-    key <META> { [ Meta_L ] };
-    key <SUPR> { [ Super_L ] };
-    key <HYPR> { [ Hyper_L ] };
 
     modifier_map Mod1 { <LALT> };
     modifier_map Mod1 { <RALT> };
@@ -185,13 +175,6 @@ xkb_symbols "pc+us+inet(evdev)" {
     modifier_map Control { <LCTL> };
     modifier_map Shift { <LFSH> };
     modifier_map Shift { <RTSH> };
-    modifier_map Lock { <CAPS> };
-    modifier_map Mod2 { <NMLK> };
-    modifier_map Mod4 { <LWIN> };
-    modifier_map Mod4 { <RWIN> };
-    modifier_map Mod4 { <SUPR> };
-    modifier_map Mod4 { <HYPR> };
-    modifier_map Mod5 { <LVL3> };
 };
 
 xkb_geometry "pc(pc105)" {

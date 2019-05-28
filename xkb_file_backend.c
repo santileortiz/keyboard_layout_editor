@@ -2047,9 +2047,9 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
                     str_cat_c (&xkb_str, ", ");
                 }
             }
-            str_cat_c (&xkb_str, " ]\n");
+            str_cat_c (&xkb_str, " ],\n");
 
-            // TODO: We could not print any action statement if all of them are
+            // TODO: We could not print an action statement if all of them are
             // NoAction(). On the other hand, probably we want to always be very
             // explicit about this?
             str_cat_c (&xkb_str, "        actions[Group1]= [ ");

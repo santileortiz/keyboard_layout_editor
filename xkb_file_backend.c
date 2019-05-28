@@ -1595,6 +1595,25 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
     state->scnr.eof_is_error = false;
 }
 
+// Translate between the full xkb action and the one used by our internal
+// representation.
+static inline
+struct key_action_t xkb_parser_translate_to_ir_action (struct xkb_backend_key_action_t *action)
+{
+    // TODO: For now we map the unset type to no action, copy the modifiers and
+    // then ignore the extra data.
+    struct key_action_t ir_action = {0};
+
+    if (action->type == XKB_BACKEND_KEY_ACTION_TYPE_NO_ACTION) {
+        ir_action.type = KEY_ACTION_TYPE_NONE;
+    } else {
+        ir_action.type = action->type;
+    }
+    ir_action.modifiers = action->modifiers;
+
+    return ir_action;
+}
+
 void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
 {
     struct xkb_compat_t *compatibility = &state->compatibility;
@@ -1696,19 +1715,22 @@ void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
                 for (int j=0; j<num_unset_levels; j++) {
                     int curr_level = unset_levels[j];
 
-                    // Here we translate between the full xkb action and the
-                    // one used by our internal representation.
-                    // TODO: For now we map the unset type to no action, copy
-                    // the modifiers and then ignore the extra data.
                     if (winning_interpret[j] != NULL) {
-                        struct key_action_t *ir_action = &curr_key->levels[curr_level].action;
-                        if (winning_interpret[j]->action.type == XKB_BACKEND_KEY_ACTION_TYPE_NO_ACTION) {
-                            ir_action->type = KEY_ACTION_TYPE_NONE;
-                        } else {
-                            ir_action->type = winning_interpret[j]->action.type;
-                        }
-                        ir_action->modifiers = winning_interpret[j]->action.type;
+                        curr_key->levels[curr_level].action =
+                            xkb_parser_translate_to_ir_action (&winning_interpret[j]->action);
                     }
+                }
+            }
+
+            // Translate the explicit actions from the symbols section into the
+            // real actions in the internal representation.
+            // TODO: This can probably be done while parsing the symbols
+            // section. For now I linke compatibility resolution things to be in
+            // one place, but maybe doing it there can be a little bit faster?
+            for (int j=0; j<num_levels; j++) {
+                if (state->symbol_actions[kc][j].type != XKB_BACKEND_KEY_ACTION_TYPE_UNSET) {
+                    curr_key->levels[j].action =
+                        xkb_parser_translate_to_ir_action (&state->symbol_actions[kc][j]);
                 }
             }
         }

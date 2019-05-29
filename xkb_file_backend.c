@@ -1659,6 +1659,9 @@ void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
                     // Same as with the winning_interpret array above, only the
                     // first num_unset_levels are important.
                     bool keysym_match[KEYBOARD_LAYOUT_MAX_LEVELS];
+                    for (int i=0; i<num_unset_levels; i++) {
+                        keysym_match[i] = false;
+                    }
 
                     for (int j=0; j<num_unset_levels; j++) {
                         int curr_level = unset_levels[j];

@@ -432,7 +432,12 @@ bool keyboard_layout_is_valid (struct keyboard_layout_t *keymap)
         curr_type = curr_type->next;
     }
 
-    // TODO: Which other checks are useful?
+    // TODO: Add the following checks to this function:
+    //    - Check that we don't use a modifier that isn't in the modifiers
+    //      definition tree.
+    //
+    // Which other checks are useful?
+
 
     return is_valid;
 }

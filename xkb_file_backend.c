@@ -205,6 +205,18 @@ struct xkb_parser_state_t {
     // TODO: I'm not 100% sure this is required, but right now it looks like it.
     // If it doesn't we can then remove this big array from here.
     struct xkb_backend_key_action_t symbol_actions[KEY_CNT][KEYBOARD_LAYOUT_MAX_LEVELS];
+
+    // We could put this in our internal representation as a field in the key_t
+    // structure, but I'm not sure I want to do that. From what it looks like,
+    // modifier maps are only useful for compatibility interpret statement
+    // resolution. In the end, the state of a modifier is only changed by
+    // actions. As far as I recall from OSX's keymap format, it doesn't have the
+    // concept of a modifier map. Better not clutter the main representation
+    // with things that can be potentially platform specific.
+    //
+    // This array will contain masks that only have a single modifier bit set,
+    // the parser must guarantee this is true.
+    key_modifier_mask_t modifier_map[KEY_CNT];
 };
 
 void xkb_parser_state_init (struct xkb_parser_state_t *state, char *xkb_str, struct keyboard_layout_t *keymap)
@@ -772,6 +784,19 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
     state->scnr.eof_is_error = false;
 }
 
+bool xkb_parser_is_real_modifier (struct xkb_parser_state_t *state, char *name)
+{
+    bool is_real_modifier = false;
+    for (int i=0; i<state->real_modifiers_len; i++) {
+        if (strcasecmp (state->real_modifiers[i], name) == 0) {
+            is_real_modifier = true;
+            break;
+        }
+    }
+
+    return is_real_modifier;
+}
+
 bool xkb_parser_match_real_modifier_mask (struct xkb_parser_state_t *state,
                                           char *end_operator, key_modifier_mask_t *modifier_mask)
 {
@@ -780,15 +805,7 @@ bool xkb_parser_match_real_modifier_mask (struct xkb_parser_state_t *state,
     bool success = false;
     *modifier_mask = 0;
     do {
-        bool is_real_modifier = false;
-        for (int i=0; i<state->real_modifiers_len; i++) {
-            if (strcasecmp (state->real_modifiers[i], str_data(&state->tok_value)) == 0) {
-                is_real_modifier = true;
-                break;
-            }
-        }
-
-        if (is_real_modifier) {
+        if (xkb_parser_is_real_modifier (state, str_data(&state->tok_value))) {
             *modifier_mask |= xkb_parser_modifier_lookup (state, str_data(&state->tok_value));
 
             xkb_parser_next (state);
@@ -1576,9 +1593,37 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                 }
             }
 
-        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "name") ||
-            xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "modifier_map")) {
-            // TODO: Don't skip modifier_map statements.
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "modifier_map")) {
+            int map_keycode = 0;
+            key_modifier_mask_t map_modifier = 0;
+
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL);
+
+            if (!xkb_parser_is_real_modifier (state, str_data(&state->tok_value))) {
+                xkb_parser_error_tok (state, "Expected a real modifier, got '%s'.");
+            } else {
+                map_modifier = xkb_parser_modifier_lookup (state, str_data(&state->tok_value));
+            }
+
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{");
+
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_KEY_IDENTIFIER, NULL);
+            if (!xkb_parser_key_identifier_lookup (state, str_data(&state->tok_value), &map_keycode)) {
+                xkb_parser_error_tok (state, "Undefined key identifier '%s'.");
+            }
+            if (state->modifier_map[map_keycode] != 0) {
+                xkb_parser_error_tok (state, "Keycode '%s' has already a modifier mapped to it.");
+            }
+
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}");
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+            if (!state->scnr.error) {
+                state->modifier_map[map_keycode] = map_modifier;
+            }
+
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "name")) {
+            // Ignore name statement.
             xkb_parser_skip_until_operator (state, ";");
 
         } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
@@ -1839,14 +1884,14 @@ struct xkb_writer_state_t {
     string_t *xkb_str;
 
     // An array of modifier names indexed by the bit position of the mask. This
-    // is effectiveley the reverse map of the one used in the internal
-    // representation.
+    // is the inverse of the mapping in the internal representation that maps
+    // names to modifier masks in the internal representation.
     // NOTE: This will point into the internal representation, which is fine
     // because we won't destroy the keymap representation inside xkb_file_write.
     // TODO: Maybe change this for a tree so we can represent the 'none'
     // modifier mask?
     // :none_modifier
-    char *reverse_modifier_map[KEYBOARD_LAYOUT_MAX_MODIFIERS];
+    char *reverse_modifier_definition[KEYBOARD_LAYOUT_MAX_MODIFIERS];
 
     // Flag used when printing modifier definitions to know when to print a ','
     // this is necessary because traversing of trees is done through a callback.
@@ -1865,7 +1910,7 @@ void xkb_file_write_modifier_mask (struct xkb_writer_state_t *state, string_t *s
     } else {
         while (mask != 0) {
             if (mask & 0x1) {
-                str_cat_c (str, state->reverse_modifier_map[bit_pos]);
+                str_cat_c (str, state->reverse_modifier_definition[bit_pos]);
 
                 if (mask>>1 != 0) {
                     str_cat_c (str, " + ");
@@ -1890,14 +1935,14 @@ gboolean reverse_mapping_create_foreach (gpointer modifier_name, gpointer mask_p
             mask >>= 1;
         }
 
-        if (state->reverse_modifier_map[pos]) {
+        if (state->reverse_modifier_definition[pos]) {
             printf ("Modfier mapping is not 1:1, keymap seems to be corrupted.\n");
 
         } else if (pos == KEYBOARD_LAYOUT_MAX_MODIFIERS) {
             printf ("Invalid modifier mask, keymap seems to be corrupted.\n");
 
         } else {
-            state->reverse_modifier_map[pos] = modifier_name;
+            state->reverse_modifier_definition[pos] = modifier_name;
         }
     }
     // else {

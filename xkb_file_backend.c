@@ -1721,14 +1721,19 @@ void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
 
                     // Determine if interpret's modifiers match
                     bool modifiers_match = false;
-                    if (curr_interpret->all_real_modifiers) {
-                        modifiers_match = true;
+                    if (curr_interpret->condition == COMPAT_CONDITION_ANY_OF_OR_NONE) {
+                        if (state->modifier_map[kc] == 0) {
+                            modifiers_match = true;
+
+                        } else if (curr_interpret->all_real_modifier ||
+                                   (state->modifier_map[kc] & curr_interpret->real_modifiers)) {
+                            modifiers_match = true;
+                        }
 
                     } else {
-                        // TODO: Determine if the modifier map of the key matches
-                        // this interpret. We don't even yet know how to store the
-                        // modifier map. I want to write this and then decide a good
-                        // structure for this query.
+                        // TODO: Implement the other modifier matching
+                        // conditions.
+                        modifiers_match = true;
                     }
 
                     if (modifiers_match) {

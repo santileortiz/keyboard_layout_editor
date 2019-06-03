@@ -163,6 +163,9 @@ struct xkb_compat_t {
     // group and indicator statements are ignored, will they be required?
 };
 
+#define XKB_FILE_BACKEND_REAL_MODIFIER_NAMES_LIST \
+    {"Shift", "Control", "Lock", "Mod1", "Mod2", "Mod3", "Mod5", "Mod5"}
+
 enum xkb_parser_token_type_t {
     XKB_PARSER_TOKEN_IDENTIFIER,
     XKB_PARSER_TOKEN_KEY_IDENTIFIER,
@@ -1640,6 +1643,22 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
     state->scnr.eof_is_error = false;
 }
 
+key_modifier_mask_t xkb_get_real_modifiers_mask (struct keyboard_layout_t *keymap)
+{
+    key_modifier_mask_t real_modifiers = 0;
+
+    char *real_modifier_names[] = XKB_FILE_BACKEND_REAL_MODIFIER_NAMES_LIST;
+    for (int i=0; i<ARRAY_SIZE(real_modifier_names); i++) {
+        enum modifier_result_status_t status = 0;
+        key_modifier_mask_t mask = keyboard_layout_get_modifier (keymap, real_modifier_names[i], &status);
+        if (status == KEYBOARD_LAYOUT_MOD_SUCCESS) {
+            real_modifiers |= mask;
+        }
+    }
+
+    return real_modifiers;
+}
+
 // Translate between the full xkb action and the one used by our internal
 // representation.
 static inline
@@ -1662,6 +1681,8 @@ struct key_action_t xkb_parser_translate_to_ir_action (struct xkb_backend_key_ac
 void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
 {
     struct xkb_compat_t *compatibility = &state->compatibility;
+
+    key_modifier_mask_t real_modifiers = xkb_get_real_modifiers_mask (state->keymap);
 
     if (compatibility->interprets == NULL) {
         return;
@@ -1719,21 +1740,65 @@ void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
                         }
                     }
 
-                    // Determine if interpret's modifiers match
+                    // Determine if interpret's modifiers match.
+                    //
+                    // I didn't get these interpretations from the actual
+                    // sourcecode for xkb. Instead this is my interpretation of
+                    // the descriptions given in [1]. I added them as comments
+                    // for reference.
+                    //
+                    // [1] http://pascal.tsu.ru/en/xkb/gram-compat.html
+
+                    // To handle the 'All' modifiers value inside conditions we
+                    // set the modifiers used here to a mask that contains all
+                    // of them and was computed at the start of the function.
+                    key_modifier_mask_t interpret_modifiers =
+                        curr_interpret->all_real_modifiers ? real_modifiers : curr_interpret->real_modifiers;
+
                     bool modifiers_match = false;
                     if (curr_interpret->condition == COMPAT_CONDITION_ANY_OF_OR_NONE) {
-                        if (state->modifier_map[kc] == 0) {
-                            modifiers_match = true;
+                        // "Actually means that the real modifiers field doesn't
+                        // make sense; this condition means that the keycode can
+                        // have any of modifiers specified in the interpretation
+                        // or none of them so it always is true." [1]
+                        modifiers_match = true;
 
-                        } else if (curr_interpret->all_real_modifier ||
-                                   (state->modifier_map[kc] & curr_interpret->real_modifiers)) {
+                    } else if (curr_interpret->condition == COMPAT_CONDITION_NONE_OF) {
+                        // "Keycode must have no one of specified modifiers." [1]
+                        if ((state->modifier_map[kc] == 0 && interpret_modifiers) ||
+                            ~(state->modifier_map[kc] & interpret_modifiers)) {
+                            modifiers_match = true;
+                        }
+
+                    } else if (curr_interpret->condition == COMPAT_CONDITION_ANY_OF) {
+                        // "Keycode must have at least one of specified modifiers." [1]
+                        if (interpret_modifiers ||
+                            (state->modifier_map[kc] & interpret_modifiers)) {
+                            modifiers_match = true;
+                        }
+
+                    } else if (curr_interpret->condition == COMPAT_CONDITION_ALL_OF) {
+                        // "Keycode must have all specified modifiers." [1]
+                        //
+                        // This condition seems to imply that a keycode can have
+                        // multiple modifiers assigned to it, but I don't see
+                        // how this is possible. Maybe virtual modifiers play a
+                        // role here?.
+                        if ((state->modifier_map[kc] & interpret_modifiers) ==
+                            interpret_modifiers) {
+                            modifiers_match = true;
+                        }
+
+                    } else if (curr_interpret->condition == COMPAT_CONDITION_EXACTLY) {
+                        // "Similar to [the AllOf condition]; keycode must have
+                        // all specified modifiers but must have no one of other
+                        // modifiers." [1]
+                        if (state->modifier_map[kc] == interpret_modifiers) {
                             modifiers_match = true;
                         }
 
                     } else {
-                        // TODO: Implement the other modifier matching
-                        // conditions.
-                        modifiers_match = true;
+                        invalid_code_path;
                     }
 
                     if (modifiers_match) {
@@ -1789,9 +1854,6 @@ void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
         }
     }
 }
-
-#define XKB_FILE_BACKEND_REAL_MODIFIER_NAMES_LIST \
-    {"Shift", "Control", "Lock", "Mod1", "Mod2", "Mod3", "Mod5", "Mod5"}
 
 // This parses a subset of the xkb file syntax into our internal representation
 // keyboard_layout_t. We only care about parsing resolved layouts as returned by
@@ -1989,17 +2051,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
     bool success = true;
     string_t xkb_str = {0};
 
-    key_modifier_mask_t real_modifiers = 0;
-    {
-        char *real_modifier_names[] = XKB_FILE_BACKEND_REAL_MODIFIER_NAMES_LIST;
-        for (int i=0; i<ARRAY_SIZE(real_modifier_names); i++) {
-            enum modifier_result_status_t status = 0;
-            key_modifier_mask_t mask = keyboard_layout_get_modifier (keymap, real_modifier_names[i], &status);
-            if (status == KEYBOARD_LAYOUT_MOD_SUCCESS) {
-                real_modifiers |= mask;
-            }
-        }
-    }
+    key_modifier_mask_t real_modifiers = xkb_get_real_modifiers_mask (keymap);
 
     // TODO: When we have a compact function, we should call it before creating
     // the output string. :keyboard_layout_compact

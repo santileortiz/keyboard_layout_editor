@@ -1662,18 +1662,24 @@ key_modifier_mask_t xkb_get_real_modifiers_mask (struct keyboard_layout_t *keyma
 // Translate between the full xkb action and the one used by our internal
 // representation.
 static inline
-struct key_action_t xkb_parser_translate_to_ir_action (struct xkb_backend_key_action_t *action)
+struct key_action_t xkb_parser_translate_to_ir_action (struct xkb_backend_key_action_t *action,
+                                                       key_modifier_mask_t mod_map)
 {
-    // TODO: For now we map the unset type to no action, copy the modifiers and
-    // then ignore the extra data.
     struct key_action_t ir_action = {0};
 
+    // Map the unset type to no action
     if (action->type == XKB_BACKEND_KEY_ACTION_TYPE_NO_ACTION) {
         ir_action.type = KEY_ACTION_TYPE_NONE;
     } else {
         ir_action.type = action->type;
     }
-    ir_action.modifiers = action->modifiers;
+
+    // Resolve the effective modifiers of the action.
+    if (action->mod_map_mods) {
+        ir_action.modifiers = mod_map;
+    } else {
+        ir_action.modifiers = action->modifiers;
+    }
 
     return ir_action;
 }
@@ -1835,7 +1841,8 @@ void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
 
                     if (winning_interpret[j] != NULL) {
                         curr_key->levels[curr_level].action =
-                            xkb_parser_translate_to_ir_action (&winning_interpret[j]->action);
+                            xkb_parser_translate_to_ir_action (&winning_interpret[j]->action,
+                                                               state->modifier_map[kc]);
                     }
                 }
             }
@@ -1848,7 +1855,8 @@ void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
             for (int j=0; j<num_levels; j++) {
                 if (state->symbol_actions[kc][j].type != XKB_BACKEND_KEY_ACTION_TYPE_UNSET) {
                     curr_key->levels[j].action =
-                        xkb_parser_translate_to_ir_action (&state->symbol_actions[kc][j]);
+                        xkb_parser_translate_to_ir_action (&state->symbol_actions[kc][j],
+                                                           state->modifier_map[kc]);
                 }
             }
         }

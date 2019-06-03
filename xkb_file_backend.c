@@ -1707,6 +1707,17 @@ void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
             for (int j=0; j<num_levels; j++) {
                 if (state->symbol_actions[kc][j].type == XKB_BACKEND_KEY_ACTION_TYPE_UNSET) {
                     unset_levels[num_unset_levels++] = j;
+
+                } else {
+                    // End resolution of actions set explicitly in the symbols
+                    // section. The only missing step is to translate them into
+                    // into the real actions in the internal representation.
+                    //
+                    // We can do this here before resolving interpret statements
+                    // because explicit actions will always override them.
+                    curr_key->levels[j].action =
+                        xkb_parser_translate_to_ir_action (&state->symbol_actions[kc][j],
+                                                           state->modifier_map[kc]);
                 }
             }
 
@@ -1844,19 +1855,6 @@ void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
                             xkb_parser_translate_to_ir_action (&winning_interpret[j]->action,
                                                                state->modifier_map[kc]);
                     }
-                }
-            }
-
-            // Translate the explicit actions from the symbols section into the
-            // real actions in the internal representation.
-            // TODO: This can probably be done while parsing the symbols
-            // section. For now I linke compatibility resolution things to be in
-            // one place, but maybe doing it there can be a little bit faster?
-            for (int j=0; j<num_levels; j++) {
-                if (state->symbol_actions[kc][j].type != XKB_BACKEND_KEY_ACTION_TYPE_UNSET) {
-                    curr_key->levels[j].action =
-                        xkb_parser_translate_to_ir_action (&state->symbol_actions[kc][j],
-                                                           state->modifier_map[kc]);
                 }
             }
         }

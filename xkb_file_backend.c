@@ -1684,6 +1684,54 @@ struct key_action_t xkb_parser_translate_to_ir_action (struct xkb_backend_key_ac
     return ir_action;
 }
 
+// Returns the more 'specific' interpret statement. If we consider them equal
+// then we return the new one.
+//
+// I haven't read much about the formal definition of "specificity". I will make
+// guesses and define what looks more specific to me. This could break some
+// layouts, but I think doing this and then seeing what breaks and fixing it is
+// the fastest thing to do.
+//
+// Also, I don't see all the functionality of interpret statements being used in
+// the actual database, so probably this guesswork, plus some small fixes will
+// allow us to cover all existing layouts.
+struct xkb_compat_interpret_t*
+xkb_backend_interpret_compare (struct xkb_compat_interpret_t *old, struct xkb_compat_interpret_t *new)
+{
+    struct xkb_compat_interpret_t *winner = new;
+    if (old->any_keysym != new->any_keysym) {
+        // An interpret that uses a keysym is more specific.
+        winner = new->any_keysym ? old : new;
+
+    } else {
+        // Both interprets have any_keysym with the same value. Check the
+        // modifier matching.
+
+        if (old->all_real_modifiers != new->all_real_modifiers) {
+            // An interpret that uses modifiers besides "All" is more specific.
+            winner = new->all_real_modifiers ? old : new;
+
+        } else {
+            if (old->condition != new->condition) {
+                // If interprets have different conditions, we choose the one
+                // whith the more 'specific' condition. The order they were
+                // defined in the enum defines their specificity.
+                winner = old->condition < new->condition ? new : old;
+
+            } else {
+                // We consider these interprets equal. We leave the fallback
+                // value.
+                // NOTE: We could keep going. Maybe count which interpret has
+                // more real modifiers?. I will stop here for now. The idea is
+                // to not overcomplicate this so it can be easily changed in the
+                // future, if it needs fixing.
+            }
+        }
+    }
+
+    return winner;
+}
+
 void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
 {
     struct xkb_compat_t *compatibility = &state->compatibility;
@@ -1815,27 +1863,26 @@ void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
                         invalid_code_path;
                     }
 
+                    // This matches per key
+                    // TODO: We can make things faster by not computing keysym
+                    // matches if modifiers don't match.
                     if (modifiers_match) {
                         for (int j=0; j<num_unset_levels; j++) {
-                            // Choose the more "specific" interpret statement as
-                            // the winner for this level. I haven't read much
-                            // about the formal definition of "specificity".  So
-                            // I will make guesses and define what looks more
-                            // specific to me.  This could break some layouts,
-                            // but I think doing this and then seeing what
-                            // breaks and fixing it is the fastest thing to do.
-                            //
-                            // Also, I don't see all the functionality of
-                            // interpret statements being used in the actual
-                            // database, so probably this guesswork, plus some
-                            // small fixes will allow us to cover all existing
-                            // layouts.
-                            // TODO: For now I will set the last matching
-                            // interpret as the winning one, do this the proper
-                            // way.
+                            // Different than modifier matching, keysym matching
+                            // matches per level.
                             if (keysym_match[j]) {
-                                winning_interpret[j] = curr_interpret;
+                                if (winning_interpret[j] != NULL) {
+                                    // Choose the more "specific" interpret statement as
+                                    // the winner for this level.
+                                    winning_interpret[j] =
+                                        xkb_backend_interpret_compare(winning_interpret[j],
+                                                                      curr_interpret);
+
+                                } else {
+                                    winning_interpret[j] = curr_interpret;
+                                }
                             }
+
                         }
                     }
 

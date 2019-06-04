@@ -1782,15 +1782,13 @@ void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
 
                     } else if (curr_interpret->condition == COMPAT_CONDITION_NONE_OF) {
                         // "Keycode must have no one of specified modifiers." [1]
-                        if ((state->modifier_map[kc] == 0 && interpret_modifiers) ||
-                            ~(state->modifier_map[kc] & interpret_modifiers)) {
+                        if (~(state->modifier_map[kc] & interpret_modifiers)) {
                             modifiers_match = true;
                         }
 
                     } else if (curr_interpret->condition == COMPAT_CONDITION_ANY_OF) {
                         // "Keycode must have at least one of specified modifiers." [1]
-                        if (interpret_modifiers ||
-                            (state->modifier_map[kc] & interpret_modifiers)) {
+                        if ((state->modifier_map[kc] & interpret_modifiers)) {
                             modifiers_match = true;
                         }
 
@@ -1801,8 +1799,7 @@ void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
                         // multiple modifiers assigned to it, but I don't see
                         // how this is possible. Maybe virtual modifiers play a
                         // role here?.
-                        if ((state->modifier_map[kc] & interpret_modifiers) ==
-                            interpret_modifiers) {
+                        if ((state->modifier_map[kc] & interpret_modifiers) == interpret_modifiers) {
                             modifiers_match = true;
                         }
 

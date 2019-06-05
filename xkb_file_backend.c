@@ -2010,6 +2010,13 @@ struct xkb_writer_state_t {
     // :none_modifier
     char *reverse_modifier_definition[KEYBOARD_LAYOUT_MAX_MODIFIERS];
 
+    // We keep track of all virtual modifiers used in the symbols section
+    // because they must be mapped to real modifiers to work correctly.
+    // :virtual_to_real_modifier_map
+    key_modifier_mask_t used_virtual_modifiers[KEYBOARD_LAYOUT_MAX_MODIFIERS];
+    key_modifier_mask_t used_real_modifiers;
+    int num_used_virtual_modifiers;
+
     // Flag used when printing modifier definitions to know when to print a ','
     // this is necessary because traversing of trees is done through a callback.
     bool is_first;
@@ -2209,7 +2216,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
 
             // If any virtual modifiers are used in the actions for this key
             // then we print their definition.
-            key_modifier_mask_t used_virtual_modifiers;
+            key_modifier_mask_t action_virtual_modifiers;
             {
                 key_modifier_mask_t used_modifiers = 0;
                 for (int j=0; j<num_levels; j++) {
@@ -2217,12 +2224,14 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
                         used_modifiers |= curr_key->levels[j].action.modifiers;
                     }
                 }
-                used_virtual_modifiers = (~real_modifiers) & used_modifiers;
+                action_virtual_modifiers = (~real_modifiers) & used_modifiers;
+                state.used_real_modifiers |= real_modifiers & used_modifiers;
             }
-            if (used_virtual_modifiers) {
+            if (action_virtual_modifiers) {
                 str_cat_c (&xkb_str, "        vmods= ");
-                xkb_file_write_modifier_mask (&state, &xkb_str, used_virtual_modifiers);
+                xkb_file_write_modifier_mask (&state, &xkb_str, action_virtual_modifiers);
                 str_cat_c (&xkb_str, ",\n");
+                state.used_virtual_modifiers[state.num_used_virtual_modifiers++] = action_virtual_modifiers;
             }
 
             str_cat_printf (&xkb_str, "        type= \"%s\",\n", curr_key->type->name);
@@ -2274,6 +2283,48 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
             str_cat_c (&xkb_str, "    };\n");
         }
     }
+
+    // Compute an array with the masks of all unused real modifiers.
+    key_modifier_mask_t unused_real_modifiers[KEYBOARD_LAYOUT_MAX_MODIFIERS];
+    int num_unused_real_modifiers = 0;
+    {
+        key_modifier_mask_t modifier = 1;
+        key_modifier_mask_t unused_real_modifiers_mask = (~state.used_real_modifiers) & real_modifiers;
+        while (unused_real_modifiers_mask) {
+            if (modifier & unused_real_modifiers_mask) {
+                unused_real_modifiers[num_unused_real_modifiers++] = modifier;
+                unused_real_modifiers_mask &= ~modifier;
+                modifier <<= 1;
+            }
+        }
+    }
+
+    // Assign each virtual modifier to an unused real modifier.
+    // :virtual_to_real_modifier_map
+    if (num_unused_real_modifiers >= state.num_used_virtual_modifiers) {
+        for (int i=0; i<state.num_used_virtual_modifiers; i++) {
+            str_cat_c (&xkb_str, "    modifier_map ");
+            str_cat_c (&xkb_str, " { ");
+            str_cat_c (&xkb_str, " };\n");
+        }
+
+    } else {
+        // From what I've studied about the xkb file format there doesn't seem
+        // to be a way to get more actual modifiers than real modifiers. I
+        // thought this was the whole point of virtual modifiers but I'm not
+        // sure anymore. I haven't seen a way of making a virtual modifier work
+        // without a mapping to a real modifier, and it looks like mapping
+        // multiple virtual modifiers to a single real modifier makes these
+        // virtual modifiers effectiveley the same.
+        // TODO: Tell the caller that an error occurred. This seems to be the
+        // only error condition that can happen in the backend while having a
+        // valid internal representation (there is no distinction between real
+        // and virtual modifiers there).
+        // TODO: Read and write back all simple keyboard layouts and make sure
+        // none of them gets here.
+        printf ("Can't assign a real modifier to each used virtual modifier.\n");
+    }
+
     str_cat_c (&xkb_str, "};\n\n"); // end of symbols section
 
     str_cat_c (&xkb_str, "};\n\n"); // end of keymap

@@ -2013,9 +2013,10 @@ struct xkb_writer_state_t {
     // We keep track of keys that use virtual modifiers in the symbols section
     // because we must map a real modifier to them so they work correctly.
     // :virtual_to_real_modifier_map
-    int keys_with_virtual_modifiers[KEYBOARD_LAYOUT_MAX_MODIFIERS];
-    key_modifier_mask_t used_real_modifiers;
     int num_keys_with_virtual_modifiers;
+    int keys_with_virtual_modifiers[KEYBOARD_LAYOUT_MAX_MODIFIERS];
+    key_modifier_mask_t virtual_modifier_mask_for_keys[KEYBOARD_LAYOUT_MAX_MODIFIERS];
+    key_modifier_mask_t used_real_modifiers;
 
     // Flag used when printing modifier definitions to know when to print a ','
     // this is necessary because traversing of trees is done through a callback.
@@ -2231,7 +2232,8 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
                 str_cat_c (&xkb_str, "        vmods= ");
                 xkb_file_write_modifier_mask (&state, &xkb_str, action_virtual_modifiers);
                 str_cat_c (&xkb_str, ",\n");
-                state.keys_with_virtual_modifiers[state.num_keys_with_virtual_modifiers++] = i;
+                state.keys_with_virtual_modifiers[state.num_keys_with_virtual_modifiers] = i;
+                state.virtual_modifier_mask_for_keys[state.num_keys_with_virtual_modifiers++] = action_virtual_modifiers;
             }
 
             str_cat_printf (&xkb_str, "        type= \"%s\",\n", curr_key->type->name);
@@ -2303,6 +2305,8 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
             bit_pos++;
         }
     }
+
+    // TODO: Assign the same modifier to keys with the same resulting vmod mask
 
     // Assign an unused real modifier to each key that uses virtual modifiers.
     //

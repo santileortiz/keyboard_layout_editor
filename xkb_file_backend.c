@@ -2306,7 +2306,49 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
         }
     }
 
-    // TODO: Assign the same modifier to keys with the same resulting vmod mask
+    // Assign the same modifier to keys with the same resulting vmod mask.
+    //
+    // To do this we create an array that works in parallel to the arrays in the
+    // state, keys_with_virtual_modifiers and virtual_modifier_mask_for_keys.
+    //
+    // The resulting array will contain the mask of the real modifier assigned
+    // to the corresponding keycode in the keys_with_virtual_modifiers array.
+    bool not_enough_real_mods = false;
+    int real_modifier_map[KEYBOARD_LAYOUT_MAX_MODIFIERS];
+    {
+        // If the content of this array is true, then the corresponding value in
+        // real_modifier_map has been set to the real modifier mapping.
+        bool map_flags[KEYBOARD_LAYOUT_MAX_MODIFIERS];
+        memset (map_flags, 0, sizeof(map_flags));
+
+        // Technically this is O(n^2) if the number of keys that use virtual
+        // modifiers is unbounded. Things may go faster if wew use a hash table
+        // for real_modifier_map. Hopefully we will just stop using virtual
+        // modifiers as they seem unnecessary?.
+        // @performance
+        int i=0;
+        int last_unused_real_mod = 0;
+        int mapped_keys_cnt = 0;
+        while (last_unused_real_mod < num_unused_real_modifiers) {
+            int next_real_mod = unused_real_modifiers[last_unused_real_mod++];
+
+            for (int j=i; j<state.num_keys_with_virtual_modifiers; j++) {
+                if (map_flags[j] == false &&
+                    state.virtual_modifier_mask_for_keys[i] == state.virtual_modifier_mask_for_keys[j]) {
+
+                    map_flags[j] = true;
+                    real_modifier_map[j] = next_real_mod;
+                    mapped_keys_cnt++;
+                }
+            }
+
+            i++;
+        }
+
+        if (mapped_keys_cnt < state.num_keys_with_virtual_modifiers) {
+            not_enough_real_mods = true;
+        }
+    }
 
     // Assign an unused real modifier to each key that uses virtual modifiers.
     //
@@ -2333,10 +2375,10 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
     // mapped to this keycode.
     //
     // :virtual_to_real_modifier_map
-    if (num_unused_real_modifiers >= state.num_keys_with_virtual_modifiers) {
+    if (!not_enough_real_mods) {
         for (int i=0; i<state.num_keys_with_virtual_modifiers; i++) {
             str_cat_printf (&xkb_str, "    modifier_map %s ",
-                            state.reverse_modifier_definition[unused_real_modifiers[i]]);
+                            state.reverse_modifier_definition[real_modifier_map[i]]);
             str_cat_printf (&xkb_str, " { <%d> };\n", state.keys_with_virtual_modifiers[i]);
         }
 

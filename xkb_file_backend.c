@@ -1643,6 +1643,9 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
     state->scnr.eof_is_error = false;
 }
 
+// TODO: This only returns a mask of the used real modifiers. I think in some
+// cases we want to try defining all real modifiers. Or maybe we fail if not
+// enough real modifiers we defined?
 key_modifier_mask_t xkb_get_real_modifiers_mask (struct keyboard_layout_t *keymap)
 {
     key_modifier_mask_t real_modifiers = 0;
@@ -2013,9 +2016,19 @@ struct xkb_writer_state_t {
     // We keep track of keys that use virtual modifiers in the symbols section
     // because we must map a real modifier to them so they work correctly.
     // :virtual_to_real_modifier_map
+    // TODO: These arrays are quite big, shuld we allocate them dynamically
+    // depending on how many keys use them? maybe merge keys_with_virtual_modifiers
+    // and virtual_modifier_mask_for_keys into a linked list of structs with 2
+    // fields and maybe add the resulting real modifier there too.
+    // :merge_moodifier_resolution_info_in_linked_list
     int num_keys_with_virtual_modifiers;
-    int keys_with_virtual_modifiers[KEYBOARD_LAYOUT_MAX_MODIFIERS];
-    key_modifier_mask_t virtual_modifier_mask_for_keys[KEYBOARD_LAYOUT_MAX_MODIFIERS];
+    int keys_with_virtual_modifiers[KEY_CNT];
+
+    // For each keycode in keys_with_virtual_modifiers we store a mask of all
+    // used virtual modifiers in each of them.
+    // :virtual_to_real_modifier_map
+    // :merge_moodifier_resolution_info_in_linked_list
+    key_modifier_mask_t virtual_modifier_mask_for_keys[KEY_CNT];
     key_modifier_mask_t used_real_modifiers;
 
     // Flag used when printing modifier definitions to know when to print a ','
@@ -2286,113 +2299,151 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
         }
     }
 
-    // Compute an array with the bit positions of unused real modifiers.
-    int unused_real_modifiers[KEYBOARD_LAYOUT_MAX_MODIFIERS];
-    int num_unused_real_modifiers = 0;
-    {
-        int bit_pos = 0;
-        key_modifier_mask_t modifier = 1;
-        key_modifier_mask_t unused_real_modifiers_mask = (~state.used_real_modifiers) & real_modifiers;
-        key_modifier_mask_t lock_mask = keyboard_layout_get_modifier(keymap, "Lock", NULL);
-        unused_real_modifiers_mask &= ~lock_mask;
-        while (unused_real_modifiers_mask) {
-            if (modifier & unused_real_modifiers_mask) {
-                unused_real_modifiers[num_unused_real_modifiers++] = bit_pos;
-                unused_real_modifiers_mask &= ~modifier;
-            }
-
-            modifier <<= 1;
-            bit_pos++;
-        }
-    }
-
-    // Assign the same modifier to keys with the same resulting vmod mask.
+    // Resolve modifier mappings
     //
-    // To do this we create an array that works in parallel to the arrays in the
-    // state, keys_with_virtual_modifiers and virtual_modifier_mask_for_keys.
+    // Virtual modifiers are weird. I've tried reading about them but I haven't
+    // found much, or at least been able to get a deep enough understanding of
+    // them. Most places say they are a way of getting more modifiers, but very
+    // few places try to explaing _how_ they do this.
     //
-    // The resulting array will contain the mask of the real modifier assigned
-    // to the corresponding keycode in the keys_with_virtual_modifiers array.
-    bool not_enough_real_mods = false;
-    int real_modifier_map[KEYBOARD_LAYOUT_MAX_MODIFIERS];
-    {
-        // If the content of this array is true, then the corresponding value in
-        // real_modifier_map has been set to the real modifier mapping.
-        bool map_flags[KEYBOARD_LAYOUT_MAX_MODIFIERS];
-        memset (map_flags, 0, sizeof(map_flags));
-
-        // Technically this is O(n^2) if the number of keys that use virtual
-        // modifiers is unbounded. Things may go faster if wew use a hash table
-        // for real_modifier_map. Hopefully we will just stop using virtual
-        // modifiers as they seem unnecessary?.
-        // @performance
-        int i=0;
-        int last_unused_real_mod = 0;
-        int mapped_keys_cnt = 0;
-        while (last_unused_real_mod < num_unused_real_modifiers) {
-            int next_real_mod = unused_real_modifiers[last_unused_real_mod++];
-
-            for (int j=i; j<state.num_keys_with_virtual_modifiers; j++) {
-                if (map_flags[j] == false &&
-                    state.virtual_modifier_mask_for_keys[i] == state.virtual_modifier_mask_for_keys[j]) {
-
-                    map_flags[j] = true;
-                    real_modifier_map[j] = next_real_mod;
-                    mapped_keys_cnt++;
-                }
-            }
-
-            i++;
-        }
-
-        if (mapped_keys_cnt < state.num_keys_with_virtual_modifiers) {
-            not_enough_real_mods = true;
-        }
-    }
-
-    // Assign an unused real modifier to each key that uses virtual modifiers.
+    // A virtual modifier not mapped to a real modifier doesn't work. This makes
+    // me think that understanding how virtual modifiers map to real modifiers,
+    // is the key in understanding how they work. But this mapping does not
+    // happen directly in xkb files.
     //
-    // From what I've studied about the xkb file format there doesn't seem to be
-    // a way to get more actual modifiers than real modifiers. I thought this
-    // was the whole point of virtual modifiers but I'm not sure anymore.
+    // A virtual modifier state can be configured to change in an action. An action
+    // is mapped to each level of a key. This means that a single keycode can
+    // have a set of virtual modifiers assigned to it, via the multiple actions
+    // set in it, one for each level. Now, modifier mappings in the symbols
+    // section map real modifiers to keycodes, a real modifier can be mapped to
+    // multiple keycodes, but a keycode can only have at most one real modifier
+    // mapped to it. In the end all this means that a real modifier can map to
+    // multiple virtual modifiers.
     //
-    // It's interesting that virtual modifiers are used in actions, and actions
-    // are mapped to each level of a key. On the other hand modifier mappings
-    // map real modifiers to whole keycodes (not on a per level basis). This
-    // effectiveley means that multiple virtual modifiers can appear in a single
-    // key for which a single real modifier is mapped. Maybe this is how we can
-    // get more modifiers from virtual modifiers? I really haven't tested much
-    // about this, and I haven't seen this happen in the layout database.
+    // Still, this leaves a lot of unanswered questions about how this allows to
+    // increase the number of modifiers available. I really haven't tested much
+    // about this.
     //
     // I have no idea what would happen if a virtual modifier is used across
-    // multiple keycodes, should we map the same real modifier to both keycodes?
-    // or only when all virtual modifiers match exactly?.
+    // multiple keycodes or levels. If keycodes whith different virtual
+    // lmodifiers mapped to them get assigned the same real modifier, does that
+    // make them indistinguishable?.
     //
     // The current implementation has only been designed to handle the case that
     // I understand and is probably the simplest: All modifier keys are of type
     // ONE_LEVEL and only have a single action that sets, latches or locks a
     // single modifier, if the modifier is virtual then a real modifier is
-    // mapped to this keycode.
+    // mapped to this virtual modifier, then a this real modifier will be mapped
+    // to all keycodes that use this virtual modifier. This of course leaves
+    // undefined a lot of diferent cases:
+    //
+    //   - Keycodes with multiple actions that set virtual modifiers in
+    //     different levels
+    //
+    //   - Same virtual modifier used across different keycodes.
+    //
+    //   - Actions that set multiple virtual modifiers.
+    //
+    //   - Mixes between real and virtual modifiers.
+    //
+    // I haven't seen this happen in the actual layout database, so I'm not sure
+    // if they can even happen or their behavior is well defined. My approach
+    // will be to process all simple layouts and see if something breaks, if it
+    // does it's probable something like this. Then I will have to test more and
+    // get the actual behavior.
+    //
+    //                                  - Santiago 2019, June 8
     //
     // :virtual_to_real_modifier_map
-    if (!not_enough_real_mods) {
-        for (int i=0; i<state.num_keys_with_virtual_modifiers; i++) {
-            str_cat_printf (&xkb_str, "    modifier_map %s ",
-                            state.reverse_modifier_definition[real_modifier_map[i]]);
-            str_cat_printf (&xkb_str, " { <%d> };\n", state.keys_with_virtual_modifiers[i]);
+    {
+        // Compute an array with the bit positions of unused real modifiers.
+        int unused_real_modifiers[KEYBOARD_LAYOUT_MAX_MODIFIERS];
+        int num_unused_real_modifiers = 0;
+        {
+            int bit_pos = 0;
+            key_modifier_mask_t modifier = 1;
+            key_modifier_mask_t unused_real_modifiers_mask = (~state.used_real_modifiers) & real_modifiers;
+            key_modifier_mask_t lock_mask = keyboard_layout_get_modifier(keymap, "Lock", NULL);
+            unused_real_modifiers_mask &= ~lock_mask;
+            while (unused_real_modifiers_mask) {
+                if (modifier & unused_real_modifiers_mask) {
+                    unused_real_modifiers[num_unused_real_modifiers++] = bit_pos;
+                    unused_real_modifiers_mask &= ~modifier;
+                }
+
+                modifier <<= 1;
+                bit_pos++;
+            }
         }
 
-    } else {
-        // We may run out of modifiers, we want to detect if this is the case
-        // for any of the basic layouts.
+        // Assign the same modifier to keys with the same resulting vmod mask.
         //
-        // TODO: Tell the caller that an error occurred. This seems to be the
-        // only error condition that can happen in the backend while having a
-        // valid internal representation (there is no distinction between real
-        // and virtual modifiers there).
-        // TODO: Read and write back all simple keyboard layouts and make sure
-        // none of them gets here.
-        printf ("Can't assign a real modifier to each used virtual modifier.\n");
+        // To do this we create an array that works in parallel to the arrays in the
+        // state, keys_with_virtual_modifiers and virtual_modifier_mask_for_keys.
+        //
+        // The resulting array will contain the bit position of the real modifier
+        // assigned to the corresponding keycode in the keys_with_virtual_modifiers
+        // array.
+        // :merge_moodifier_resolution_info_in_linked_list
+        bool not_enough_real_mods = false;
+        int real_modifier_map[KEY_CNT];
+        {
+            // All keycodes with the same virtual modifier mask will get the same
+            // real modifier. We use this array to keep track of which keycodes have
+            // already been assigned a real modifier.
+            bool map_flags[KEYBOARD_LAYOUT_MAX_MODIFIERS];
+            memset (map_flags, 0, sizeof(map_flags));
+
+            // Technically this is O(n^2) if the number of keys that use virtual
+            // modifiers is unbounded. Things may go faster if wew use a hash table
+            // for real_modifier_map. Hopefully we will just stop using virtual
+            // modifiers as they seem unnecessary?.
+            // @performance
+            int i=0;
+            int last_unused_real_mod = 0;
+            int mapped_keys_cnt = 0;
+            while (last_unused_real_mod < num_unused_real_modifiers) {
+                int next_real_mod = unused_real_modifiers[last_unused_real_mod++];
+
+                for (int j=i; j<state.num_keys_with_virtual_modifiers; j++) {
+                    if (map_flags[j] == false &&
+                        state.virtual_modifier_mask_for_keys[i] == state.virtual_modifier_mask_for_keys[j]) {
+
+                        map_flags[j] = true;
+                        real_modifier_map[j] = next_real_mod;
+                        mapped_keys_cnt++;
+                    }
+                }
+
+                i++;
+            }
+
+            if (mapped_keys_cnt < state.num_keys_with_virtual_modifiers) {
+                not_enough_real_mods = true;
+            }
+        }
+
+        // Print the computed modifier mapping.
+        //
+        if (!not_enough_real_mods) {
+            for (int i=0; i<state.num_keys_with_virtual_modifiers; i++) {
+                str_cat_printf (&xkb_str, "    modifier_map %s ",
+                                state.reverse_modifier_definition[real_modifier_map[i]]);
+                str_cat_printf (&xkb_str, " { <%d> };\n", state.keys_with_virtual_modifiers[i]);
+            }
+
+        } else {
+            // We may run out of modifiers, we want to detect if this is the case
+            // for any of the basic layouts.
+            //
+            // TODO: Tell the caller that an error occurred. This seems to be the
+            // only error condition that can happen in the backend while having a
+            // valid internal representation (there is no distinction between real
+            // and virtual modifiers there).
+            // TODO: Read and write back all simple keyboard layouts and make sure
+            // none of them gets here.
+            printf ("Can't assign a real modifier to each used virtual modifier mask.\n");
+        }
     }
 
     str_cat_c (&xkb_str, "};\n\n"); // end of symbols section

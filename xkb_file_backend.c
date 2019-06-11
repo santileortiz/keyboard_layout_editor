@@ -2117,9 +2117,8 @@ void xkb_file_write_modifier_action_arguments (struct xkb_writer_state_t *state,
 
 // Can we guarantee this will never fail? if we do then we can write the output
 // directly into res.
-void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
+void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res, struct status_t *status)
 {
-    bool success = true;
     string_t xkb_str = {0};
 
     key_modifier_mask_t real_modifiers = xkb_get_real_modifiers_mask (keymap);
@@ -2442,7 +2441,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
             // and virtual modifiers there).
             // TODO: Read and write back all simple keyboard layouts and make sure
             // none of them gets here.
-            printf ("Can't assign a real modifier to each used virtual modifier mask.\n");
+            status_error (status, "Can't assign a real modifier to each used virtual modifier mask.\n");
         }
     }
 
@@ -2450,7 +2449,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res)
 
     str_cat_c (&xkb_str, "};\n\n"); // end of keymap
 
-    if (success) {
+    if (!status_is_error (status)) {
         str_cpy (res, &xkb_str);
     }
     str_free (&xkb_str);

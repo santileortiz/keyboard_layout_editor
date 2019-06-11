@@ -384,7 +384,7 @@ struct keyboard_layout_t* keyboard_layout_new_default (void)
 // TODO: If parsing fails, somehow return the error message so we can then show
 // it to the user.
 bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap);
-void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res);
+void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res, struct status_t *status);
 struct keyboard_layout_t* keyboard_layout_new_from_xkb (char *xkb_str)
 {
     mem_pool_t bootstrap = ZERO_INIT (mem_pool_t);
@@ -398,8 +398,11 @@ struct keyboard_layout_t* keyboard_layout_new_from_xkb (char *xkb_str)
 
     } else {
         string_t out = {0};
-        xkb_file_write (keymap, &out);
-        printf ("%s\n", str_data(&out));
+        xkb_file_write (keymap, &out, NULL);
+        // TODO: Do something about the status of this. For now we assume it
+        // always succeeds. I will do some testing on basic layouts to ensure
+        // the probability of failure here is very low. Still maybe we want to
+        // show something to the user if something goes wrong.
     }
 
     return keymap;

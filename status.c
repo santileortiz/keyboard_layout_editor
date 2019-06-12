@@ -67,6 +67,34 @@ bool status_has_warning (struct status_t *status)
     return status->warnings != NULL;
 }
 
+// This macro simplifies the implementation of functions that receive formatting
+// like printf. I made this macro because I always forget how va_list, va_start,
+// va_copy, va_end and vsnprintf interact with each other.
+//
+// It will insert a block of code that declares a char* variable named OUT_VAR,
+// allocated by calling the expression STR_ALLOCATION. From this expression, the
+// variable 'size' will have the number of bytes to be allocated.
+//
+// The function from which this is called must be a varargs function. IN_ARGS
+// must contain the name of the last argument before the variable argument list
+// which is assumed to also be the format string.
+// TODO: Upstream this into common.h
+#define _PRINTF_FORMATTING(IN_ARG, STR_ALLOCATION, OUT_VAR)  \
+char *OUT_VAR;                                               \
+{                                                            \
+    va_list args1, args2;                                    \
+    va_start (args1, IN_ARG);                                \
+    va_copy (args2, args1);                                  \
+                                                             \
+    size_t size = vsnprintf (NULL, 0, IN_ARG, args1) + 1;    \
+    va_end (args1);                                          \
+                                                             \
+    OUT_VAR = STR_ALLOCATION;                                \
+                                                             \
+    vsnprintf (OUT_VAR, size, IN_ARG, args2);                \
+    va_end (args2);                                          \
+}
+
 GCC_PRINTF_FORMAT(2, 3)
 void status_error (struct status_t *status, char *format, ...)
 {
@@ -78,31 +106,22 @@ void status_error (struct status_t *status, char *format, ...)
     if (!status->error) {
         status->error = true;
 
-        va_list args1, args2;
-        va_start (args1, format);
-        va_copy (args2, args1);
-
-        size_t size = vsnprintf (NULL, 0, format, args1) + 1;
-        va_end (args1);
-
-        char *str = mem_pool_push_size (&status->pool, size);
-
-        vsnprintf (str, size, format, args2);
-        va_end (args2);
-
+        _PRINTF_FORMATTING (format, mem_pool_push_size (&status->pool, size), str);
         status->error_msg = str;
     }
 }
 
-// TODO: Allow printf formatted strings here
-void status_warning (struct status_t *status, char *msg)
+GCC_PRINTF_FORMAT(2, 3)
+void status_warning (struct status_t *status, char *msg, ...)
 {
     if (status == NULL) {
         return;
     }
 
     struct status_message_t *new_msg = mem_pool_push_struct (&status->pool, struct status_message_t);
-    new_msg->msg = pom_strdup (&status->pool, msg);
+
+    _PRINTF_FORMATTING (msg, mem_pool_push_size (&status->pool, size), str);
+    new_msg->msg = str;
 
     if (status->warnings == NULL) {
         status->warnings = new_msg;

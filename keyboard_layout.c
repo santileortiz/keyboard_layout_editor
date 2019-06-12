@@ -408,7 +408,7 @@ struct keyboard_layout_t* keyboard_layout_new_from_xkb (char *xkb_str)
     return keymap;
 }
 
-bool keyboard_layout_is_valid (struct keyboard_layout_t *keymap)
+bool keyboard_layout_is_valid (struct keyboard_layout_t *keymap, struct status_t *status)
 {
     bool is_valid = true;
 
@@ -424,7 +424,7 @@ bool keyboard_layout_is_valid (struct keyboard_layout_t *keymap)
                 if (curr_mapping->level == level+1) {
                     level++;
                 } else {
-                    printf ("Type '%s' has non contiguous levels\n", curr_type->name);
+                    status_error (status, "Type '%s' has non contiguous levels\n", curr_type->name);
                     is_valid = false;
                     break;
                 }

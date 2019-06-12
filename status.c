@@ -67,8 +67,8 @@ bool status_has_warning (struct status_t *status)
     return status->warnings != NULL;
 }
 
-// TODO: Allow printf formatted strings here
-void status_error (struct status_t *status, char *msg)
+GCC_PRINTF_FORMAT(2, 3)
+void status_error (struct status_t *status, char *format, ...)
 {
     if (status == NULL) {
         return;
@@ -77,7 +77,20 @@ void status_error (struct status_t *status, char *msg)
     // We only set the first error, all subsequent calls do nothing.
     if (!status->error) {
         status->error = true;
-        status->error_msg = pom_strdup (&status->pool, msg);
+
+        va_list args1, args2;
+        va_start (args1, format);
+        va_copy (args2, args1);
+
+        size_t size = vsnprintf (NULL, 0, format, args1) + 1;
+        va_end (args1);
+
+        char *str = mem_pool_push_size (&status->pool, size);
+
+        vsnprintf (str, size, format, args2);
+        va_end (args2);
+
+        status->error_msg = str;
     }
 }
 

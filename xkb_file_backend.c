@@ -1994,7 +1994,7 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
     // :keyboard_layout_compact
 
     if (success) {
-        success = keyboard_layout_is_valid (keymap);
+        success = keyboard_layout_is_valid (keymap, NULL);
     }
 
     return success;

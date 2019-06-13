@@ -393,7 +393,7 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
 
     // TODO: Get better error messages, show the line where we got stuck.
     if (!state->scnr.error) {
-        printf ("Type: %d, Value: %s\n", state->tok_type, str_data(&state->tok_value));
+        //printf ("Type: %d, Value: %s\n", state->tok_type, str_data(&state->tok_value));
     }
 }
 
@@ -1912,6 +1912,7 @@ void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
 // keyboard_layout_t. We only care about parsing resolved layouts as returned by
 // xkbcomp. Notable differences from a full xkb compiler are the lack of include
 // statements and a more strict ordering of things.
+// TODO: Use status_t here.
 bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
 {
     struct xkb_parser_state_t state;

@@ -41,6 +41,9 @@ def im_gtk2 ():
     ex ('sudo cp bin/im-kle-xkb.so /usr/lib/x86_64-linux-gnu/gtk-2.0/2.10.0/immodules')
     ex ('sudo /usr/lib/x86_64-linux-gnu/libgtk2.0-0/gtk-query-immodules-2.0 --update-cache')
 
+def xkb_tests ():
+    ex ('gcc {FLAGS} -o bin/xkb_tests tests/xkb_tests.c -I. -lm -lxkbcommon')
+
 def generate_keycode_names ():
     global g_dry_run
     if g_dry_run:

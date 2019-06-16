@@ -126,26 +126,32 @@ int main (int argc, char **argv)
 
     // Compute the keymap names of the layout that will be tested.
     {
-        struct cli_parser_t cli_parser = {0};
-        cli_parser_add_opt (&cli_parser, "-r", true, &rules);
-        cli_parser_add_opt (&cli_parser, "-m", true, &model);
-        cli_parser_add_opt (&cli_parser, "-l", true, &layout);
-        cli_parser_add_opt (&cli_parser, "-v", true, &variant);
-        cli_parser_add_opt (&cli_parser, "-o", true, &options);
+        if (argc == 2) {
+            // TODO: Check that this is an existing layout name.
+            layout = argv[1];
 
-        struct cli_opt_t opt;
-        while (cli_parser_get_next (&cli_parser, argc, argv, &opt) &&
-               cli_parser.error == CP_ERR_NO_ERROR)
-        {
-            *(const char **)opt.data = opt.arg;
+        } else {
+            struct cli_parser_t cli_parser = {0};
+            cli_parser_add_opt (&cli_parser, "-r", true, &rules);
+            cli_parser_add_opt (&cli_parser, "-m", true, &model);
+            cli_parser_add_opt (&cli_parser, "-l", true, &layout);
+            cli_parser_add_opt (&cli_parser, "-v", true, &variant);
+            cli_parser_add_opt (&cli_parser, "-o", true, &options);
+
+            struct cli_opt_t opt;
+            while (cli_parser_get_next (&cli_parser, argc, argv, &opt) &&
+                   cli_parser.error == CP_ERR_NO_ERROR)
+            {
+                *(const char **)opt.data = opt.arg;
+            }
+
+            if (cli_parser.error) {
+                printf ("Error: %s\n", cli_parser.error_msg);
+                success = false;
+            }
+
+            cli_parser_destroy (&cli_parser);
         }
-
-        if (cli_parser.error) {
-            printf ("Error: %s\n", cli_parser.error_msg);
-            success = false;
-        }
-
-        cli_parser_destroy (&cli_parser);
 
         printf ("Used xkb_rule_names:\n");
         printf ("  rules: %s\n", rules);

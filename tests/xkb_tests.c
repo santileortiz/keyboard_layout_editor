@@ -126,7 +126,13 @@ int main (int argc, char **argv)
 
     // Compute the keymap names of the layout that will be tested.
     {
-        if (argc == 2) {
+        if (argc == 1) {
+            // TODO: This case should execute tests for all available layouts.
+            // For now we expect the user to say which layout to test.
+            printf ("At least a layout name should be provided.\n");
+            success = false;
+
+        } if (argc == 2) {
             // TODO: Check that this is an existing layout name.
             layout = argv[1];
 
@@ -152,7 +158,13 @@ int main (int argc, char **argv)
 
             cli_parser_destroy (&cli_parser);
         }
+    }
 
+    if (!success) {
+        // TODO: Show a message here. Usage documentation?
+        return 1;
+
+    } else {
         printf ("Used xkb_rule_names:\n");
         printf ("  rules: %s\n", rules);
         printf ("  model: %s\n", model);
@@ -162,34 +174,98 @@ int main (int argc, char **argv)
         printf ("\n");
     }
 
-    if (!success) {
-        // TODO: Show a better message here. Usage documentation?
-        printf ("Invalid command line arguments.");
-        return 1;
+    // Get a libxkbcommon state of the received RMLVO configuration
+    struct xkb_state *state;
+    {
+        struct xkb_context *ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+        if (!ctx) {
+            printf ("could not create xkb context.\n");
+        }
+
+        struct xkb_rule_names names = {
+            .rules = rules,
+            .model = model,
+            .layout = layout,
+            .variant = variant,
+            .options = options
+        };
+        struct xkb_keymap *keymap = xkb_keymap_new_from_names(ctx, &names,
+                                                              XKB_KEYMAP_COMPILE_NO_FLAGS);
+        if (!keymap) {
+            printf ("could not create keymap.\n");
+        }
+
+        state = xkb_state_new(keymap);
+        if (!state) {
+            printf ("could not create xkb state.\n");
+        }
     }
 
-    struct xkb_context *ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    if (!ctx) {
-        printf ("could not create xkb context.\n");
+    // Get an xkb string from the RMLVO configuration
+    // NOTE: This is a slow process, and there is a high chance of messing the
+    // user's current layout. In the actual application we should have a
+    // predefined library of base layouts in resolved xkb form. We can use this
+    // code to generate that library.
+    // TODO: Is there a way to get this from libxkbcommon? if so, that should be
+    // faster, we should do that instead of calling the bash script.
+    string_t xkb_str = {0};
+    {
+        string_t cmd = str_new ("./tests/get_xkb_str.sh");
+        if (rules != NULL) {
+            str_cat_printf (&cmd, " -rules %s", rules);
+        }
+
+        if (model != NULL) {
+            str_cat_printf (&cmd, " -model %s", model);
+        }
+
+        if (layout != NULL) {
+            str_cat_printf (&cmd, " -layout %s", layout);
+        }
+
+        if (variant != NULL) {
+            str_cat_printf (&cmd, " -variant %s", variant);
+        }
+
+        // TODO: setxkbmap only receives one option per -option argument, I
+        // think we probably want to do the same? but our CLI parser only
+        // hanldles a single -o. For now I don't care because I won't be testing
+        // layouts that have options set, probably I won't even support them.
+        if (options != NULL) {
+            str_cat_printf (&cmd, " -option %s", options);
+        }
+
+        FILE* cmd_stdout = popen (str_data(&cmd), "r");
+        if (cmd_stdout != NULL) {
+
+            char buff[1024];
+            size_t total_bytes = 0;
+            size_t bytes_read = 0;
+            do {
+                bytes_read = fread (buff, 1, ARRAY_SIZE(buff), cmd_stdout);
+                strn_cat_c (&xkb_str, buff, bytes_read);
+                total_bytes += bytes_read;
+
+            } while (bytes_read == ARRAY_SIZE(buff));
+            str_cat_c (&xkb_str, "\0");
+
+            if (ferror (cmd_stdout)) {
+                printf ("An error occurred while reading output of script.");
+            }
+
+            assert (feof (cmd_stdout));
+
+            int exit_status = pclose (cmd_stdout);
+            if (exit_status != 0) {
+                printf ("Command exited with %d.\n", exit_status%255);
+            }
+        }
+
+        str_free (&cmd);
     }
 
-    struct xkb_rule_names names = {
-        .rules = rules,
-        .model = model,
-        .layout = layout,
-        .variant = variant,
-        .options = options
-    };
-    struct xkb_keymap *keymap = xkb_keymap_new_from_names(ctx, &names,
-                                                          XKB_KEYMAP_COMPILE_NO_FLAGS);
-    if (!keymap) {
-        printf ("could not create keymap.\n");
-    }
-
-    struct xkb_state *state = xkb_state_new(keymap);
-    if (!state) {
-        printf ("could not create xkb state.\n");
-    }
+    printf ("XKB_STRING:\n %s", str_data(&xkb_str));
+    str_free (&xkb_str);
 
     return 0;
 }

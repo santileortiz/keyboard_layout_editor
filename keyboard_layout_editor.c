@@ -5,6 +5,7 @@
 #define _GNU_SOURCE // Used to enable strcasestr()
 #include "common.h"
 #include "status.c"
+#include "scanner.c"
 
 #include "xkb_keymap_installer.c"
 #include "xkb_keymap_loader.c"

@@ -2,7 +2,20 @@
  * Copiright (C) 2019 Santiago León O.
  */
 #include "common.h"
+#include "status.c"
+#include "scanner.c"
+
 #include <xkbcommon/xkbcommon.h>
+#include <linux/input-event-codes.h>
+#include "keycode_names.h"
+#include "keysym_names.h"
+
+// TODO: Clean up things so that tests only depend on GLib.
+#include <gtk/gtk.h>
+#include "gtk_utils.c"
+
+#include "keyboard_layout.c"
+#include "xkb_file_backend.c"
 
 struct cli_opt_t {
     int id;
@@ -264,7 +277,11 @@ int main (int argc, char **argv)
         str_free (&cmd);
     }
 
-    printf ("XKB_STRING:\n %s", str_data(&xkb_str));
+    struct keyboard_layout_t keymap = {0};
+    if (!xkb_file_parse (str_data (&xkb_str), &keymap)) {
+        printf ("Errors parsing layout '%s'.\n", layout);
+    }
+
     str_free (&xkb_str);
 
     return 0;

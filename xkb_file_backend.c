@@ -164,7 +164,7 @@ struct xkb_compat_t {
 };
 
 #define XKB_FILE_BACKEND_REAL_MODIFIER_NAMES_LIST \
-    {"Shift", "Control", "Lock", "Mod1", "Mod2", "Mod3", "Mod5", "Mod5"}
+    {"Shift", "Control", "Lock", "Mod1", "Mod2", "Mod3", "Mod4", "Mod5"}
 
 enum xkb_parser_token_type_t {
     XKB_PARSER_TOKEN_IDENTIFIER,

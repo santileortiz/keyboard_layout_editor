@@ -279,6 +279,7 @@ int main (int argc, char **argv)
 
     struct keyboard_layout_t keymap = {0};
     if (!xkb_file_parse (str_data (&xkb_str), &keymap)) {
+        printf ("Keymap:\n%s", str_data (&xkb_str));
         printf ("Errors parsing layout '%s'.\n", layout);
     }
 

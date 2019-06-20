@@ -43,7 +43,10 @@
 // identifiers and ignore everything in a group different than the first one.
 #define KEYBOARD_LAYOUT_MAX_GROUPS 4
 
-#define KEYBOARD_LAYOUT_MAX_MODIFIERS 16
+// NOTE: This is the technical maximum for the used type of key_modifier_mask_t,
+// effectiveley a backend can have a smaller maximum value. For instance the xkb
+// backend has a maximum of 16 modifiers.
+#define KEYBOARD_LAYOUT_MAX_MODIFIERS 32
 
 typedef uint32_t key_modifier_mask_t;
 
@@ -438,6 +441,12 @@ bool keyboard_layout_is_valid (struct keyboard_layout_t *keymap, struct status_t
     // TODO: Add the following checks to this function:
     //    - Check that we don't use a modifier that isn't in the modifiers
     //      definition tree.
+    //
+    //    - The XKB backend has a smaller maximum for modifiers than this
+    //      internal representation. Maybe make this function receive the
+    //      maximum value of modifiers and add a check that we actually used
+    //      less than that?. This should be checked after calling the currently
+    //      unexistant :keyboard_layout_compact function.
     //
     // Which other checks are useful?
 

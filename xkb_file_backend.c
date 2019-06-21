@@ -602,11 +602,25 @@ void xkb_parser_virtual_modifier_definition (struct xkb_parser_state_t *state)
             enum modifier_result_status_t status;
             keyboard_layout_new_modifier (state->keymap, str_data(&state->tok_value), &status);
             if (status == KEYBOARD_LAYOUT_MOD_MAX_LIMIT_REACHED) {
-                scanner_set_error (&state->scnr, "Too many modifier definitions, maximum is 16.");
+                // NOTE: This is not the actual XKB limit of 16, here we reached
+                // the maximum possible of our internal representation
+                // (currently 32).
+                scanner_set_error (&state->scnr, "Too many modifier definitions.");
 
-            } else if (status == KEYBOARD_LAYOUT_MOD_REDEFINITION &&
-                       !xkb_parser_is_predefined_mod (state, str_data(&state->tok_value))) {
-                printf ("Modifier '%s' defined multiple times.\n", str_data(&state->tok_value));
+            } else if (status == KEYBOARD_LAYOUT_MOD_REDEFINITION) {
+                // We really don't care about this, if a modifier is defined
+                // multiple times, we just don't define it multiple times, the
+                // first definition will be used. This is actually expected
+                // because modifiers are defined twice, once in the types
+                // section and another time in the compatibility section. We
+                // 'could' define things per section but meh it's just bothering
+                // the user to follow useless syntax. I think we shouldn't even
+                // be defining modifiers in sections, seems unnecessary. The
+                // only place I see modifier definitions being meaningful is
+                // inside type definitions (they force the state of a modifier
+                // to be off).
+                // TODO: Delete this output state from modifier_result_status_t?
+                // seems useless.
             }
 
             xkb_parser_next (state);

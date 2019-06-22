@@ -1,5 +1,5 @@
 #!/bin/sh
-setxkbmap -print > _xkb_resolve_curr_keymap_bak.xkb
+xkbcomp -xkb $DISPLAY _xkb_resolve_curr_keymap_bak.xkb
 
 setxkbmap "$@" 2> _xkbcomp_error.log
 if [ -s _xkbcomp_error.log ]

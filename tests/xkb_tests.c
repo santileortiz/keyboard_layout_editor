@@ -124,8 +124,34 @@ void cli_parser_destroy (struct cli_parser_t *parser)
     mem_pool_destroy (&parser->pool);
 }
 
+void print_mod_state (struct xkb_state *xkb_state, struct xkb_keymap *xkb_keymap,
+                      xkb_mod_index_t xkb_num_mods, enum xkb_state_component type)
+{
+    bool is_first = true;
+    for (int i=0; i<xkb_num_mods; i++) {
+        if (xkb_state_mod_index_is_active (xkb_state, i, type)) {
+            if (!is_first) {
+                printf (", ");
+            }
+            is_first = false;
+
+            printf ("%s", xkb_keymap_mod_get_name (xkb_keymap, i));
+        }
+    }
+}
+
+void assert_no_active_modifier (struct xkb_state *xkb_state, struct xkb_keymap *xkb_keymap,
+                                xkb_mod_index_t xkb_num_mods, enum xkb_state_component type)
+{
+    for (int i=0; i<xkb_num_mods; i++) {
+        assert (!xkb_state_mod_index_is_active (xkb_state, i, type));
+    }
+}
+
 int main (int argc, char **argv)
 {
+    init_keycode_names ();
+
     // TODO: I think a value of NULL will set things to libxkbcommon's default
     // value, is there a way we can determin whet it's using? (programatically,
     // not just reading the code). Should we have our own default values so we
@@ -188,7 +214,8 @@ int main (int argc, char **argv)
     }
 
     // Get a libxkbcommon state of the received RMLVO configuration
-    struct xkb_state *state;
+    struct xkb_keymap *xkb_keymap;
+    struct xkb_state *xkb_state;
     {
         struct xkb_context *ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
         if (!ctx) {
@@ -202,14 +229,14 @@ int main (int argc, char **argv)
             .variant = variant,
             .options = options
         };
-        struct xkb_keymap *keymap = xkb_keymap_new_from_names(ctx, &names,
-                                                              XKB_KEYMAP_COMPILE_NO_FLAGS);
-        if (!keymap) {
+
+        xkb_keymap = xkb_keymap_new_from_names(ctx, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
+        if (!xkb_keymap) {
             printf ("could not create keymap.\n");
         }
 
-        state = xkb_state_new(keymap);
-        if (!state) {
+        xkb_state = xkb_state_new(xkb_keymap);
+        if (!xkb_state) {
             printf ("could not create xkb state.\n");
         }
     }
@@ -277,6 +304,108 @@ int main (int argc, char **argv)
         str_free (&cmd);
     }
 
+    // Get an overview of the layout loaded from libxkbcommon.
+    printf ("------ libxkbcommon -----\n");
+    printf ("Modifiers: ");
+    xkb_mod_index_t xkb_num_mods = xkb_keymap_num_mods (xkb_keymap);
+    for (int i=0; i<xkb_num_mods; i++) {
+        printf ("%s", xkb_keymap_mod_get_name (xkb_keymap, i));
+        if (i < xkb_num_mods-1) {
+            printf (", ");
+        }
+    }
+
+    printf ("\n\n");
+    printf ("Modifier mapping:\n");
+    // Iterate all keycodes and detect those that change the state of a
+    // modifier.
+    for (xkb_keycode_t kc=0; kc<ARRAY_SIZE(keycode_names); kc++) {
+        if (keycode_names[kc] != NULL) {
+            enum xkb_state_component changed_components = xkb_state_update_key (xkb_state, kc+8, XKB_KEY_DOWN);
+            if (changed_components) {
+                printf (" %s (%d): ", keycode_names[kc], kc);
+                if (changed_components & XKB_STATE_MODS_DEPRESSED) {
+                    printf ("Sets(");
+                    print_mod_state (xkb_state, xkb_keymap, xkb_num_mods, XKB_STATE_MODS_DEPRESSED);
+                    printf (") ");
+                }
+
+                if (changed_components & XKB_STATE_MODS_LATCHED) {
+                    printf ("Latches(");
+                    print_mod_state (xkb_state, xkb_keymap, xkb_num_mods, XKB_STATE_MODS_LATCHED);
+                    printf (") ");
+                }
+
+                if (changed_components & XKB_STATE_MODS_LOCKED) {
+                    printf ("Locks(");
+                    print_mod_state (xkb_state, xkb_keymap, xkb_num_mods, XKB_STATE_MODS_LOCKED);
+                    printf (") ");
+                }
+
+                if (changed_components & XKB_STATE_MODS_EFFECTIVE) {
+                    // Is this just an OR of the other modifier masks? or is
+                    // this related to "consumed mods".
+                    printf ("Effective(");
+                    print_mod_state (xkb_state, xkb_keymap, xkb_num_mods, XKB_STATE_MODS_EFFECTIVE);
+                    printf (") ");
+                }
+
+                if (changed_components & XKB_STATE_LAYOUT_DEPRESSED ||
+                    changed_components & XKB_STATE_LAYOUT_LATCHED ||
+                    changed_components & XKB_STATE_LAYOUT_LOCKED ||
+                    changed_components & XKB_STATE_LAYOUT_EFFECTIVE ) {
+                    printf ("LayoutChange ");
+                }
+
+                if (changed_components & XKB_STATE_LEDS) {
+                    printf ("LedsChange ");
+                }
+
+                // Reset changed modifiers.
+                {
+                    xkb_state_update_key (xkb_state, kc+8, XKB_KEY_UP);
+
+                    if (changed_components & XKB_STATE_MODS_LATCHED) {
+                        // TODO: For now we assume that the Escape key will not
+                        // set any modifiers, this may not be the case in
+                        // general. The proper way to do this is to create a
+                        // clean layout state from the keymap, press a key,
+                        // check if it sets a modifier, if it doesn't we found a
+                        // key and terminate. If it does set a modifier, delete
+                        // the keymap state and create a new one for the next
+                        // keycode and repeat. We can't reuse the layout state
+                        // because there is no way for us to properly reset
+                        // modifiers without having a non modifier key which is
+                        // what we will be computeng here. I didn't find an API
+                        // to reset the state in libxkbcommon.
+                        //
+                        // Probably this is useless? if we will be creating a
+                        // layout state for each keycode to be able to reset
+                        // modifiers, probably we can do the same when computing
+                        // the modifier map?. Then we don't even need to have a
+                        // non modifier key to reset the state...
+                        xkb_state_update_key (xkb_state, KEY_ESC+8, XKB_KEY_DOWN);
+                        xkb_state_update_key (xkb_state, KEY_ESC+8, XKB_KEY_UP);
+                    }
+
+                    if (changed_components & XKB_STATE_MODS_LOCKED) {
+                        // Unlock the modifier.
+                        xkb_state_update_key (xkb_state, kc+8, XKB_KEY_DOWN);
+                        xkb_state_update_key (xkb_state, kc+8, XKB_KEY_UP);
+                    }
+
+                    // Check that no modifier is set
+                    assert_no_active_modifier (xkb_state, xkb_keymap, xkb_num_mods, XKB_STATE_MODS_DEPRESSED);
+                    assert_no_active_modifier (xkb_state, xkb_keymap, xkb_num_mods, XKB_STATE_MODS_LATCHED);
+                    assert_no_active_modifier (xkb_state, xkb_keymap, xkb_num_mods, XKB_STATE_MODS_LOCKED);
+                    assert_no_active_modifier (xkb_state, xkb_keymap, xkb_num_mods, XKB_STATE_MODS_EFFECTIVE);
+                }
+
+                printf ("\n");
+            }
+        }
+    }
+
     struct keyboard_layout_t keymap = {0};
     if (!xkb_file_parse (str_data (&xkb_str), &keymap)) {
         printf ("Keymap:\n%s", str_data (&xkb_str));
@@ -284,6 +413,9 @@ int main (int argc, char **argv)
     }
 
     str_free (&xkb_str);
+
+    xkb_state_unref(xkb_state);
+    xkb_keymap_unref(xkb_keymap);
 
     return 0;
 }

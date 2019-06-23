@@ -430,6 +430,7 @@ int main (int argc, char **argv)
 
         if (status_is_error (&status)) {
             printf ("Internal xkb writer failed.\n");
+            status_print (&status);
 
         } else {
             struct xkb_keymap *internal_keymap =

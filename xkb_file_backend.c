@@ -2456,7 +2456,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res, struct sta
             // and virtual modifiers there).
             // TODO: Read and write back all simple keyboard layouts and make sure
             // none of them gets here.
-            status_error (status, "Can't assign a real modifier to each used virtual modifier mask.\n");
+            status_error (status, "Can't assign a real modifier to each used virtual modifier mask.");
         }
     }
 

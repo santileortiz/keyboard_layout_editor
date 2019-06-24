@@ -398,14 +398,6 @@ struct keyboard_layout_t* keyboard_layout_new_from_xkb (char *xkb_str)
     if (!xkb_file_parse (xkb_str, keymap)) {
         keyboard_layout_destroy (keymap);
         keymap = NULL;
-
-    } else {
-        string_t out = {0};
-        xkb_file_write (keymap, &out, NULL);
-        // TODO: Do something about the status of this. For now we assume it
-        // always succeeds. I will do some testing on basic layouts to ensure
-        // the probability of failure here is very low. Still maybe we want to
-        // show something to the user if something goes wrong.
     }
 
     return keymap;

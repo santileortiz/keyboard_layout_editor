@@ -2130,11 +2130,14 @@ void xkb_file_write_modifier_action_arguments (struct xkb_writer_state_t *state,
     xkb_file_write_modifier_mask (state, xkb_str, action->modifiers);
 }
 
-// Can we guarantee this will never fail? if we do then we can write the output
-// directly into res.
-void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res, struct status_t *status)
+// NOTE: If an error happens while writing, xkb_str will have the output of what
+// we could do. We do this for debugging purposes. This also means that you must
+// pass a status struct to know if the output is valid or not. Not doing so can
+// have unexpected results.
+void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct status_t *status)
 {
-    string_t xkb_str = {0};
+    assert (xkb_str != NULL);
+    *xkb_str = ZERO_INIT(string_t);
 
     key_modifier_mask_t real_modifiers = xkb_get_real_modifiers_mask (keymap);
 
@@ -2142,14 +2145,14 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res, struct sta
     // the output string. :keyboard_layout_compact
 
     struct xkb_writer_state_t state = {0};
-    state.xkb_str = &xkb_str;
+    state.xkb_str = xkb_str;
     // Create a reverse mapping of the modifier mapping in the internal
     // representation.
     g_tree_foreach (keymap->modifiers, reverse_mapping_create_foreach, &state);
 
     // TODO: Print our extra informtion as comments.
 
-    str_cat_c (&xkb_str, "keymap {\n");
+    str_cat_c (xkb_str, "keymap {\n");
 
     // As far as I've been able to understand, the keycode section is basically
     // useless. It's only purpose is to assign more semantically meaningful
@@ -2168,50 +2171,50 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res, struct sta
     // safe assumption to make about the kernel development team).
     //
 
-    str_cat_c (&xkb_str, "xkb_keycodes \"keys_k\" {\n");
-    str_cat_c (&xkb_str, "    minimum = 8\n");
-    str_cat_c (&xkb_str, "    maximum = 255\n");
+    str_cat_c (xkb_str, "xkb_keycodes \"keys_k\" {\n");
+    str_cat_c (xkb_str, "    minimum = 8\n");
+    str_cat_c (xkb_str, "    maximum = 255\n");
 
     // TODO: This could be faster if keys were in a linked list. But more cache
     // unfriendly?. If it ever becomes an issue, see which one is better.
     int i=0;
     for (i=0; i<KEY_CNT; i++) {
         if (keymap->keys[i] != NULL) {
-            str_cat_printf (&xkb_str, "    <%d> = %d", i, i+8);
+            str_cat_printf (xkb_str, "    <%d> = %d", i, i+8);
 
             if (keycode_names[i] != NULL) {
-                str_cat_printf (&xkb_str, "; // %s\n", keycode_names[i]);
+                str_cat_printf (xkb_str, "; // %s\n", keycode_names[i]);
 
             } else {
-                str_cat_c (&xkb_str, ";\n");
+                str_cat_c (xkb_str, ";\n");
             }
         }
     }
-    str_cat_c (&xkb_str, "};\n\n"); // end of keycodes section
+    str_cat_c (xkb_str, "};\n\n"); // end of keycodes section
 
-    str_cat_c (&xkb_str, "xkb_types \"keys_t\" {\n");
+    str_cat_c (xkb_str, "xkb_types \"keys_t\" {\n");
 
-    str_cat_c (&xkb_str, "    virtual_modifiers ");
+    str_cat_c (xkb_str, "    virtual_modifiers ");
     // NOTE: We print modifier definitions from the internal representation's
     // tree and not from the reverse mapping because we want them in alphabetic
     // order so their ordering does not depend on the value of the mask assigned
     // to it.
     state.is_first = true;
     g_tree_foreach (keymap->modifiers, print_modifiers_foreach, &state);
-    str_cat_c (&xkb_str, ";\n\n");
+    str_cat_c (xkb_str, ";\n\n");
 
     struct key_type_t *curr_type = keymap->types;
     while (curr_type != NULL) {
-        str_cat_printf (&xkb_str, "    type \"%s\" {\n", curr_type->name);
-        str_cat_c (&xkb_str, "        modifiers = ");
-        xkb_file_write_modifier_mask (&state, &xkb_str, curr_type->modifier_mask);
-        str_cat_c (&xkb_str, ";\n");
+        str_cat_printf (xkb_str, "    type \"%s\" {\n", curr_type->name);
+        str_cat_c (xkb_str, "        modifiers = ");
+        xkb_file_write_modifier_mask (&state, xkb_str, curr_type->modifier_mask);
+        str_cat_c (xkb_str, ";\n");
 
         struct level_modifier_mapping_t *curr_modifier_mapping = curr_type->modifier_mappings;
         while (curr_modifier_mapping != NULL) {
-            str_cat_c (&xkb_str, "        map[");
-            xkb_file_write_modifier_mask (&state, &xkb_str, curr_modifier_mapping->modifiers);
-            str_cat_printf (&xkb_str, "] = Level%d;\n", curr_modifier_mapping->level);
+            str_cat_c (xkb_str, "        map[");
+            xkb_file_write_modifier_mask (&state, xkb_str, curr_modifier_mapping->modifiers);
+            str_cat_printf (xkb_str, "] = Level%d;\n", curr_modifier_mapping->level);
 
             curr_modifier_mapping = curr_modifier_mapping->next;
         }
@@ -2223,24 +2226,24 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res, struct sta
         // user name them?.
         int num_levels = keyboard_layout_type_get_num_levels (curr_type);
         for (int i=0; i<num_levels; i++) {
-            str_cat_printf (&xkb_str, "        level_name[Level%d] = \"Level %d\";\n", i+1, i+1);
+            str_cat_printf (xkb_str, "        level_name[Level%d] = \"Level %d\";\n", i+1, i+1);
         }
-        str_cat_c (&xkb_str, "    };\n");
+        str_cat_c (xkb_str, "    };\n");
 
         curr_type = curr_type->next;
     }
-    str_cat_c (&xkb_str, "};\n\n"); // end of types section
+    str_cat_c (xkb_str, "};\n\n"); // end of types section
 
-    str_cat_c (&xkb_str, "xkb_compatibility \"keys_c\" {\n");
-    str_cat_c (&xkb_str, "};\n\n"); // end of compatibility section
+    str_cat_c (xkb_str, "xkb_compatibility \"keys_c\" {\n");
+    str_cat_c (xkb_str, "};\n\n"); // end of compatibility section
 
-    str_cat_c (&xkb_str, "xkb_symbols \"keys_s\" {\n");
+    str_cat_c (xkb_str, "xkb_symbols \"keys_s\" {\n");
     for (int i=0; i<KEY_CNT; i++) {
         struct key_t *curr_key = keymap->keys[i];
         if (curr_key != NULL) {
             int num_levels = keyboard_layout_type_get_num_levels (curr_key->type);
 
-            str_cat_printf (&xkb_str, "    key <%d> {\n", i);
+            str_cat_printf (xkb_str, "    key <%d> {\n", i);
 
             // If any virtual modifiers are used in the actions for this key
             // then we print their definition.
@@ -2256,60 +2259,60 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res, struct sta
                 state.used_real_modifiers |= real_modifiers & used_modifiers;
             }
             if (action_virtual_modifiers) {
-                str_cat_c (&xkb_str, "        vmods= ");
-                xkb_file_write_modifier_mask (&state, &xkb_str, action_virtual_modifiers);
-                str_cat_c (&xkb_str, ",\n");
+                str_cat_c (xkb_str, "        vmods= ");
+                xkb_file_write_modifier_mask (&state, xkb_str, action_virtual_modifiers);
+                str_cat_c (xkb_str, ",\n");
                 state.keys_with_virtual_modifiers[state.num_keys_with_virtual_modifiers] = i;
                 state.virtual_modifier_mask_for_keys[state.num_keys_with_virtual_modifiers++] = action_virtual_modifiers;
             }
 
-            str_cat_printf (&xkb_str, "        type= \"%s\",\n", curr_key->type->name);
+            str_cat_printf (xkb_str, "        type= \"%s\",\n", curr_key->type->name);
 
-            str_cat_c (&xkb_str, "        symbols[Group1]= [ ");
+            str_cat_c (xkb_str, "        symbols[Group1]= [ ");
             for (int j=0; j<num_levels; j++) {
                 char keysym_name[64];
                 xkb_keysym_get_name (curr_key->levels[j].keysym, keysym_name, ARRAY_SIZE(keysym_name));
-                str_cat_printf (&xkb_str, "%s", keysym_name);
+                str_cat_printf (xkb_str, "%s", keysym_name);
 
                 if (j < num_levels-1) {
-                    str_cat_c (&xkb_str, ", ");
+                    str_cat_c (xkb_str, ", ");
                 }
             }
-            str_cat_c (&xkb_str, " ],\n");
+            str_cat_c (xkb_str, " ],\n");
 
             // TODO: We could not print an action statement if all of them are
             // NoAction(). On the other hand, probably we want to always be very
             // explicit about this?
-            str_cat_c (&xkb_str, "        actions[Group1]= [ ");
+            str_cat_c (xkb_str, "        actions[Group1]= [ ");
             for (int j=0; j<num_levels; j++) {
                 struct key_action_t *action = &curr_key->levels[j].action;
 
                 if (action->type == KEY_ACTION_TYPE_MOD_SET) {
-                    str_cat_printf (&xkb_str, "SetMods(");
-                    xkb_file_write_modifier_action_arguments (&state, &xkb_str, action);
+                    str_cat_printf (xkb_str, "SetMods(");
+                    xkb_file_write_modifier_action_arguments (&state, xkb_str, action);
 
                 } else if (action->type == KEY_ACTION_TYPE_MOD_LATCH) {
-                    str_cat_printf (&xkb_str, "LatchMods(");
-                    xkb_file_write_modifier_action_arguments (&state, &xkb_str, action);
+                    str_cat_printf (xkb_str, "LatchMods(");
+                    xkb_file_write_modifier_action_arguments (&state, xkb_str, action);
 
                 } else if (action->type == KEY_ACTION_TYPE_MOD_LOCK) {
-                    str_cat_printf (&xkb_str, "LockMods(");
-                    xkb_file_write_modifier_action_arguments (&state, &xkb_str, action);
+                    str_cat_printf (xkb_str, "LockMods(");
+                    xkb_file_write_modifier_action_arguments (&state, xkb_str, action);
 
                 } else {
-                    str_cat_printf (&xkb_str, "NoAction(");
+                    str_cat_printf (xkb_str, "NoAction(");
                 }
 
-                str_cat_printf (&xkb_str, ")");
+                str_cat_printf (xkb_str, ")");
 
                 if (j < num_levels-1) {
-                    str_cat_c (&xkb_str, ", ");
+                    str_cat_c (xkb_str, ", ");
                 }
             }
-            str_cat_c (&xkb_str, " ]\n");
+            str_cat_c (xkb_str, " ]\n");
 
 
-            str_cat_c (&xkb_str, "    };\n");
+            str_cat_c (xkb_str, "    };\n");
         }
     }
 
@@ -2441,9 +2444,9 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res, struct sta
         //
         if (!not_enough_real_mods) {
             for (int i=0; i<state.num_keys_with_virtual_modifiers; i++) {
-                str_cat_printf (&xkb_str, "    modifier_map %s ",
+                str_cat_printf (xkb_str, "    modifier_map %s ",
                                 state.reverse_modifier_definition[real_modifier_map[i]]);
-                str_cat_printf (&xkb_str, " { <%d> };\n", state.keys_with_virtual_modifiers[i]);
+                str_cat_printf (xkb_str, " { <%d> };\n", state.keys_with_virtual_modifiers[i]);
             }
 
         } else {
@@ -2460,13 +2463,8 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *res, struct sta
         }
     }
 
-    str_cat_c (&xkb_str, "};\n\n"); // end of symbols section
+    str_cat_c (xkb_str, "};\n\n"); // end of symbols section
 
-    str_cat_c (&xkb_str, "};\n\n"); // end of keymap
-
-    if (!status_is_error (status)) {
-        str_cpy (res, &xkb_str);
-    }
-    str_free (&xkb_str);
+    str_cat_c (xkb_str, "};\n\n"); // end of keymap
 }
 

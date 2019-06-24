@@ -1,6 +1,10 @@
 # Generated code
 gresource.c
 
+# Failed tests output
+parser_input.xkb
+writer_output.xkb
+
 *.swp
 *.log
 perf.data*

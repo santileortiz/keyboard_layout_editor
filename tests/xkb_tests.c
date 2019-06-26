@@ -432,20 +432,20 @@ int main (int argc, char **argv)
             printf ("Internal xkb writer failed.\n");
             status_print (&status);
             printf ("Wrote xkb input file to: parser_input.xkb\n");
-            full_file_write (str_data(&xkb_str), str_len(&xkb_str)+1, "parser_input.xkb");
+            full_file_write (str_data(&xkb_str), str_len(&xkb_str), "parser_input.xkb");
             printf ("Wrote incomplete xkb file to: writer_output.xkb\n");
-            full_file_write (str_data(&xkb_out_str), str_len(&xkb_out_str)+1, "writer_output.xkb");
+            full_file_write (str_data(&xkb_out_str), str_len(&xkb_out_str), "writer_output.xkb");
 
         } else {
             struct xkb_keymap *internal_keymap =
                 xkb_keymap_new_from_string(xkb_ctx, str_data(&xkb_out_str),
                                            XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
-            if (!xkb_keymap) {
+            if (!internal_keymap) {
                 printf ("Could not create keymap from internal writer's output.\n");
                 printf ("Wrote xkb input file to: parser_input.xkb\n");
-                full_file_write (str_data(&xkb_str), str_len(&xkb_str)+1, "parser_input.xkb");
+                full_file_write (str_data(&xkb_str), str_len(&xkb_str), "parser_input.xkb");
                 printf ("Wrote incomplete xkb file to: writer_output.xkb\n");
-                full_file_write (str_data(&xkb_out_str), str_len(&xkb_out_str)+1, "writer_output.xkb");
+                full_file_write (str_data(&xkb_out_str), str_len(&xkb_out_str), "writer_output.xkb");
 
             } else {
                 // Get an overview of the layout loaded from libxkbcommon.

@@ -1657,9 +1657,8 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
     state->scnr.eof_is_error = false;
 }
 
-// TODO: This only returns a mask of the used real modifiers. I think in some
-// cases we want to try defining all real modifiers. Or maybe we fail if not
-// enough real modifiers we defined?
+// NOTE: This defines all real modifiers, so we have a complete mask of
+// them. It will assert if it's not possible to do so.
 key_modifier_mask_t xkb_get_real_modifiers_mask (struct keyboard_layout_t *keymap)
 {
     key_modifier_mask_t real_modifiers = 0;
@@ -1668,9 +1667,12 @@ key_modifier_mask_t xkb_get_real_modifiers_mask (struct keyboard_layout_t *keyma
     for (int i=0; i<ARRAY_SIZE(real_modifier_names); i++) {
         enum modifier_result_status_t status = 0;
         key_modifier_mask_t mask = keyboard_layout_get_modifier (keymap, real_modifier_names[i], &status);
-        if (status == KEYBOARD_LAYOUT_MOD_SUCCESS) {
-            real_modifiers |= mask;
+        if (status == KEYBOARD_LAYOUT_MOD_UNDEFINED) {
+            mask = keyboard_layout_new_modifier (keymap, real_modifier_names[i], &status);
         }
+
+        assert (status == KEYBOARD_LAYOUT_MOD_SUCCESS);
+        real_modifiers |= mask;
     }
 
     return real_modifiers;

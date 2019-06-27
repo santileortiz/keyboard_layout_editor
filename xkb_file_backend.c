@@ -2017,7 +2017,20 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
     return success;
 }
 
+struct modifier_map_element_t {
+    xkb_keycode_t kc;
+    // Mask that combines all used modifiers in the key
+    key_modifier_mask_t key_modifiers;
+
+    // Bit position of the assigned real modifier
+    bool mapped;
+    int real_modifier;
+    struct modifier_map_element_t *next;
+};
+
 struct xkb_writer_state_t {
+    mem_pool_t pool;
+
     string_t *xkb_str;
 
     // An array of modifier names indexed by the bit position of the mask. This
@@ -2030,27 +2043,12 @@ struct xkb_writer_state_t {
     // :none_modifier
     char *reverse_modifier_definition[KEYBOARD_LAYOUT_MAX_MODIFIERS];
 
-    // We keep track of keys that use virtual modifiers in the symbols section
-    // because we must map a real modifier to them so they work correctly.
-    // :virtual_to_real_modifier_map
-    // TODO: These arrays are quite big, shuld we allocate them dynamically
-    // depending on how many keys use them? maybe merge keys_with_virtual_modifiers
-    // and virtual_modifier_mask_for_keys into a linked list of structs with 2
-    // fields and maybe add the resulting real modifier there too.
-    // :merge_moodifier_resolution_info_in_linked_list
-    int num_keys_with_virtual_modifiers;
-    int keys_with_virtual_modifiers[KEY_CNT];
-
-    // For each keycode in keys_with_virtual_modifiers we store a mask of all
-    // used virtual modifiers in each of them.
-    // :virtual_to_real_modifier_map
-    // :merge_moodifier_resolution_info_in_linked_list
-    key_modifier_mask_t virtual_modifier_mask_for_keys[KEY_CNT];
-    key_modifier_mask_t used_real_modifiers;
-
     // Flag used when printing modifier definitions to know when to print a ','
     // this is necessary because traversing of trees is done through a callback.
     bool is_first;
+
+    // :virtual_to_real_modifier_map
+    struct modifier_map_element_t *modifier_map;
 };
 
 void xkb_file_write_modifier_mask (struct xkb_writer_state_t *state, string_t *str, key_modifier_mask_t mask)
@@ -2130,6 +2128,12 @@ void xkb_file_write_modifier_action_arguments (struct xkb_writer_state_t *state,
 {
     str_cat_c (xkb_str, "modifiers=");
     xkb_file_write_modifier_mask (state, xkb_str, action->modifiers);
+}
+
+static inline
+bool single_modifier_in_mask (key_modifier_mask_t mask)
+{
+    return mask && !(mask & (mask-1));
 }
 
 // NOTE: If an error happens while writing, xkb_str will have the output of what
@@ -2257,15 +2261,31 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
                         used_modifiers |= curr_key->levels[j].action.modifiers;
                     }
                 }
+
+                // Create the modifier_map linked list with keys that use
+                // modifiers.
+                // NOTE: We do this here to avoid iterating over all keys again
+                // later.
+                // :virtual_to_real_modifier_map
+                if (used_modifiers) {
+                    struct modifier_map_element_t *new_mod_map =
+                        mem_pool_push_struct (&state.pool, struct modifier_map_element_t);
+                    *new_mod_map = ZERO_INIT (struct modifier_map_element_t);
+                    new_mod_map->kc = i;
+                    new_mod_map->key_modifiers = used_modifiers;
+
+                    if (state.modifier_map) {
+                        new_mod_map->next = state.modifier_map;
+                    }
+                    state.modifier_map = new_mod_map;
+                }
+
                 action_virtual_modifiers = (~real_modifiers) & used_modifiers;
-                state.used_real_modifiers |= real_modifiers & used_modifiers;
             }
             if (action_virtual_modifiers) {
                 str_cat_c (xkb_str, "        vmods= ");
                 xkb_file_write_modifier_mask (&state, xkb_str, action_virtual_modifiers);
                 str_cat_c (xkb_str, ",\n");
-                state.keys_with_virtual_modifiers[state.num_keys_with_virtual_modifiers] = i;
-                state.virtual_modifier_mask_for_keys[state.num_keys_with_virtual_modifiers++] = action_virtual_modifiers;
             }
 
             str_cat_printf (xkb_str, "        type= \"%s\",\n", curr_key->type->name);
@@ -2330,14 +2350,14 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
     // is the key in understanding how they work. But this mapping does not
     // happen directly in xkb files.
     //
-    // A virtual modifier state can be configured to change in an action. An action
-    // is mapped to each level of a key. This means that a single keycode can
-    // have a set of virtual modifiers assigned to it, via the multiple actions
-    // set in it, one for each level. Now, modifier mappings in the symbols
-    // section map real modifiers to keycodes, a real modifier can be mapped to
-    // multiple keycodes, but a keycode can only have at most one real modifier
-    // mapped to it. In the end all this means that a real modifier can map to
-    // multiple virtual modifiers.
+    // A virtual modifier state can be configured to change in an action. An
+    // action is mapped to each level of a key. This means that a single keycode
+    // can have a set of virtual modifiers assigned to it, via the multiple
+    // actions set in it, one for each level. Now, modifier mappings in the
+    // symbols section map real modifiers to keycodes, a real modifier can be
+    // mapped to multiple keycodes, but a keycode can only have at most one real
+    // modifier mapped to it. In the end all this means that a real modifier can
+    // map to multiple virtual modifiers.
     //
     // Still, this leaves a lot of unanswered questions about how this allows to
     // increase the number of modifiers available. I really haven't tested much
@@ -2373,15 +2393,50 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
     //
     //                                  - Santiago 2019, June 8
     //
+    // After the algorithm rewrite I've come to the conclusion that this is not
+    // really a thing about virtual/real modifiers. What happens if a single key
+    // uses multiple real modifiers? are these actually virtual modifiers named
+    // after the real ones and they get mapped to an actual real modifier?. I'm
+    // pretty sure this all boils down to a graph partitioning problem but I
+    // haven't thought deeply about it, should probably think about it and write
+    // a blogpost about it.
+    //
+    //                                  - Santiago 2019, June 26
+    //
     // :virtual_to_real_modifier_map
     {
+        // Resolve easy keys where a single real modifier is used, in this case
+        // we assign that modifier to that key. Also mark these real modifiers
+        // as used.
+        // :simple_modifier_mappings
+        key_modifier_mask_t used_real_modifiers = 0;
+        struct modifier_map_element_t *curr_map = state.modifier_map;
+        while (curr_map) {
+            if ((curr_map->key_modifiers & real_modifiers) &&
+                single_modifier_in_mask (curr_map->key_modifiers)) {
+                curr_map->mapped = true;
+
+                // Compute the bit position of the real modifier.
+                assert(curr_map->real_modifier==0);
+                key_modifier_mask_t mask = 1;
+                while (!(mask & curr_map->key_modifiers)) {
+                    curr_map->real_modifier++;
+                    mask <<=  1;
+                }
+
+                used_real_modifiers |= curr_map->key_modifiers;
+            }
+
+            curr_map = curr_map->next;
+        }
+
         // Compute an array with the bit positions of unused real modifiers.
         int unused_real_modifiers[KEYBOARD_LAYOUT_MAX_MODIFIERS];
         int num_unused_real_modifiers = 0;
         {
             int bit_pos = 0;
             key_modifier_mask_t modifier = 1;
-            key_modifier_mask_t unused_real_modifiers_mask = (~state.used_real_modifiers) & real_modifiers;
+            key_modifier_mask_t unused_real_modifiers_mask = (~used_real_modifiers) & real_modifiers;
             key_modifier_mask_t lock_mask = keyboard_layout_get_modifier(keymap, "Lock", NULL);
             unused_real_modifiers_mask &= ~lock_mask;
             while (unused_real_modifiers_mask) {
@@ -2396,16 +2451,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
         }
 
         // Assign the same modifier to keys with the same resulting vmod mask.
-        //
-        // To do this we create an array that works in parallel to the arrays in the
-        // state, keys_with_virtual_modifiers and virtual_modifier_mask_for_keys.
-        //
-        // The resulting array will contain the bit position of the real modifier
-        // assigned to the corresponding keycode in the keys_with_virtual_modifiers
-        // array.
-        // :merge_moodifier_resolution_info_in_linked_list
         bool not_enough_real_mods = false;
-        int real_modifier_map[KEY_CNT];
         {
             // All keycodes with the same virtual modifier mask will get the same
             // real modifier. We use this array to keep track of which keycodes have
@@ -2413,52 +2459,87 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
             bool map_flags[KEYBOARD_LAYOUT_MAX_MODIFIERS];
             memset (map_flags, 0, sizeof(map_flags));
 
-            // Technically this is O(n^2) if the number of keys that use virtual
-            // modifiers is unbounded. Things may go faster if wew use a hash table
-            // for real_modifier_map. Hopefully we will just stop using virtual
-            // modifiers as they seem unnecessary?.
-            // @performance
-            int i=0;
             int last_unused_real_mod = 0;
             int mapped_keys_cnt = 0;
-            while (last_unused_real_mod < num_unused_real_modifiers) {
-                int next_real_mod = unused_real_modifiers[last_unused_real_mod++];
 
-                for (int j=i; j<state.num_keys_with_virtual_modifiers; j++) {
-                    if (map_flags[j] == false &&
-                        state.virtual_modifier_mask_for_keys[i] == state.virtual_modifier_mask_for_keys[j]) {
-
-                        map_flags[j] = true;
-                        real_modifier_map[j] = next_real_mod;
-                        mapped_keys_cnt++;
-                    }
-                }
-
-                i++;
+            // Initialize curr_unmapped_element to be the first unmapped element.
+            struct modifier_map_element_t *curr_unmapped_element = state.modifier_map;
+            while (curr_unmapped_element && curr_unmapped_element->mapped) {
+                curr_unmapped_element = curr_unmapped_element->next;
             }
 
-            if (mapped_keys_cnt < state.num_keys_with_virtual_modifiers) {
-                not_enough_real_mods = true;
+            // Technically this is O(n^2) if the number of keys that need a real
+            // modifier is unbounded. Hopefully we will simplify things and
+            // all modifier mappings are simple real modifier mappings computed
+            // in O(n) here :simple_modifier_mappings.
+            // @performance
+            while (curr_unmapped_element) {
+                // Pick a real modifier to map. If there are not enough break.
+                int next_real_mod = unused_real_modifiers[last_unused_real_mod++];
+                if (last_unused_real_mod > num_unused_real_modifiers) {
+                    // Try to find an unmapped element.
+                    // NOTE: curr_unmapepd_element->mapped==true is only
+                    // guaranteed after we find an unmapped element.
+                    // :curr_unmapped_mapped_invariant
+                    while (curr_unmapped_element && curr_unmapped_element->mapped) {
+                        curr_unmapped_element = curr_unmapped_element->next;
+                    }
+
+                    if (curr_unmapped_element != NULL) {
+                        not_enough_real_mods = true;
+                    }
+                    break;
+                }
+
+                // Map the choosen modifier to all keys with the same mask. Also
+                // set the next unmapped key.
+                bool first_unmapped = true;
+                struct modifier_map_element_t *curr_map = curr_unmapped_element;
+                while (curr_map) {
+                    // Skip already mapped elements.
+                    if (!curr_map->mapped) {
+                        if (curr_map->key_modifiers == curr_unmapped_element->key_modifiers) {
+                            curr_map->real_modifier = next_real_mod;
+                            curr_map->mapped = true;
+                            mapped_keys_cnt++;
+
+                        } else if (first_unmapped) {
+                            // :curr_unmapped_mapped_invariant
+                            first_unmapped = false;
+                            curr_unmapped_element = curr_map;
+                        }
+
+                    } else {
+                        // Skipped elements should only be simple modifier mappings.
+                        // TODO: We could be removing mapped elements from the map
+                        // linked list and passing them to another one. Then we
+                        // don't waste time skipping mapped elements.
+                        // :simple_modifier_mappings
+                        assert ((curr_map->key_modifiers & real_modifiers) &&
+                                single_modifier_in_mask (curr_map->key_modifiers));
+                    }
+
+                    curr_map = curr_map->next;
+                }
             }
         }
 
         // Print the computed modifier mapping.
-        //
         if (!not_enough_real_mods) {
-            for (int i=0; i<state.num_keys_with_virtual_modifiers; i++) {
+            struct modifier_map_element_t *curr_map = state.modifier_map;
+            while (curr_map) {
+                // TODO: Print these in reverse. Makes it easy to compare them
+                // to the mapping from keymaps computed with xkbcomp.
                 str_cat_printf (xkb_str, "    modifier_map %s ",
-                                state.reverse_modifier_definition[real_modifier_map[i]]);
-                str_cat_printf (xkb_str, " { <%d> };\n", state.keys_with_virtual_modifiers[i]);
+                                state.reverse_modifier_definition[curr_map->real_modifier]);
+                str_cat_printf (xkb_str, " { <%d> };\n", curr_map->kc);
+
+                curr_map = curr_map->next;
             }
 
         } else {
             // We may run out of modifiers, we want to detect if this is the case
             // for any of the basic layouts.
-            //
-            // TODO: Tell the caller that an error occurred. This seems to be the
-            // only error condition that can happen in the backend while having a
-            // valid internal representation (there is no distinction between real
-            // and virtual modifiers there).
             // TODO: Read and write back all simple keyboard layouts and make sure
             // none of them gets here.
             status_error (status, "Can't assign a real modifier to each used virtual modifier mask.");

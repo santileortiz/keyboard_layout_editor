@@ -259,6 +259,11 @@ void xkbcommon_print_modifier_info (struct xkb_keymap *keymap)
     xkb_state_unref(xkb_state);
 }
 
+enum input_type_t {
+    INPUT_RMLVO_NAMES,
+    INPUT_XKB_FILE
+};
+
 int main (int argc, char **argv)
 {
     init_keycode_names ();
@@ -268,6 +273,8 @@ int main (int argc, char **argv)
         printf ("could not create xkb context.\n");
     }
 
+    enum input_type_t input_type;
+    // Data if type is INPUT_RMLVO_NAMES
     // TODO: I think a value of NULL will set things to libxkbcommon's default
     // value, is there a way we can determin whet it's using? (programatically,
     // not just reading the code). Should we have our own default values so we
@@ -279,6 +286,9 @@ int main (int argc, char **argv)
     char *options = NULL;
     bool success = true;
 
+    // Data if type is INPUT_XKB_FILE
+    char *input_file = NULL;
+
     // Compute the keymap names of the layout that will be tested.
     {
         if (argc == 1) {
@@ -288,8 +298,20 @@ int main (int argc, char **argv)
             success = false;
 
         } if (argc == 2) {
-            // TODO: Check that this is an existing layout name.
-            layout = argv[1];
+            char *extension = get_extension (argv[1]);
+            if (extension == NULL) {
+                // TODO: Check that this is an existing layout name.
+                layout = argv[1];
+                input_type = INPUT_RMLVO_NAMES;
+
+            } else if (strncmp (extension, "xkb", 3) == 0) {
+                input_file = argv[1];
+                input_type = INPUT_XKB_FILE;
+
+            } else {
+                printf ("Invalid arguments.\n");
+                success = false;
+            }
 
         } else {
             struct cli_parser_t cli_parser = {0};
@@ -312,6 +334,7 @@ int main (int argc, char **argv)
             }
 
             cli_parser_destroy (&cli_parser);
+            input_type = INPUT_RMLVO_NAMES;
         }
     }
 
@@ -329,38 +352,15 @@ int main (int argc, char **argv)
         printf ("\n");
     }
 
-    // Print modifier information from a libxkbcommon keymap created from the
-    // received RMLVO configuration
-    struct xkb_keymap *xkb_keymap;
-    {
-        struct xkb_rule_names names = {
-            .rules = rules,
-            .model = model,
-            .layout = layout,
-            .variant = variant,
-            .options = options
-        };
-
-        xkb_keymap = xkb_keymap_new_from_names(xkb_ctx, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
-        if (!xkb_keymap) {
-            printf ("could not create xkbcommon keymap.\n");
-
-        } else {
-            // Get an overview of the layout loaded from libxkbcommon.
-            printf ("------ libxkbcommon -----\n");
-            xkbcommon_print_modifier_info (xkb_keymap);
-        }
-    }
-
-    // Get an xkb string from the RMLVO configuration
-    // NOTE: This is a slow process, and there is a high chance of messing the
-    // user's current layout. In the actual application we should have a
-    // predefined library of base layouts in resolved xkb form. We can use this
-    // code to generate that library.
-    // TODO: Is there a way to get this from libxkbcommon? if so, that should be
-    // faster, we should do that instead of calling the bash script.
-    string_t xkb_str = {0};
-    {
+    // Get an xkb string from the CLI input
+    string_t input_str = {0};
+    if (input_type == INPUT_RMLVO_NAMES) {
+        // NOTE: This is a slow process, and there is a high chance of messing the
+        // user's current layout. In the actual application we should have a
+        // predefined library of base layouts in resolved xkb form. We can use this
+        // code to generate that library.
+        // TODO: Is there a way to get this from libxkbcommon? if so, that should be
+        // faster, we should do that instead of calling the bash script.
         string_t cmd = str_new ("./tests/get_xkb_str.sh");
         if (rules != NULL) {
             str_cat_printf (&cmd, " -rules %s", rules);
@@ -394,11 +394,11 @@ int main (int argc, char **argv)
             size_t bytes_read = 0;
             do {
                 bytes_read = fread (buff, 1, ARRAY_SIZE(buff), cmd_stdout);
-                strn_cat_c (&xkb_str, buff, bytes_read);
+                strn_cat_c (&input_str, buff, bytes_read);
                 total_bytes += bytes_read;
 
             } while (bytes_read == ARRAY_SIZE(buff));
-            str_cat_c (&xkb_str, "\0");
+            str_cat_c (&input_str, "\0");
 
             if (ferror (cmd_stdout)) {
                 printf ("An error occurred while reading output of script.");
@@ -413,13 +413,56 @@ int main (int argc, char **argv)
         }
 
         str_free (&cmd);
+
+    } else {
+        // TODO: Make a file read that writes directly to a string_t?, maybe
+        // don't use a string_t for input_str?
+        mem_pool_t tmp = {0};
+        char *data = full_file_read (&tmp, input_file);
+        str_set (&input_str, data);
+        mem_pool_destroy (&tmp);
+    }
+
+    // Print modifier information from a libxkbcommon keymap created from the
+    // received CLI input
+    struct xkb_keymap *input_keymap;
+    {
+        if (input_type == INPUT_RMLVO_NAMES) {
+            struct xkb_rule_names names = {
+                .rules = rules,
+                .model = model,
+                .layout = layout,
+                .variant = variant,
+                .options = options
+            };
+
+            input_keymap = xkb_keymap_new_from_names(xkb_ctx, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
+
+        } else {
+            input_keymap =
+                xkb_keymap_new_from_string(xkb_ctx, str_data(&input_str),
+                                           XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+        }
+
+        if (!input_keymap) {
+            printf ("could not create xkbcommon keymap.\n");
+
+        } else {
+            // Get an overview of the layout loaded from libxkbcommon.
+            printf ("------ libxkbcommon -----\n");
+            xkbcommon_print_modifier_info (input_keymap);
+        }
     }
 
     printf ("\n------ xkb backend output -----\n");
     struct keyboard_layout_t keymap = {0};
-    if (!xkb_file_parse (str_data (&xkb_str), &keymap)) {
-        printf ("Keymap:\n%s", str_data (&xkb_str));
-        printf ("Errors parsing layout '%s'.\n", layout);
+    if (!xkb_file_parse (str_data (&input_str), &keymap)) {
+        if (input_type == INPUT_RMLVO_NAMES) {
+            // TODO: Print all used input options
+            printf ("Errors parsing input layout '%s'.\n", layout);
+        } else {
+            printf ("Errors parsing input layout '%s'.\n", input_file);
+        }
 
     } else {
         // Our parser was successful, write the keymap back to an xkb file, load
@@ -432,7 +475,7 @@ int main (int argc, char **argv)
             printf ("Internal xkb writer failed.\n");
             status_print (&status);
             printf ("Wrote xkb input file to: parser_input.xkb\n");
-            full_file_write (str_data(&xkb_str), str_len(&xkb_str), "parser_input.xkb");
+            full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
             printf ("Wrote incomplete xkb file to: writer_output.xkb\n");
             full_file_write (str_data(&xkb_out_str), str_len(&xkb_out_str), "writer_output.xkb");
 
@@ -443,8 +486,8 @@ int main (int argc, char **argv)
             if (!internal_keymap) {
                 printf ("Could not create keymap from internal writer's output.\n");
                 printf ("Wrote xkb input file to: parser_input.xkb\n");
-                full_file_write (str_data(&xkb_str), str_len(&xkb_str), "parser_input.xkb");
-                printf ("Wrote incomplete xkb file to: writer_output.xkb\n");
+                full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
+                printf ("Wrote writer's output xkb file to: writer_output.xkb\n");
                 full_file_write (str_data(&xkb_out_str), str_len(&xkb_out_str), "writer_output.xkb");
 
             } else {
@@ -454,9 +497,9 @@ int main (int argc, char **argv)
         }
     }
 
-    str_free (&xkb_str);
+    str_free (&input_str);
 
-    xkb_keymap_unref(xkb_keymap);
+    xkb_keymap_unref(input_keymap);
     xkb_context_unref(xkb_ctx);
 
     return 0;

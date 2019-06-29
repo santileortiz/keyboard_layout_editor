@@ -419,7 +419,13 @@ void xkb_parser_expect_tok (struct xkb_parser_state_t *state, enum xkb_parser_to
     if (!xkb_parser_match_tok (state, type, value)) {
         if (state->tok_type != type) {
             // TODO: show identifier types as strings.
-            xkb_parser_error (state, "Expected Identifier of type '%d', got '%d'.", type, state->tok_type);
+            if (value == NULL) {
+                xkb_parser_error (state, "Expected Identifier of type '%d', got '%s' of type '%d'.",
+                                  type, str_data(&state->tok_value), state->tok_type);
+            } else {
+                xkb_parser_error (state, "Expected Identifier '%s' of type '%d', got '%s' of type '%d'.",
+                                  value, type, str_data(&state->tok_value), state->tok_type);
+            }
 
         } else {
             assert (value != NULL);
@@ -581,7 +587,9 @@ void xkb_parser_parse_keycodes (struct xkb_parser_state_t *state)
                    xkb_parser_match_tok (state, XKB_PARSER_TOKEN_KEY_IDENTIFIER, "indicator")) {
 
             // Ignore these statements.
-            xkb_parser_skip_until_operator (state, ";");
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_NUMBER, NULL);
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
         } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
             break;
@@ -1987,11 +1995,16 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
     if (state.scnr.error) {
         printf ("Error: %s\n", state.scnr.error_message);
         success = false;
-    }
 
-    // Here we translate the compatibility section into actions that are stored
-    // the way symbols are stored.
-    xkb_parser_resolve_compatibility (&state);
+    } else {
+        // Here we translate the compatibility section into actions that are
+        // stored the way symbols are stored.
+        xkb_parser_resolve_compatibility (&state);
+
+        // Make a validation of the successfully parsed layout. A layout can be
+        // valid syntactically but have issues semantically.
+        success = keyboard_layout_is_valid (keymap, NULL);
+    }
 
     xkb_parser_state_destory (&state);
 
@@ -2009,10 +2022,6 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
     // compaction in a single place and not across all IR state modification
     // functions, and will also run this maybe expensive computation less often.
     // :keyboard_layout_compact
-
-    if (success) {
-        success = keyboard_layout_is_valid (keymap, NULL);
-    }
 
     return success;
 }
@@ -2158,7 +2167,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
 
     // TODO: Print our extra informtion as comments.
 
-    str_cat_c (xkb_str, "keymap {\n");
+    str_cat_c (xkb_str, "xkb_keymap {\n");
 
     // As far as I've been able to understand, the keycode section is basically
     // useless. It's only purpose is to assign more semantically meaningful
@@ -2178,8 +2187,8 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
     //
 
     str_cat_c (xkb_str, "xkb_keycodes \"keys_k\" {\n");
-    str_cat_c (xkb_str, "    minimum = 8\n");
-    str_cat_c (xkb_str, "    maximum = 255\n");
+    str_cat_c (xkb_str, "    minimum = 8;\n");
+    str_cat_c (xkb_str, "    maximum = 255;\n");
 
     // TODO: This could be faster if keys were in a linked list. But more cache
     // unfriendly?. If it ever becomes an issue, see which one is better.

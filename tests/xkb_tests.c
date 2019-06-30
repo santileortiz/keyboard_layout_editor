@@ -39,10 +39,12 @@ struct cli_parser_t {
     char *error_msg;
 };
 
+// NOTE: setting up an option without opt will make the parser never fail, all
+// failing options will match this NULL option. Also, only the first NULL option
+// will be taken into account, all the rest will be ignored. Thing of it as a
+// default option.
 int cli_parser_add_opt (struct cli_parser_t *parser, const char *opt, bool expect_arg, void *data)
 {
-    assert (opt && "non option arguments not yet implemented.");
-
     struct cli_opt_t *new_opt = mem_pool_push_size (&parser->pool, sizeof(struct cli_opt_t));
     *new_opt = ZERO_INIT(struct cli_opt_t);
 
@@ -63,7 +65,7 @@ bool cli_parser_opt_lookup (struct cli_parser_t *parser, const char *opt_name, s
 {
     struct cli_opt_t *curr_opt = parser->opts;
     while (curr_opt != NULL) {
-        if (strcmp (opt_name, curr_opt->opt) == 0) {
+        if (curr_opt->opt == NULL || strcmp (opt_name, curr_opt->opt) == 0) {
             if (opt != NULL) {
                 *opt = *curr_opt;
             }
@@ -103,6 +105,12 @@ bool cli_parser_get_next (struct cli_parser_t *parser, int argc, char *argv[], s
             } else {
                 // Successfully found a non argument option.
                 retval = true;
+
+                // If it's a no option argument then store its value in arg.
+                // :default_cli_argument
+                if (opt->opt == NULL) {
+                    opt->arg = argv[idx];
+                }
             }
 
         } else {
@@ -289,6 +297,8 @@ int main (int argc, char **argv)
     // Data if type is INPUT_XKB_FILE
     char *input_file = NULL;
 
+    bool file_output_enabled = false;
+
     // Compute the keymap names of the layout that will be tested.
     {
         if (argc == 1) {
@@ -296,22 +306,6 @@ int main (int argc, char **argv)
             // For now we expect the user to say which layout to test.
             printf ("At least a layout name should be provided.\n");
             success = false;
-
-        } if (argc == 2) {
-            char *extension = get_extension (argv[1]);
-            if (extension == NULL) {
-                // TODO: Check that this is an existing layout name.
-                layout = argv[1];
-                input_type = INPUT_RMLVO_NAMES;
-
-            } else if (strncmp (extension, "xkb", 3) == 0) {
-                input_file = argv[1];
-                input_type = INPUT_XKB_FILE;
-
-            } else {
-                printf ("Invalid arguments.\n");
-                success = false;
-            }
 
         } else {
             struct cli_parser_t cli_parser = {0};
@@ -321,16 +315,61 @@ int main (int argc, char **argv)
             cli_parser_add_opt (&cli_parser, "-v", true, &variant);
             cli_parser_add_opt (&cli_parser, "-o", true, &options);
 
+            cli_parser_add_opt (&cli_parser, "--write-output", false, &file_output_enabled);
+
+            // :default_cli_argument
+            char *default_argument = NULL;
+            cli_parser_add_opt (&cli_parser, NULL, false, &default_argument);
+
             struct cli_opt_t opt;
             while (cli_parser_get_next (&cli_parser, argc, argv, &opt) &&
                    cli_parser.error == CP_ERR_NO_ERROR)
             {
-                *(const char **)opt.data = opt.arg;
+                if (opt.opt == NULL && default_argument == NULL) {
+                    // There is a non argument option.
+                    // :default_cli_argument
+                    *(const char **)opt.data = opt.arg;
+
+                } else if (opt.expect_arg) {
+                    *(const char **)opt.data = opt.arg;
+
+                } else if (!opt.expect_arg) {
+                    *(bool*)opt.data = true;
+
+                } else {
+                    cli_parser.error = CP_ERR_UNRECOGNIZED_OPT;
+                    cli_parser.error_msg = pprintf (&cli_parser.pool, "Unexpected option '%s'", opt.opt);
+                }
             }
 
             if (cli_parser.error) {
+                // TODO: This will rarely ever happen because we are using a
+                // default option that will match every unrecognized option.
+                // :default_cli_argument
                 printf ("Error: %s\n", cli_parser.error_msg);
                 success = false;
+            }
+
+            if (default_argument) {
+                char *extension = get_extension (default_argument);
+                if (extension == NULL) {
+                    // TODO: Check that this is an existing layout name.
+                    layout = default_argument;
+                    input_type = INPUT_RMLVO_NAMES;
+
+                } else if (strncmp (extension, "xkb", 3) == 0) {
+                    input_file = default_argument;
+                    input_type = INPUT_XKB_FILE;
+
+                } else {
+                    printf ("Invalid arguments.\n");
+                    success = false;
+                }
+            }
+
+            if (input_type == INPUT_XKB_FILE &&
+                (rules != NULL || model != NULL || options != NULL || layout != NULL || variant != NULL)) {
+                printf ("Xkb file provided as input, ignoring all passed RMLVO options.\n");
             }
 
             cli_parser_destroy (&cli_parser);
@@ -474,10 +513,13 @@ int main (int argc, char **argv)
         if (status_is_error (&status)) {
             printf ("Internal xkb writer failed.\n");
             status_print (&status);
-            printf ("Wrote xkb input file to: parser_input.xkb\n");
-            full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
-            printf ("Wrote incomplete xkb file to: writer_output.xkb\n");
-            full_file_write (str_data(&xkb_out_str), str_len(&xkb_out_str), "writer_output.xkb");
+            if (file_output_enabled) {
+                printf ("\n");
+                printf ("Wrote xkb input file to: parser_input.xkb\n");
+                full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
+                printf ("Wrote incomplete xkb file to: writer_output.xkb\n");
+                full_file_write (str_data(&xkb_out_str), str_len(&xkb_out_str), "writer_output.xkb");
+            }
 
         } else {
             struct xkb_keymap *internal_keymap =
@@ -485,16 +527,29 @@ int main (int argc, char **argv)
                                            XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
             if (!internal_keymap) {
                 printf ("Could not create keymap from internal writer's output.\n");
-                printf ("Wrote xkb input file to: parser_input.xkb\n");
-                full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
-                printf ("Wrote writer's output xkb file to: writer_output.xkb\n");
-                full_file_write (str_data(&xkb_out_str), str_len(&xkb_out_str), "writer_output.xkb");
+                if (file_output_enabled) {
+                    printf ("\n");
+                    printf ("Wrote xkb input file to: parser_input.xkb\n");
+                    full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
+                    printf ("Wrote writer's output xkb file to: writer_output.xkb\n");
+                    full_file_write (str_data(&xkb_out_str), str_len(&xkb_out_str), "writer_output.xkb");
+                }
 
             } else {
                 // Get an overview of the layout loaded from libxkbcommon.
                 xkbcommon_print_modifier_info (internal_keymap);
+
+                if (file_output_enabled) {
+                    printf ("\n");
+                    printf ("Wrote parser input to: parser_input.xkb\n");
+                    full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
+                    printf ("Wrote writer output to: writer_output.xkb\n");
+                    full_file_write (str_data(&xkb_out_str), str_len(&xkb_out_str), "writer_output.xkb");
+                }
             }
         }
+
+
     }
 
     str_free (&input_str);

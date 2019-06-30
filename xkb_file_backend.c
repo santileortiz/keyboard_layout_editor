@@ -2525,13 +2525,9 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
                         }
 
                     } else {
-                        // Skipped elements should only be simple modifier mappings.
                         // TODO: We could be removing mapped elements from the map
                         // linked list and passing them to another one. Then we
                         // don't waste time skipping mapped elements.
-                        // :simple_modifier_mappings
-                        assert ((curr_map->key_modifiers & state.real_modifiers) &&
-                                single_modifier_in_mask (curr_map->key_modifiers));
                     }
 
                     curr_map = curr_map->next;

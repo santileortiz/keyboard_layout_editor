@@ -2052,6 +2052,9 @@ struct xkb_writer_state_t {
     // :none_modifier
     char *reverse_modifier_definition[KEYBOARD_LAYOUT_MAX_MODIFIERS];
 
+    // OR of all real modifiers in XKB
+    key_modifier_mask_t real_modifiers;
+
     // Flag used when printing modifier definitions to know when to print a ','
     // this is necessary because traversing of trees is done through a callback.
     bool is_first;
@@ -2120,14 +2123,18 @@ gboolean reverse_mapping_create_foreach (gpointer modifier_name, gpointer mask_p
 gboolean print_modifiers_foreach (gpointer modifier_name, gpointer mask_ptr, gpointer data)
 {
     struct xkb_writer_state_t *state = (struct xkb_writer_state_t*)data;
+    key_modifier_mask_t mask = *(key_modifier_mask_t*)mask_ptr;
 
-    if (state->is_first == true) {
-        state->is_first = false;
-    } else {
-        str_cat_c (state->xkb_str, ",");
+    // Print only virtual modifiers
+    if (!(state->real_modifiers & mask)) {
+        if (state->is_first == true) {
+            state->is_first = false;
+        } else {
+            str_cat_c (state->xkb_str, ",");
+        }
+
+        str_cat_c (state->xkb_str, modifier_name);
     }
-
-    str_cat_c (state->xkb_str, modifier_name);
 
     return FALSE;
 }
@@ -2154,13 +2161,12 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
     assert (xkb_str != NULL);
     *xkb_str = ZERO_INIT(string_t);
 
-    key_modifier_mask_t real_modifiers = xkb_get_real_modifiers_mask (keymap);
-
     // TODO: When we have a compact function, we should call it before creating
     // the output string. :keyboard_layout_compact
 
     struct xkb_writer_state_t state = {0};
     state.xkb_str = xkb_str;
+    state.real_modifiers = xkb_get_real_modifiers_mask (keymap);
     // Create a reverse mapping of the modifier mapping in the internal
     // representation.
     g_tree_foreach (keymap->modifiers, reverse_mapping_create_foreach, &state);
@@ -2289,7 +2295,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
                     state.modifier_map = new_mod_map;
                 }
 
-                action_virtual_modifiers = (~real_modifiers) & used_modifiers;
+                action_virtual_modifiers = (~state.real_modifiers) & used_modifiers;
             }
             if (action_virtual_modifiers) {
                 str_cat_c (xkb_str, "        vmods= ");
@@ -2421,7 +2427,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
         key_modifier_mask_t used_real_modifiers = 0;
         struct modifier_map_element_t *curr_map = state.modifier_map;
         while (curr_map) {
-            if ((curr_map->key_modifiers & real_modifiers) &&
+            if ((curr_map->key_modifiers & state.real_modifiers) &&
                 single_modifier_in_mask (curr_map->key_modifiers)) {
                 curr_map->mapped = true;
 
@@ -2445,7 +2451,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
         {
             int bit_pos = 0;
             key_modifier_mask_t modifier = 1;
-            key_modifier_mask_t unused_real_modifiers_mask = (~used_real_modifiers) & real_modifiers;
+            key_modifier_mask_t unused_real_modifiers_mask = (~used_real_modifiers) & state.real_modifiers;
             key_modifier_mask_t lock_mask = keyboard_layout_get_modifier(keymap, "Lock", NULL);
             unused_real_modifiers_mask &= ~lock_mask;
             while (unused_real_modifiers_mask) {
@@ -2524,7 +2530,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
                         // linked list and passing them to another one. Then we
                         // don't waste time skipping mapped elements.
                         // :simple_modifier_mappings
-                        assert ((curr_map->key_modifiers & real_modifiers) &&
+                        assert ((curr_map->key_modifiers & state.real_modifiers) &&
                                 single_modifier_in_mask (curr_map->key_modifiers));
                     }
 

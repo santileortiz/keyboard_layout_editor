@@ -148,25 +148,21 @@ void print_mod_state (struct xkb_state *xkb_state, struct xkb_keymap *xkb_keymap
     }
 }
 
-void assert_no_active_modifier (struct xkb_state *xkb_state, struct xkb_keymap *xkb_keymap,
-                                xkb_mod_index_t xkb_num_mods, enum xkb_state_component type)
-{
-    for (int i=0; i<xkb_num_mods; i++) {
-        assert (!xkb_state_mod_index_is_active (xkb_state, i, type));
-    }
-}
-
 struct print_modifier_info_foreach_clsr_t {
     xkb_mod_index_t xkb_num_mods;
-    struct xkb_state *xkb_state;
 };
 
 void print_modifier_info_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *data)
 {
+    struct xkb_state *xkb_state = xkb_state_new(keymap);
+    if (!xkb_state) {
+        printf ("could not create xkb state.\n");
+        return;
+    }
+
     struct print_modifier_info_foreach_clsr_t *clsr =
         (struct print_modifier_info_foreach_clsr_t*)data;
     xkb_mod_index_t xkb_num_mods = clsr->xkb_num_mods;
-    struct xkb_state *xkb_state = clsr->xkb_state;
 
     enum xkb_state_component changed_components = xkb_state_update_key (xkb_state, kc+8, XKB_KEY_DOWN);
     if (changed_components) {
@@ -208,57 +204,14 @@ void print_modifier_info_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, v
             printf ("LedsChange ");
         }
 
-        // Reset changed modifiers.
-        {
-            xkb_state_update_key (xkb_state, kc+8, XKB_KEY_UP);
-
-            if (changed_components & XKB_STATE_MODS_LATCHED) {
-                // TODO: For now we assume that the Escape key will not set any
-                // modifiers, this may not be the case in general. The proper
-                // way to do this is to create a clean layout state from the
-                // keymap, press a key, check if it sets a modifier, if it
-                // doesn't we found a key and terminate. If it does set a
-                // modifier, delete the keymap state and create a new one for
-                // the next keycode and repeat. We can't reuse the layout state
-                // because there is no way for us to properly reset modifiers
-                // without having a non modifier key which is what we will be
-                // computeng here. I didn't find an API to reset the state in
-                // libxkbcommon.
-                //
-                // Probably this is useless? if we will be creating a layout
-                // state for each keycode to be able to reset modifiers,
-                // probably we can do the same when computing the modifier map?.
-                // Then we don't even need to have a non modifier key to reset
-                // the state...
-                xkb_state_update_key (xkb_state, KEY_ESC+8, XKB_KEY_DOWN);
-                xkb_state_update_key (xkb_state, KEY_ESC+8, XKB_KEY_UP);
-            }
-
-            if (changed_components & XKB_STATE_MODS_LOCKED) {
-                // Unlock the modifier.
-                xkb_state_update_key (xkb_state, kc+8, XKB_KEY_DOWN);
-                xkb_state_update_key (xkb_state, kc+8, XKB_KEY_UP);
-            }
-
-            // Check that no modifier is set
-            assert_no_active_modifier (xkb_state, keymap, xkb_num_mods, XKB_STATE_MODS_DEPRESSED);
-            assert_no_active_modifier (xkb_state, keymap, xkb_num_mods, XKB_STATE_MODS_LATCHED);
-            assert_no_active_modifier (xkb_state, keymap, xkb_num_mods, XKB_STATE_MODS_LOCKED);
-            assert_no_active_modifier (xkb_state, keymap, xkb_num_mods, XKB_STATE_MODS_EFFECTIVE);
-        }
-
         printf ("\n");
     }
+
+    xkb_state_unref(xkb_state);
 }
 
 void xkbcommon_print_modifier_info (struct xkb_keymap *keymap)
 {
-    struct xkb_state *xkb_state = xkb_state_new(keymap);
-    if (!xkb_state) {
-        printf ("could not create xkb state.\n");
-        return;
-    }
-
     printf ("Modifiers: ");
     xkb_mod_index_t xkb_num_mods = xkb_keymap_num_mods (keymap);
     for (int i=0; i<xkb_num_mods; i++) {
@@ -274,10 +227,7 @@ void xkbcommon_print_modifier_info (struct xkb_keymap *keymap)
     // modifier.
     struct print_modifier_info_foreach_clsr_t clsr;
     clsr.xkb_num_mods = xkb_num_mods;
-    clsr.xkb_state = xkb_state;
     xkb_keymap_key_for_each (keymap, print_modifier_info_foreach, &clsr);
-
-    xkb_state_unref(xkb_state);
 }
 
 enum input_type_t {

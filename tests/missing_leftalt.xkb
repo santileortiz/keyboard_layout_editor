@@ -1,0 +1,61 @@
+xkb_keymap {
+xkb_keycodes "keys_k" {
+    minimum = 8;
+    maximum = 255;
+    <56> = 64; // KEY_LEFTALT
+    <100> = 108; // KEY_RIGHTALT
+};
+
+xkb_types "keys_t" {
+    virtual_modifiers Alt,Hyper,Meta,NumLock,Super;
+
+    type "ONE_LEVEL" {
+        modifiers = none;
+        map[none] = Level1;
+        level_name[Level1] = "Level 1";
+    };
+    type "TWO_LEVEL" {
+        modifiers = Shift;
+        map[none] = Level1;
+        map[Shift] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "ALPHABETIC" {
+        modifiers = Shift + Lock;
+        map[none] = Level1;
+        map[Lock] = Level2;
+        map[Shift] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "KEYPAD" {
+        modifiers = NumLock + Shift;
+        map[none] = Level1;
+        map[NumLock] = Level2;
+        map[Shift] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+};
+
+xkb_compatibility "keys_c" {
+};
+
+xkb_symbols "keys_s" {
+    key <56> {
+        type= "TWO_LEVEL",
+        symbols[Group1]= [ Alt_L, Meta_L ],
+        actions[Group1]= [ SetMods(modifiers=Mod1), SetMods(modifiers=Mod1) ]
+    };
+    key <100> {
+        type= "TWO_LEVEL",
+        symbols[Group1]= [ Alt_R, Meta_R ],
+        actions[Group1]= [ SetMods(modifiers=Mod1), SetMods(modifiers=Mod1) ]
+    };
+    modifier_map Mod1  { <56> };
+    modifier_map Mod1  { <100> };
+};
+
+};
+

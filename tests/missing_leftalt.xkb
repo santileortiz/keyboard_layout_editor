@@ -1,9 +1,27 @@
+// When loading this keymap into libxkbcommon the left alt modifier will not
+// work but the right alt modifier will. Why is this happening?.
+//
+// I've made some testsing and now have some more clues:
+//  - The issue stops if we define a keycode before <LALT> in the keycodes
+//    section.
+//  - Flipping the order of <LALT> and <RALT> does not seem to flip the issue
+//    to make <RALT> not work.
+//  - Changing <LALT> and <RALT> definitions, for <LFSH> (keycode 50) and
+//    <RTSH> (keycode 62) has the same behavior but now the non working
+//    modifier key is <RTSH>.
+//  - Changing them for <LWIN> and <RWIN> makes none of these keycodes set a
+//    modifier. Strangeley enough adding the extra keycode fixes both of them.
+
 xkb_keymap {
 xkb_keycodes "keys_k" {
     minimum = 8;
     maximum = 255;
-    <56> = 64; // KEY_LEFTALT
-    <100> = 108; // KEY_RIGHTALT
+    // Uncommenting the following line fixes the issue. It does not seem to be
+    // specific to the <ESC> keycode. Why?
+    // <ESC> = 9;
+
+    <LALT> = 64;
+    <RALT> = 108;
 };
 
 xkb_types "keys_t" {
@@ -43,18 +61,18 @@ xkb_compatibility "keys_c" {
 };
 
 xkb_symbols "keys_s" {
-    key <56> {
-        type= "TWO_LEVEL",
-        symbols[Group1]= [ Alt_L, Meta_L ],
-        actions[Group1]= [ SetMods(modifiers=Mod1), SetMods(modifiers=Mod1) ]
+    key <LALT> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Alt_L ],
+        actions[Group1]= [ SetMods(modifiers=Mod1) ]
     };
-    key <100> {
-        type= "TWO_LEVEL",
-        symbols[Group1]= [ Alt_R, Meta_R ],
-        actions[Group1]= [ SetMods(modifiers=Mod1), SetMods(modifiers=Mod1) ]
+    key <RALT> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Alt_R ],
+        actions[Group1]= [ SetMods(modifiers=Mod1) ]
     };
-    modifier_map Mod1  { <56> };
-    modifier_map Mod1  { <100> };
+    modifier_map Mod1  { <LALT> };
+    modifier_map Mod1  { <RALT> };
 };
 
 };

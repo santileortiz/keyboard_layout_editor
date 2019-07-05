@@ -1,15 +1,12 @@
+// This keymap when loaded to libxkbcommon will not let any of the expected
+// modifiers work. Processing it with our parser and writer generates a keymap
+// that makes modifiers work.
+
 xkb_keymap {
 xkb_keycodes "evdev+aliases(qwerty)" {
     minimum = 8;
     maximum = 255;
-    <LFSH> = 50;
-    <RTSH> = 62;
     <LALT> = 64;
-    <RALT> = 108;
-    <LWIN> = 133;
-    <RWIN> = 134;
-    <MDSW> = 203;
-     <ALT> = 204;
     <META> = 205;
     <SUPR> = 206;
     <HYPR> = 207;
@@ -52,32 +49,16 @@ xkb_compatibility "complete" {
     interpret Any+AnyOf(all) {
         action= SetMods(modifiers=modMapMods,clearLocks);
     };
-    indicator "Caps Lock" {
-        !allowExplicit;
-        whichModState= locked;
-        modifiers= Lock;
-    };
 };
 
 xkb_symbols "pc+us+inet(evdev)" {
 
     name[group1]="English (US)";
 
-    key <LALT> {         [           Alt_L,          Meta_L ] };
-    key <RALT> {
-        type= "TWO_LEVEL",
-        symbols[Group1]= [           Alt_R,          Meta_R ]
-    };
-    key <MDSW> {         [     Mode_switch ] };
-    key  <ALT> {         [        NoSymbol,           Alt_L ] };
+    key <LALT> {         [           Alt_L ] };
     key <META> {         [        NoSymbol,          Meta_L ] };
     key <SUPR> {         [        NoSymbol,         Super_L ] };
     key <HYPR> {         [        NoSymbol,         Hyper_L ] };
-    modifier_map Mod1 { <LALT> };
-    modifier_map Mod1 { <RALT> };
-    modifier_map Mod4 { <LWIN> };
-    modifier_map Mod4 { <RWIN> };
-    modifier_map Mod5 { <MDSW> };
     modifier_map Mod1 { <META> };
     modifier_map Mod4 { <SUPR> };
     modifier_map Mod4 { <HYPR> };

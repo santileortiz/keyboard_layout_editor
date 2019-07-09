@@ -1759,15 +1759,11 @@ xkb_backend_interpret_compare (struct xkb_compat_interpret_t *old, struct xkb_co
     return winner;
 }
 
-void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
+void xkb_parser_simplify_layout (struct xkb_parser_state_t *state)
 {
     struct xkb_compat_t *compatibility = &state->compatibility;
 
     key_modifier_mask_t real_modifiers = xkb_get_real_modifiers_mask (state->keymap);
-
-    if (compatibility->interprets == NULL) {
-        return;
-    }
 
     for (int kc=0; kc<KEY_CNT; kc++) {
         struct key_t *curr_key = state->keymap->keys[kc];
@@ -1790,13 +1786,14 @@ void xkb_parser_resolve_compatibility (struct xkb_parser_state_t *state)
                     //
                     // We can do this here before resolving interpret statements
                     // because explicit actions will always override them.
+                    // :symbol_actions_array
                     curr_key->levels[j].action =
                         xkb_parser_translate_to_ir_action (&state->symbol_actions[kc][j],
                                                            state->modifier_map[kc]);
                 }
             }
 
-            if (num_unset_levels > 0) {
+            if (num_unset_levels > 0 && compatibility->interprets != NULL) {
                 // This array contains the winning interpret statement for each of
                 // the levels that may be modified according to the unset_levels
                 // array. Although this is of size KEYBOARD_LAYOUT_MAX_LEVELS only
@@ -1997,9 +1994,9 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
         success = false;
 
     } else {
-        // Here we translate the compatibility section into actions that are
-        // stored the way symbols are stored.
-        xkb_parser_resolve_compatibility (&state);
+        // Here we translate the compatibility section;s actions into actions
+        // that are stored the way symbols are stored.
+        xkb_parser_simplify_layout (&state);
 
         // Make a validation of the successfully parsed layout. A layout can be
         // valid syntactically but have issues semantically.

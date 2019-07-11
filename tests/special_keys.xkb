@@ -1,6 +1,8 @@
 // This keymap when loaded to libxkbcommon will not let any of the expected
 // modifiers work. Processing it with our parser and writer generates a keymap
 // that makes modifiers work.
+//
+// When commenting out line (1) modifiers get assigned as expected. Why?
 
 xkb_keymap {
 xkb_keycodes "evdev+aliases(qwerty)" {
@@ -21,7 +23,7 @@ xkb_types "complete" {
         level_name[Level1]= "Any";
     };
     type "TWO_LEVEL" {
-        modifiers= Shift;
+        modifiers= Shift; // Root cause? (1)
         map[Shift]= Level2;
         level_name[Level1]= "Base";
         level_name[Level2]= "Shift";

@@ -1821,8 +1821,11 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state)
                     for (int j=0; j<num_unset_levels; j++) {
                         int curr_level = unset_levels[j];
 
-                        if (curr_interpret->any_keysym ||
-                            curr_interpret->keysym == curr_key->levels[curr_level].keysym) {
+                        // NOTE: Looks like NoSymbol doesn't match any interpret
+                        // statements, not even when using the 'Any' keysym.
+                        if (curr_key->levels[curr_level].keysym != 0x0 /*NoSymbol*/ &&
+                            (curr_interpret->any_keysym ||
+                             curr_interpret->keysym == curr_key->levels[curr_level].keysym)) {
                             keysym_match[j] = true;
                             // we can't break here because we want to know all
                             // levels that match.

@@ -1,0 +1,68 @@
+// In the the default compatibility in the layout database, it's very common to
+// have multiple interpret statements that match the same key definition. Here
+// we check which of the interprets wins.
+
+xkb_keymap {
+xkb_keycodes "evdev+aliases(qwerty)" {
+    minimum = 8;
+    maximum = 255;
+     <ESC> = 9;
+    <LALT> = 64;
+};
+
+xkb_types "complete" {
+
+    virtual_modifiers NumLock,Alt,LevelThree,LAlt,RAlt,RControl,LControl,ScrollLock,LevelFive,AltGr,Meta,Super,Hyper;
+
+    type "ONE_LEVEL" {
+        modifiers= none;
+        level_name[Level1]= "Any";
+    };
+    type "TWO_LEVEL" {
+        modifiers= Shift;
+        map[Shift]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Shift";
+    };
+    type "ALPHABETIC" {
+        modifiers= Shift+Lock;
+        map[Shift]= Level2;
+        map[Lock]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Caps";
+    };
+    type "KEYPAD" {
+        modifiers= Shift+NumLock;
+        map[Shift]= Level2;
+        map[NumLock]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Number";
+    };
+};
+
+xkb_compatibility "complete" {
+
+    virtual_modifiers NumLock,Alt,LevelThree,LAlt,RAlt,RControl,LControl,ScrollLock,LevelFive,AltGr,Meta,Super,Hyper;
+
+    interpret.useModMapMods= AnyLevel;
+    interpret.repeat= False;
+    interpret.locking= False;
+    interpret Alt_L+AnyOf(all) {
+        virtualModifier= Alt;
+        action= SetMods(modifiers=modMapMods,clearLocks);
+    };
+    interpret Alt_L+AnyOfOrNone(all) {
+        action= SetMods(modifiers=Mod3,clearLocks);
+    };
+    interpret Any+AnyOf(all) {
+        action= SetMods(modifiers=Mod4,clearLocks);
+    };
+};
+
+xkb_symbols "pc+us+inet(evdev)" {
+    key  <ESC> {         [          Escape ] };
+    key <LALT> {         [           Alt_L ] };
+    modifier_map Mod1 { <LALT> };
+};
+
+};

@@ -2533,6 +2533,22 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
                     curr_map = curr_map->next;
                 }
             }
+
+            // TODO: We need another step in the algorithm. The objective of
+            // this step is to make a more efficient modifier mapping or even
+            // sometimes assign a modifier to a key that was left without a
+            // modifier assigned to it.
+            //
+            // The way to do this is by making sure that if the same keysym is
+            // present in a key that requires a modifier, then both keys get the
+            // same modifier assigned to them.
+            //
+            // This is done because otherwise the 'br' layout will not behave as
+            // it does in libxkbcommon, actually we won't be able to resolve
+            // modifiers for it. This layout, whithout this step will leave
+            // keycode <ALT> without a modifier. But we can assign the same
+            // modifier assigned to <LALT> as they both send the same keysym.
+            // This is what libxkbcommon does.
         }
 
         // Print the computed modifier mapping.

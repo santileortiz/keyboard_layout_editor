@@ -2477,11 +2477,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
             int last_unused_real_mod = 0;
             int mapped_keys_cnt = 0;
 
-            // Initialize curr_unmapped_element to be the first unmapped element.
             struct modifier_map_element_t *curr_unmapped_element = state.modifier_map;
-            while (curr_unmapped_element && curr_unmapped_element->mapped) {
-                curr_unmapped_element = curr_unmapped_element->next;
-            }
 
             // Technically this is O(n^2) if the number of keys that need a real
             // modifier is unbounded. Hopefully we will simplify things and
@@ -2491,15 +2487,16 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
             while (curr_unmapped_element) {
                 // Pick a real modifier to map. If there are not enough break.
                 int next_real_mod = unused_real_modifiers[last_unused_real_mod++];
-                if (last_unused_real_mod > num_unused_real_modifiers) {
-                    // Try to find an unmapped element.
-                    // NOTE: curr_unmapepd_element->mapped==true is only
-                    // guaranteed after we find an unmapped element.
-                    // :curr_unmapped_mapped_invariant
-                    while (curr_unmapped_element && curr_unmapped_element->mapped) {
-                        curr_unmapped_element = curr_unmapped_element->next;
-                    }
 
+                // Try to find an unmapped element.
+                while (curr_unmapped_element && curr_unmapped_element->mapped) {
+                    curr_unmapped_element = curr_unmapped_element->next;
+                }
+
+                // If we used all real modifiers that were left we stop the
+                // algorithm, if we were not done, then this means keys were
+                // left unmapped.
+                if (last_unused_real_mod > num_unused_real_modifiers) {
                     if (curr_unmapped_element != NULL) {
                         not_enough_real_mods = true;
                     }
@@ -2508,7 +2505,6 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
 
                 // Map the choosen modifier to all keys with the same mask. Also
                 // set the next unmapped key.
-                bool first_unmapped = true;
                 struct modifier_map_element_t *curr_map = curr_unmapped_element;
                 while (curr_map) {
                     // Skip already mapped elements.
@@ -2517,11 +2513,6 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
                             curr_map->real_modifier = next_real_mod;
                             curr_map->mapped = true;
                             mapped_keys_cnt++;
-
-                        } else if (first_unmapped) {
-                            // :curr_unmapped_mapped_invariant
-                            first_unmapped = false;
-                            curr_unmapped_element = curr_map;
                         }
 
                     } else {

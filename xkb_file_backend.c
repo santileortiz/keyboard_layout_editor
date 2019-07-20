@@ -2540,6 +2540,56 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
             // keycode <ALT> without a modifier. But we can assign the same
             // modifier assigned to <LALT> as they both send the same keysym.
             // This is what libxkbcommon does.
+            if (not_enough_real_mods) {
+                not_enough_real_mods = false;
+
+                struct modifier_map_element_t *curr_unmapped_element = state.modifier_map;
+                while (curr_unmapped_element) {
+                    // Pick an unmapped element, call it UE.
+                    while (curr_unmapped_element && curr_unmapped_element->mapped) {
+                        curr_unmapped_element = curr_unmapped_element->next;
+                    }
+                    if (curr_unmapped_element == NULL) break;
+
+                    struct key_t *curr_unmapped_key = keymap->keys[curr_unmapped_element->kc];
+
+                    // Iterate over all mapped elements. If one of them shares a
+                    // keysym with the keycode of UE call it ME. Then we map the
+                    // real modifier of the ME element to UE and mark UE as
+                    // mapped. If no such ME is found then we exit the algorithm
+                    // as something will be left unmapped.
+                    struct modifier_map_element_t *curr_mapped_element = state.modifier_map;
+                    while (curr_mapped_element && !curr_unmapped_element->mapped) {
+                        struct key_t *curr_mapped_key = keymap->keys[curr_mapped_element->kc];
+                        if (curr_mapped_element->mapped && !curr_unmapped_element->mapped) {
+
+                            int num_levels_unmapped_key =
+                                keyboard_layout_type_get_num_levels (curr_unmapped_key->type);
+                            for (int i=0; i<num_levels_unmapped_key && !curr_unmapped_element->mapped; i++) {
+
+                                int num_levels_mapped_key =
+                                    keyboard_layout_type_get_num_levels (curr_mapped_key->type);
+                                for (int j=0; j<num_levels_mapped_key; j++) {
+
+                                    if (curr_unmapped_key->levels[i].keysym == curr_mapped_key->levels[j].keysym) {
+                                        curr_unmapped_element->real_modifier = curr_mapped_element->real_modifier;
+                                        curr_unmapped_element->mapped = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        curr_unmapped_element = curr_unmapped_element->next;
+                    }
+
+                    if (curr_unmapped_element->mapped) {
+                        // We couldn't do anything for an element, then we gieve
+                        // up...
+                        not_enough_real_mods = true;
+                        break;
+                    }
+                }
+            }
         }
 
         // Print the computed modifier mapping.

@@ -2152,6 +2152,64 @@ bool single_modifier_in_mask (key_modifier_mask_t mask)
     return mask && !(mask & (mask-1));
 }
 
+// The br layout is weird in that we run out of real modifiers because we are
+// not resolving all Alt key related interprets to the same real modifier. This
+// algorithm should solve this. When we get this working maybe this should be
+// the refault algorithm?.
+bool second_real_mapping_computation (struct xkb_writer_state_t *state, struct keyboard_layout_t *keymap)
+{
+    bool not_enough_real_mods = false;
+
+    struct modifier_map_element_t *curr_unmapped_element = state->modifier_map;
+    while (curr_unmapped_element) {
+        // Pick an unmapped element, call it UE.
+        while (curr_unmapped_element && curr_unmapped_element->mapped) {
+            curr_unmapped_element = curr_unmapped_element->next;
+        }
+        if (curr_unmapped_element == NULL) break;
+
+        struct key_t *curr_unmapped_key = keymap->keys[curr_unmapped_element->kc];
+
+        // Iterate over all mapped elements. If one of them shares a
+        // keysym with the keycode of UE call it ME. Then we map the
+        // real modifier of the ME element to UE and mark UE as
+        // mapped. If no such ME is found then we exit the algorithm
+        // as something will be left unmapped.
+        struct modifier_map_element_t *curr_mapped_element = state->modifier_map;
+        while (curr_mapped_element && !curr_unmapped_element->mapped) {
+            struct key_t *curr_mapped_key = keymap->keys[curr_mapped_element->kc];
+            if (curr_mapped_element->mapped && !curr_unmapped_element->mapped) {
+
+                int num_levels_unmapped_key =
+                    keyboard_layout_type_get_num_levels (curr_unmapped_key->type);
+                for (int i=0; i<num_levels_unmapped_key && !curr_unmapped_element->mapped; i++) {
+
+                    int num_levels_mapped_key =
+                        keyboard_layout_type_get_num_levels (curr_mapped_key->type);
+                    for (int j=0; j<num_levels_mapped_key; j++) {
+
+                        if (curr_unmapped_key->levels[i].keysym == curr_mapped_key->levels[j].keysym) {
+                            curr_unmapped_element->real_modifier = curr_mapped_element->real_modifier;
+                            curr_unmapped_element->mapped = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            curr_unmapped_element = curr_unmapped_element->next;
+        }
+
+        if (curr_unmapped_element->mapped) {
+            // We couldn't do anything for an element, then we gieve
+            // up...
+            not_enough_real_mods = true;
+            break;
+        }
+    }
+
+    return not_enough_real_mods;
+}
+
 // NOTE: If an error happens while writing, xkb_str will have the output of what
 // we could do. We do this for debugging purposes. This also means that you must
 // pass a status struct to know if the output is valid or not. Not doing so can
@@ -2482,7 +2540,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
             // Technically this is O(n^2) if the number of keys that need a real
             // modifier is unbounded. Hopefully we will simplify things and
             // all modifier mappings are simple real modifier mappings computed
-            // in O(n) here :simple_modifier_mappings.
+            // in O(n) on :simple_modifier_mappings.
             // @performance
             while (curr_unmapped_element) {
                 // Pick a real modifier to map. If there are not enough break.
@@ -2525,70 +2583,10 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
                 }
             }
 
-            // TODO: We need another step in the algorithm. The objective of
-            // this step is to make a more efficient modifier mapping or even
-            // sometimes assign a modifier to a key that was left without a
-            // modifier assigned to it.
-            //
-            // The way to do this is by making sure that if the same keysym is
-            // present in a key that requires a modifier, then both keys get the
-            // same modifier assigned to them.
-            //
-            // This is done because otherwise the 'br' layout will not behave as
-            // it does in libxkbcommon, actually we won't be able to resolve
-            // modifiers for it. This layout, whithout this step will leave
-            // keycode <ALT> without a modifier. But we can assign the same
-            // modifier assigned to <LALT> as they both send the same keysym.
-            // This is what libxkbcommon does.
+
+            // This is a second real modifier algorithm that tries harder to fit
             if (not_enough_real_mods) {
-                not_enough_real_mods = false;
-
-                struct modifier_map_element_t *curr_unmapped_element = state.modifier_map;
-                while (curr_unmapped_element) {
-                    // Pick an unmapped element, call it UE.
-                    while (curr_unmapped_element && curr_unmapped_element->mapped) {
-                        curr_unmapped_element = curr_unmapped_element->next;
-                    }
-                    if (curr_unmapped_element == NULL) break;
-
-                    struct key_t *curr_unmapped_key = keymap->keys[curr_unmapped_element->kc];
-
-                    // Iterate over all mapped elements. If one of them shares a
-                    // keysym with the keycode of UE call it ME. Then we map the
-                    // real modifier of the ME element to UE and mark UE as
-                    // mapped. If no such ME is found then we exit the algorithm
-                    // as something will be left unmapped.
-                    struct modifier_map_element_t *curr_mapped_element = state.modifier_map;
-                    while (curr_mapped_element && !curr_unmapped_element->mapped) {
-                        struct key_t *curr_mapped_key = keymap->keys[curr_mapped_element->kc];
-                        if (curr_mapped_element->mapped && !curr_unmapped_element->mapped) {
-
-                            int num_levels_unmapped_key =
-                                keyboard_layout_type_get_num_levels (curr_unmapped_key->type);
-                            for (int i=0; i<num_levels_unmapped_key && !curr_unmapped_element->mapped; i++) {
-
-                                int num_levels_mapped_key =
-                                    keyboard_layout_type_get_num_levels (curr_mapped_key->type);
-                                for (int j=0; j<num_levels_mapped_key; j++) {
-
-                                    if (curr_unmapped_key->levels[i].keysym == curr_mapped_key->levels[j].keysym) {
-                                        curr_unmapped_element->real_modifier = curr_mapped_element->real_modifier;
-                                        curr_unmapped_element->mapped = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        curr_unmapped_element = curr_unmapped_element->next;
-                    }
-
-                    if (curr_unmapped_element->mapped) {
-                        // We couldn't do anything for an element, then we gieve
-                        // up...
-                        not_enough_real_mods = true;
-                        break;
-                    }
-                }
+                not_enough_real_mods = second_real_mapping_computation(&state, keymap);
             }
         }
 

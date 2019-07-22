@@ -2608,6 +2608,19 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
             // for any of the basic layouts.
             // TODO: Read and write back all simple keyboard layouts and make sure
             // none of them gets here.
+            struct modifier_map_element_t *curr_map = state.modifier_map;
+            while (curr_map) {
+                // Print what we could map
+                if (curr_map->mapped) {
+                    str_cat_printf (xkb_str, "    modifier_map %s ",
+                                    state.reverse_modifier_definition[curr_map->real_modifier]);
+                    str_cat_printf (xkb_str, " { <%d> };\n", curr_map->kc);
+                } else {
+                    str_cat_printf (xkb_str, "    modifier_map <?> { <%d> };\n", curr_map->kc);
+                }
+
+                curr_map = curr_map->next;
+            }
             status_error (status, "Can't assign a real modifier to each used virtual modifier mask.");
         }
     }

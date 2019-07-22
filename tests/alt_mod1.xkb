@@ -1,0 +1,88 @@
+// Stripped down version of br_modifiers.xkb that doesn't run out of modifiers
+// but still has an issue. While libxkbcommon maps both <ALT> and <LALT> keys
+// to Mod1, we use a different real modifier for each of these.
+//
+// This happens in other layouts, but there is no problem because we have extra
+// real modifiers, and things will work fine. In the br layout we run out of
+// modifiers, so here this is not an acceptable behavior.
+
+xkb_keymap {
+xkb_keycodes "evdev+aliases(qwerty)" {
+    minimum = 8;
+    maximum = 255;
+     <ESC> = 9;
+    <LFSH> = 50;
+    <LALT> = 64;
+     <ALT> = 204;
+    <META> = 205;
+};
+
+xkb_types "complete" {
+
+    virtual_modifiers NumLock,Alt,LevelThree,LAlt,RAlt,RControl,LControl,ScrollLock,LevelFive,AltGr,Meta,Super,Hyper;
+
+    type "ONE_LEVEL" {
+        modifiers= none;
+        level_name[Level1]= "Any";
+    };
+    type "TWO_LEVEL" {
+        modifiers= Shift;
+        map[Shift]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Shift";
+    };
+    type "ALPHABETIC" {
+        modifiers= Shift+Lock;
+        map[Shift]= Level2;
+        map[Lock]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Caps";
+    };
+    type "KEYPAD" {
+        modifiers= Shift+NumLock;
+        map[Shift]= Level2;
+        map[NumLock]= Level2;
+        level_name[Level1]= "Base";
+        level_name[Level2]= "Number";
+    };
+};
+
+xkb_compatibility "complete" {
+
+    virtual_modifiers NumLock,Alt,LevelThree,LAlt,RAlt,RControl,LControl,ScrollLock,LevelFive,AltGr,Meta,Super,Hyper;
+
+    interpret.useModMapMods= AnyLevel;
+    interpret.repeat= False;
+    interpret.locking= False;
+    interpret Alt_L+AnyOfOrNone(all) {
+        action= SetMods(modifiers=Alt,clearLocks);
+    };
+    interpret Alt_L+AnyOf(all) {
+        virtualModifier= Alt;
+        action= SetMods(modifiers=modMapMods,clearLocks);
+    };
+    interpret Meta_L+AnyOf(all) {
+        virtualModifier= Meta;
+        action= SetMods(modifiers=modMapMods,clearLocks);
+    };
+    interpret Meta_L+AnyOfOrNone(all) {
+        action= SetMods(modifiers=Meta,clearLocks);
+    };
+    interpret Shift_L+AnyOfOrNone(all) {
+        action= SetMods(modifiers=Shift,clearLocks);
+    };
+};
+
+xkb_symbols "pc+br+inet(evdev)" {
+
+    name[group1]="Portuguese (Brazil)";
+
+    key  <ESC> {         [          Escape ] };
+    key <LFSH> {         [         Shift_L ] };
+    key  <ALT> {         [        NoSymbol,           Alt_L ] };
+    key <LALT> {         [           Alt_L,          Meta_L ] };
+    modifier_map Shift { <LFSH> };
+    modifier_map Mod1 { <LALT> };
+};
+
+};

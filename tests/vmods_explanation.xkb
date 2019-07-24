@@ -1,0 +1,310 @@
+// This example shows how virtual modifiers work. There is a lot of
+// misinformation about virtual modifiers on the internet. I've never seen
+// anyone really explain how to actually have a layout with more than 8 working
+// modifiers. Most explanations say virtual mods are capable of doing this, but
+// they don't say how. This layout sets up 11 working modifiers, 8 real and 3
+// virtual.
+//
+// Conclusions regarding the layout editor:
+//
+//  * I think most default layouts don't need virtual modifiers at all. They
+//    are only necessary if the total number of required modifiers exceeds 8.
+//    ANY layout with 8 or less modifiers can be translated to a simpler one
+//    with only real modifiers and no compatibility section. I will try to
+//    create a default database where all layouts are of this kind.
+//
+//  * The sense in which virtual modifiers are not 'real', is that they can't
+//    be simultaneously pressed. At least not in general. Their purpose is to
+//    allow balancing 2 resources: number of total modifiers and number of
+//    distinct modifiers that need to be pressed simultaneously.
+//
+//    A 100% real modifier layout allows up to 8 total modifiers where all of
+//    them can be pressed at the same time and each one be independent of the
+//    rest. A 100% virtual modifier layout allows up to 2^8 total modifiers,
+//    but pressing 2 modifiers at the same time will ALWAYS trigger a 3rd
+//    modifier.
+//
+//  * It is possible to create an algorithm that, given a full layout with more
+//    than 8 modifiers, tries to encode the necessary virtual modifiers in such
+//    a way that all modifiers behave as real modidifers. This actually looks
+//    like an interesting algorithm to develop.
+//
+//  * The keyboard layout editor's UI, in Linux at least, will not expose
+//    virtual modifier concepts. Anything that virtual modifiers do can be
+//    achieved with a UI to configure types, and by allowing a key to be mapped
+//    to multiple real modifiers. Then the program in the backend translates
+//    this into something that uses virtual modifiers. I don't think many
+//    layouts require virtual modifiers in practice.
+
+xkb_keymap {
+xkb_keycodes "keys_k" {
+    minimum = 8;
+    maximum = 255;
+    <ESC> = 9; // KEY_ESC
+
+    <M1> = 24;
+    <M2> = 25;
+    <M3> = 26;
+    <M4> = 27;
+    <M5> = 28;
+    <M6> = 29;
+    <M7> = 30;
+    <M8> = 31;
+
+    <FOO> = 33;
+    <BAR> = 34;
+    <BAZ> = 35;
+
+    <1> = 10;
+    <2> = 11;
+    <3> = 12;
+    <4> = 13;
+    <5> = 14;
+    <6> = 15;
+    <7> = 16;
+    <8> = 17;
+
+    <FKEY> = 19;
+    <BKEY> = 20;
+    <ZKEY> = 21;
+};
+
+xkb_types "keys_t" {
+    virtual_modifiers NumLock,Foo,Bar,Baz;
+
+    type "ONE_LEVEL" {
+        modifiers = none;
+        map[none] = Level1;
+        level_name[Level1] = "Level 1";
+    };
+    type "TWO_LEVEL" {
+        modifiers = Shift;
+        map[none] = Level1;
+        map[Shift] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "ALPHABETIC" {
+        modifiers = Shift + Lock;
+        map[none] = Level1;
+        map[Lock] = Level2;
+        map[Shift] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "KEYPAD" {
+        modifiers = NumLock + Shift;
+        map[none] = Level1;
+        map[NumLock] = Level2;
+        map[Shift] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+
+    type "M1_TEST" {
+        modifiers = Shift;
+        map[none] = Level1;
+        map[Shift] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "M2_TEST" {
+        modifiers = Control;
+        map[none] = Level1;
+        map[Control] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "M3_TEST" {
+        modifiers = Lock;
+        map[none] = Level1;
+        map[Lock] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "M4_TEST" {
+        modifiers = Mod1;
+        map[none] = Level1;
+        map[Mod1] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "M5_TEST" {
+        modifiers = Mod2;
+        map[none] = Level1;
+        map[Mod2] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "M6_TEST" {
+        modifiers = Mod3;
+        map[none] = Level1;
+        map[Mod3] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "M7_TEST" {
+        modifiers = Mod4;
+        map[none] = Level1;
+        map[Mod4] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "M8_TEST" {
+        modifiers = Mod5;
+        map[none] = Level1;
+        map[Mod5] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "FOO_TEST" {
+        modifiers = Foo;
+        map[none] = Level1;
+        map[Foo] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "BAR_TEST" {
+        modifiers = Bar;
+        map[none] = Level1;
+        map[Bar] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "BAZ_TEST" {
+        modifiers = Baz;
+        map[none] = Level1;
+        map[Baz] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+};
+
+xkb_compatibility "keys_c" {
+};
+
+xkb_symbols "keys_s" {
+    key <ESC> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Escape ],
+        actions[Group1]= [ NoAction() ]
+    };
+    key <M1> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Shift_L ],
+        actions[Group1]= [ SetMods(modifiers=Shift) ]
+    };
+    key <M2> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Shift_L ],
+        actions[Group1]= [ SetMods(modifiers=Control) ]
+    };
+    key <M3> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Shift_L ],
+        actions[Group1]= [ SetMods(modifiers=Lock) ]
+    };
+    key <M4> {
+        vmods= Foo+Baz,
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Shift_L ],
+        actions[Group1]= [ SetMods(modifiers=Mod1) ]
+    };
+    key <M5> {
+        vmods= Foo+Baz,
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Shift_L ],
+        actions[Group1]= [ SetMods(modifiers=Mod2) ]
+    };
+    key <M6> {
+        vmods= Foo+Baz,
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Shift_L ],
+        actions[Group1]= [ SetMods(modifiers=Mod3) ]
+    };
+    key <M7> {
+        vmods= Bar+Baz,
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Shift_L ],
+        actions[Group1]= [ SetMods(modifiers=Mod4) ]
+    };
+    key <M8> {
+        vmods= Bar+Baz,
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Shift_L ],
+        actions[Group1]= [ SetMods(modifiers=Mod5) ]
+    };
+
+    key <FOO> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Shift_L ],
+        actions[Group1]= [ SetMods(modifiers=Foo) ]
+    };
+    key <BAR> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Shift_L ],
+        actions[Group1]= [ SetMods(modifiers=Bar) ]
+    };
+    key <BAZ> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Shift_L ],
+        actions[Group1]= [ SetMods(modifiers=Baz) ]
+    };
+
+    key <1> {
+        type= "M1_TEST",
+        symbols[Group1]= [ O, bar ]
+    };
+    key <2> {
+        type= "M2_TEST",
+        symbols[Group1]= [ O, bar ]
+    };
+    key <3> {
+        type= "M3_TEST",
+        symbols[Group1]= [ O, bar ]
+    };
+    key <4> {
+        type= "M4_TEST",
+        symbols[Group1]= [ O, bar ]
+    };
+    key <5> {
+        type= "M5_TEST",
+        symbols[Group1]= [ O, bar ]
+    };
+    key <6> {
+        type= "M6_TEST",
+        symbols[Group1]= [ O, bar ]
+    };
+    key <7> {
+        type= "M7_TEST",
+        symbols[Group1]= [ O, bar ]
+    };
+    key <8> {
+        type= "M8_TEST",
+        symbols[Group1]= [ O, bar ]
+    };
+    key <FKEY> {
+        type= "FOO_TEST",
+        symbols[Group1]= [ O, bar ]
+    };
+    key <BKEY> {
+        type= "BAR_TEST",
+        symbols[Group1]= [ O, bar ]
+    };
+    key <ZKEY> {
+        type= "BAZ_TEST",
+        symbols[Group1]= [ O, bar ]
+    };
+
+    modifier_map Shift   { <M1> };
+    modifier_map Control { <M2> };
+    modifier_map Lock    { <M3> };
+    modifier_map Mod1    { <M4> };
+    modifier_map Mod2    { <M5> };
+    modifier_map Mod3    { <M6> };
+    modifier_map Mod4    { <M7> };
+    modifier_map Mod5    { <M8> };
+};
+
+};
+

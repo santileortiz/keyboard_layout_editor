@@ -2,6 +2,12 @@
  * Copiright (C) 2019 Santiago León O.
  */
 
+static inline
+bool single_modifier_in_mask (key_modifier_mask_t mask)
+{
+    return mask && !(mask & (mask-1));
+}
+
 bool parse_unicode_str (const char *str, uint32_t *cp)
 {
     assert (str != NULL && cp != NULL);
@@ -1288,6 +1294,9 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
                 } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "virtualModifier")) {
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
                     xkb_parser_parse_modifier_mask (state, ";", &new_interpret_data.virtual_modifier);
+                    if (!single_modifier_in_mask (new_interpret_data.virtual_modifier)) {
+                        xkb_parser_error (state, "Expected single virtual modifier, more provided.");
+                    }
 
                 } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "action")) {
 
@@ -2144,12 +2153,6 @@ void xkb_file_write_modifier_action_arguments (struct xkb_writer_state_t *state,
 {
     str_cat_c (xkb_str, "modifiers=");
     xkb_file_write_modifier_mask (state, xkb_str, action->modifiers);
-}
-
-static inline
-bool single_modifier_in_mask (key_modifier_mask_t mask)
-{
-    return mask && !(mask & (mask-1));
 }
 
 // The br layout is weird in that we run out of real modifiers because we are

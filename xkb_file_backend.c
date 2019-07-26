@@ -1774,6 +1774,9 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state)
 
     key_modifier_mask_t real_modifiers = xkb_get_real_modifiers_mask (state->keymap);
 
+    // Compute virtual modifiers and see if they are actually necessary, if they
+    // aren't map everything to real modifiers.
+
     for (int kc=0; kc<KEY_CNT; kc++) {
         struct key_t *curr_key = state->keymap->keys[kc];
 
@@ -1790,8 +1793,8 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state)
 
                 } else {
                     // End resolution of actions set explicitly in the symbols
-                    // section. The only missing step is to translate them into
-                    // into the real actions in the internal representation.
+                    // section. Translate them into into the real actions in the
+                    // internal representation.
                     //
                     // We can do this here before resolving interpret statements
                     // because explicit actions will always override them.
@@ -1939,6 +1942,30 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state)
             }
         }
     }
+
+    // Compute virtual modifiers, and try to transform it to a layout with just
+    // real modifiers.
+    //
+    // TODO: This is a sketch of the algorithm to be implemented. It will
+    // replace all the modifier mapping computation that happens in the writer.
+    //
+    // 1) Get a mapping from real modifiers to keycodes, this can be done while
+    // parsing into a structure specific to the xkb backend.
+    //
+    // 2) Create an array/linked list of all defined virtual modifiers
+    //
+    // 3) Have a list of all winning interprets for each key, maybe this can be
+    // done while the winning interpret is computed above. The important thing
+    // is to add the real modifier mapping for each virtual modifier.
+    //
+    // 4) Make all virtual modifiers that have a single real modifier as
+    // encoding be the actual real modifier, ignore that virtual modifier
+    // further on.
+    //
+    // 5) If virtual modifiers are necessary... not sure what to do. Add them to
+    // a xkb backend specific structure? transform them into real modifiers
+    // anyway, just add the possibility to assign multiple modifiers to an
+    // action? (this is probably already supported...).
 }
 
 // This parses a subset of the xkb file syntax into our internal representation

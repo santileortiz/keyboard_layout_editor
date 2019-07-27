@@ -182,6 +182,11 @@ enum xkb_parser_token_type_t {
     XKB_PARSER_TOKEN_STRING
 };
 
+struct vmodmap_element_t {
+    char *name;
+    key_modifier_mask_t encoding;
+};
+
 struct xkb_parser_state_t {
     mem_pool_t pool;
 
@@ -226,6 +231,8 @@ struct xkb_parser_state_t {
     // This array will contain masks that only have a single modifier bit set,
     // the parser must guarantee this is true.
     key_modifier_mask_t modifier_map[KEY_CNT];
+
+    struct vmodmap_element_t vmodmap[KEYBOARD_LAYOUT_MAX_MODIFIERS];
 };
 
 void xkb_parser_state_init (struct xkb_parser_state_t *state, char *xkb_str, struct keyboard_layout_t *keymap)
@@ -1768,6 +1775,36 @@ xkb_backend_interpret_compare (struct xkb_compat_interpret_t *old, struct xkb_co
     return winner;
 }
 
+// This uses a de Brujin sequence, and the fact that mask has a single bit set
+// in it, to generate a unique integer value in the range [0..31]. This hash
+// function is used in the algorithm from Leiserson, Prokop, and Randal to
+// compute the number of trailing zeros [1].
+//
+// [1]: Leiserson, Charles E.; Prokop, Harald; Randall, Keith H. (1998),
+//      Using de Bruijn Sequences to Index a 1 in a Computer Word
+//      http://supertech.csail.mit.edu/papers/debruijn.pdf
+//
+// TODO: If available, a CTZ intrinsic should be faster. Look into that.
+uint32_t bit_mask_perfect_hash (key_modifier_mask_t mask)
+{
+    assert (single_modifier_in_mask (mask));
+    return (uint32_t)(mask*0x077CB531UL) >> 27;
+}
+
+gboolean populate_vmod_map_foreach (gpointer modifier_name, gpointer mask_ptr, gpointer data)
+{
+    key_modifier_mask_t mask = *(key_modifier_mask_t*)mask_ptr;
+    struct xkb_parser_state_t *state = (struct xkb_parser_state_t *)data;
+
+    if (xkb_parser_is_real_modifier (state, modifier_name)) {
+        uint32_t idx = bit_mask_perfect_hash (mask);
+        state->vmodmap[idx].name = modifier_name;
+        state->vmodmap[idx].encoding = 0x0;
+    }
+
+    return FALSE;
+}
+
 void xkb_parser_simplify_layout (struct xkb_parser_state_t *state)
 {
     struct xkb_compat_t *compatibility = &state->compatibility;
@@ -1943,6 +1980,7 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state)
         }
     }
 
+
     // Compute virtual modifiers, and try to transform it to a layout with just
     // real modifiers.
     //
@@ -1951,9 +1989,11 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state)
     //
     // 1) Get a mapping from real modifiers to keycodes, this can be done while
     // parsing into a structure specific to the xkb backend.
-    //
-    // 2) Create an array/linked list of all defined virtual modifiers
-    //
+    // (Done above while parsing, the mapping is in state->modifier_map)
+
+    // 2) Create an array list of all defined virtual modifiers
+    g_tree_foreach (keymap->modifiers, populate_vmod_map_foreach, &state);
+
     // 3) Have a list of all winning interprets for each key, maybe this can be
     // done while the winning interpret is computed above. The important thing
     // is to add the real modifier mapping for each virtual modifier.

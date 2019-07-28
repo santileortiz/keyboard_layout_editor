@@ -1,0 +1,151 @@
+// Here we test what happens if an interpret statement defines a vmod and this
+// also happens in the symbols section explicitly.
+//
+// To determine what happens, check the encoding of the Foo and Bar virtual
+// modifiers:
+//
+//                      Foo               Bar
+//          Merge: Shift+Control     Shift+Control
+//    Symbol wins: Shift+Control        Shift       <-- Current behavior
+// Interpret wins:    Shift          Shift+Control
+
+xkb_keymap {
+xkb_keycodes "keys_k" {
+    minimum = 8;
+    maximum = 255;
+    <ESC> = 9; // KEY_ESC
+
+    <M1> = 24;
+    <M2> = 25;
+
+    <FOO> = 33;
+    <BAR> = 34;
+
+    <1> = 10;
+    <2> = 11;
+
+    <FKEY> = 19;
+    <BKEY> = 20;
+};
+
+xkb_types "keys_t" {
+    virtual_modifiers NumLock,Foo,Bar,Baz;
+
+    type "ONE_LEVEL" {
+        modifiers = none;
+        map[none] = Level1;
+        level_name[Level1] = "Level 1";
+    };
+    type "TWO_LEVEL" {
+        modifiers = Shift;
+        map[none] = Level1;
+        map[Shift] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "ALPHABETIC" {
+        modifiers = Shift + Lock;
+        map[none] = Level1;
+        map[Lock] = Level2;
+        map[Shift] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "KEYPAD" {
+        modifiers = NumLock + Shift;
+        map[none] = Level1;
+        map[NumLock] = Level2;
+        map[Shift] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+
+    type "M1_TEST" {
+        modifiers = Shift;
+        map[none] = Level1;
+        map[Shift] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "M2_TEST" {
+        modifiers = Control;
+        map[none] = Level1;
+        map[Control] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "FOO_TEST" {
+        modifiers = Foo;
+        map[none] = Level1;
+        map[Foo] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+    type "BAR_TEST" {
+        modifiers = Bar;
+        map[none] = Level1;
+        map[Bar] = Level2;
+        level_name[Level1] = "Level 1";
+        level_name[Level2] = "Level 2";
+    };
+};
+
+xkb_compatibility "keys_c" {
+    interpret Shift_L+Exactly(Control) {
+        virtualModifier=Bar;
+    };
+};
+
+xkb_symbols "keys_s" {
+    key <ESC> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Escape ],
+        actions[Group1]= [ NoAction() ]
+    };
+    key <M1> {
+        vmods= Foo+Bar,
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Shift_L ],
+        actions[Group1]= [ SetMods(modifiers=Shift) ]
+    };
+    key <M2> {
+        vmods= Foo,
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Shift_L ],
+        actions[Group1]= [ SetMods(modifiers=Control) ]
+    };
+
+    key <FOO> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Shift_L ],
+        actions[Group1]= [ SetMods(modifiers=Foo) ]
+    };
+    key <BAR> {
+        type= "ONE_LEVEL",
+        symbols[Group1]= [ Shift_L ],
+        actions[Group1]= [ SetMods(modifiers=Bar) ]
+    };
+
+    key <1> {
+        type= "M1_TEST",
+        symbols[Group1]= [ O, bar ]
+    };
+    key <2> {
+        type= "M2_TEST",
+        symbols[Group1]= [ O, bar ]
+    };
+    key <FKEY> {
+        type= "FOO_TEST",
+        symbols[Group1]= [ O, bar ]
+    };
+    key <BKEY> {
+        type= "BAR_TEST",
+        symbols[Group1]= [ O, bar ]
+    };
+
+    modifier_map Shift   { <M1> };
+    modifier_map Control { <M2> };
+};
+
+};
+

@@ -1,5 +1,5 @@
-// Here we test what happens if an interpret statement defines a vmod and this
-// also happens in the symbols section explicitly.
+// Test what happens if an interpret statement defines a vmod and this also
+// happens in the symbols section explicitly, but without an actions statement.
 //
 // To determine what happens, check the encoding of the Foo and Bar virtual
 // modifiers:
@@ -118,8 +118,7 @@ xkb_symbols "keys_s" {
     key <E1> {
         vmods= Foo,
         type= "ONE_LEVEL",
-        symbols[Group1]= [ Alt_L ],
-        actions[Group1]= [ NoAction() ]
+        symbols[Group1]= [ Alt_L ]
     };
 
     key <FOO> {

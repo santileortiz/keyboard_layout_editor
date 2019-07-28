@@ -219,6 +219,7 @@ struct xkb_parser_state_t {
     // TODO: I'm not 100% sure this is required, but right now it looks like it.
     // If it doesn't we can then remove this big array from here.
     struct xkb_backend_key_action_t symbol_actions[KEY_CNT][KEYBOARD_LAYOUT_MAX_LEVELS];
+    key_modifier_mask_t symbol_vmods[KEY_CNT];
 
     // We could put this in our internal representation as a field in the key_t
     // structure, but I'm not sure I want to do that. From what it looks like,
@@ -1536,30 +1537,37 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                 } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "vmods") ||
                            xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "virtualmodifiers") ||
                            xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "virtualmods")) {
-                    // TODO: Research more about this field. There are several
-                    // things I don't yet understand about it. It looks like in
-                    // the compatibility section interpret statements can only
-                    // have a single modifier defined in them, and an action can
-                    // only set, latch or lock a single modifier. Then, why is
-                    // this field plural and accepts multiple virtual
-                    // modifiers?. Maybe it's just for the case in which
-                    // different levels have different actions that modify
-                    // different modifiers. But if that's the case, what's the
-                    // point of this field? can't we just assume all used
-                    // virtual modifiers in the actions are defined
-                    // automatically?.
-                    //
-                    // Note that this is different than the virtual modifiers in
-                    // a type definition. Here a modifier that is defined but
-                    // not used in a level means it should explicitly be unset
-                    // so that the corresponding level is set.
-                    //
-                    // Maybe we can get away with ignoring this field when
-                    // parsing and generating it automatically when translating
-                    // out IR into xkb.
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
                     do {
+                        key_modifier_mask_t vmod_mask = 0x0;
+
                         xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, NULL);
+                        if (!xkb_parser_is_real_modifier (state, str_data(&state->tok_value))) {
+                            enum modifier_result_status_t status = 0;
+                            vmod_mask =
+                                keyboard_layout_get_modifier (state->keymap, str_data(&state->tok_value), &status);
+
+                            if (status == KEYBOARD_LAYOUT_MOD_UNDEFINED) {
+                                vmod_mask =
+                                    keyboard_layout_new_modifier (state->keymap, str_data(&state->tok_value), &status);
+                                if (status == KEYBOARD_LAYOUT_MOD_MAX_LIMIT_REACHED) {
+                                    // NOTE: This is not the actual XKB limit of 16, here we reached
+                                    // the maximum possible of our internal representation
+                                    // (currently 32).
+                                    xkb_parser_error_tok (
+                                        state,
+                                        "Virtual modifier %s, can't be defined. Maximum number of modifiers reached.");
+
+                                }
+                            }
+
+                        } else {
+                            xkb_parser_error_tok (state, "Expected virtual modifier, got '%s'.");
+                        }
+
+                        if (!state->scnr.error) {
+                            state->symbol_vmods[kc] |= vmod_mask;
+                        }
 
                         xkb_parser_next (state);
                         if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "+")) {
@@ -1992,7 +2000,7 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state)
     // (Done above while parsing, the mapping is in state->modifier_map)
 
     // 2) Create an array list of all defined virtual modifiers
-    g_tree_foreach (keymap->modifiers, populate_vmod_map_foreach, &state);
+    g_tree_foreach (state->keymap->modifiers, populate_vmod_map_foreach, &state);
 
     // 3) Have a list of all winning interprets for each key, maybe this can be
     // done while the winning interpret is computed above. The important thing

@@ -1804,7 +1804,7 @@ gboolean populate_vmod_map_foreach (gpointer modifier_name, gpointer mask_ptr, g
     key_modifier_mask_t mask = *(key_modifier_mask_t*)mask_ptr;
     struct xkb_parser_state_t *state = (struct xkb_parser_state_t *)data;
 
-    if (xkb_parser_is_real_modifier (state, modifier_name)) {
+    if (!xkb_parser_is_real_modifier (state, modifier_name)) {
         uint32_t idx = bit_mask_perfect_hash (mask);
         state->vmodmap[idx].name = modifier_name;
         state->vmodmap[idx].encoding = 0x0;
@@ -1813,15 +1813,113 @@ gboolean populate_vmod_map_foreach (gpointer modifier_name, gpointer mask_ptr, g
     return FALSE;
 }
 
+struct interpret_vmod_definition_t {
+    int kc;
+    key_modifier_mask_t vmods;
+
+    struct interpret_vmod_definition_t *next;
+};
+
+void add_interpret_vmod_definition (struct xkb_parser_state_t *state,
+                                    struct interpret_vmod_definition_t **interpret_vmod_definition,
+                                    int kc, key_modifier_mask_t vmod_mask)
+{
+    assert (interpret_vmod_definition != NULL);
+
+    static struct interpret_vmod_definition_t *interpret_vmod_end = NULL;
+
+    if (interpret_vmod_end == NULL) {
+        *interpret_vmod_definition = mem_pool_push_struct (&state->pool, struct interpret_vmod_definition_t);
+        **interpret_vmod_definition = ZERO_INIT (struct interpret_vmod_definition_t);
+
+        interpret_vmod_end = *interpret_vmod_definition;
+        interpret_vmod_end->kc = kc;
+    }
+
+    if (interpret_vmod_end->kc != kc) {
+        struct interpret_vmod_definition_t *new_vmod_definition =
+            mem_pool_push_struct (&state->pool, struct interpret_vmod_definition_t);
+        *new_vmod_definition = ZERO_INIT (struct interpret_vmod_definition_t);
+
+        interpret_vmod_end->next = new_vmod_definition;
+        interpret_vmod_end = new_vmod_definition;
+        interpret_vmod_end->kc = kc;
+    }
+
+    interpret_vmod_end->vmods |= vmod_mask;
+}
+
+// DELETE ME {
+gboolean reverse_mapping_create_foreach_test (gpointer modifier_name, gpointer mask_ptr, gpointer data)
+{
+    char **reverse_modifier_definition = (char**)data;
+
+    key_modifier_mask_t mask = *(key_modifier_mask_t*)mask_ptr;
+    if (mask != 0) {
+        int pos = 0;
+        while (!(mask&0x1) && pos < KEYBOARD_LAYOUT_MAX_MODIFIERS) {
+            pos++;
+            mask >>= 1;
+        }
+
+        if (reverse_modifier_definition[pos]) {
+            printf ("Modfier mapping is not 1:1, keymap seems to be corrupted.\n");
+
+        } else if (pos == KEYBOARD_LAYOUT_MAX_MODIFIERS) {
+            printf ("Invalid modifier mask, keymap seems to be corrupted.\n");
+
+        } else {
+            reverse_modifier_definition[pos] = modifier_name;
+        }
+    }
+
+    return FALSE;
+}
+
+void xkb_file_write_modifier_mask_reverse (char **reverse_modifier_definition, string_t *str, key_modifier_mask_t mask)
+{
+    int bit_pos = 0;
+    if (mask == 0) {
+        // The current representation used for the reverse map does not allow a
+        // representation for the 'none' keyboard mask.
+        // :none_modifier
+        str_cat_c (str, "none");
+
+    } else {
+        while (mask != 0) {
+            if (mask & 0x1) {
+                str_cat_c (str, reverse_modifier_definition[bit_pos]);
+
+                if (mask>>1 != 0) {
+                    str_cat_c (str, " + ");
+                }
+            }
+
+            bit_pos++;
+            mask >>= 1;
+        }
+    }
+}
+// }
+
 void xkb_parser_simplify_layout (struct xkb_parser_state_t *state)
 {
     struct xkb_compat_t *compatibility = &state->compatibility;
 
     key_modifier_mask_t real_modifiers = xkb_get_real_modifiers_mask (state->keymap);
 
-    // Compute virtual modifiers and see if they are actually necessary, if they
-    // aren't map everything to real modifiers.
+    // This linked list will be populated by the :compute_winning_interprets
+    // algorithm, so that later the one that computes virtual modifier
+    // definitions (:virtual_modifier_definition) uses it.
+    struct interpret_vmod_definition_t *interpret_vmod_definition = NULL;
 
+    //////////////////////////////////////////////////////////////////////
+    // Compute winning interprets and resolve key level actions from them.
+    // :compute_winning_interprets
+    //
+    // NOTE: It's important that keycodes are iterated in ascending order.
+    // The next algorithm :virtual_modifier_definition and
+    // add_interpret_vmod_definition() assume things work this way.
     for (int kc=0; kc<KEY_CNT; kc++) {
         struct key_t *curr_key = state->keymap->keys[kc];
 
@@ -1982,38 +2080,98 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state)
                         curr_key->levels[curr_level].action =
                             xkb_parser_translate_to_ir_action (&winning_interpret[j]->action,
                                                                state->modifier_map[kc]);
+
+                        // Build the data structure required for virtual
+                        // modifier definition computation.
+                        // :virtual_modifier_definition
+                        add_interpret_vmod_definition (state, &interpret_vmod_definition,
+                            kc, winning_interpret[j]->virtual_modifier);
                     }
                 }
             }
         }
     }
 
+    ////////////////////////////////////////////////////
+    // Compute the definitions of all virtual modifiers.
+    // :virtual_modifier_definition
 
-    // Compute virtual modifiers, and try to transform it to a layout with just
-    // real modifiers.
-    //
-    // TODO: This is a sketch of the algorithm to be implemented. It will
-    // replace all the modifier mapping computation that happens in the writer.
-    //
-    // 1) Get a mapping from real modifiers to keycodes, this can be done while
-    // parsing into a structure specific to the xkb backend.
-    // (Done above while parsing, the mapping is in state->modifier_map)
+    // Initialize state->vmodmap from the definitions currently in the keymap.
+    g_tree_foreach (state->keymap->modifiers, populate_vmod_map_foreach, state);
 
-    // 2) Create an array list of all defined virtual modifiers
-    g_tree_foreach (state->keymap->modifiers, populate_vmod_map_foreach, &state);
+    struct interpret_vmod_definition_t *curr_interpret_vmod_definition = interpret_vmod_definition;
+    for (int kc=0; kc<KEY_CNT; kc++) {
+        struct key_t *curr_key = state->keymap->keys[kc];
 
-    // 3) Have a list of all winning interprets for each key, maybe this can be
-    // done while the winning interpret is computed above. The important thing
-    // is to add the real modifier mapping for each virtual modifier.
-    //
-    // 4) Make all virtual modifiers that have a single real modifier as
-    // encoding be the actual real modifier, ignore that virtual modifier
-    // further on.
-    //
-    // 5) If virtual modifiers are necessary... not sure what to do. Add them to
-    // a xkb backend specific structure? transform them into real modifiers
-    // anyway, just add the possibility to assign multiple modifiers to an
-    // action? (this is probably already supported...).
+        if (curr_key != NULL) {
+            // Decide where we are going to look for virtual modifier
+            // definitions. The symbols section definition overrides everything
+            // if there is a 'vmods' statement, or there is an 'actions'
+            // statement.
+            bool symbols_vmod_override = false;
+            if (state->symbol_vmods[kc] != 0x0) {
+                symbols_vmod_override = true;
+            } else {
+                int num_levels = keyboard_layout_type_get_num_levels (curr_key->type);
+                for (int j=0; j<num_levels; j++) {
+                    if (state->symbol_actions[kc][j].type != XKB_BACKEND_KEY_ACTION_TYPE_UNSET) {
+                        symbols_vmod_override = true;
+                        break;
+                    }
+                }
+            }
+
+            // Have key_mods contain the virtual modifiers that the mapping of
+            // this key (kc) will define.
+            key_modifier_mask_t key_vmods = 0x0;
+            if (symbols_vmod_override) {
+                key_vmods = state->symbol_vmods[kc];
+            } else {
+                if (curr_interpret_vmod_definition && curr_interpret_vmod_definition->kc == kc) {
+                    key_vmods = curr_interpret_vmod_definition->vmods;
+                    curr_interpret_vmod_definition = curr_interpret_vmod_definition->next;
+                }
+            }
+
+            // Iterate bits of key_vmods, lookup the element in state->vmodmap
+            // corresponding to each bit, then set the real modifier mapped to
+            // kc in its definition.
+            while (key_vmods) {
+                if (state->modifier_map[kc]) {
+                    key_modifier_mask_t next_bit_mask = key_vmods & -key_vmods;
+                    uint32_t idx = bit_mask_perfect_hash (next_bit_mask);
+                    assert (single_modifier_in_mask(state->modifier_map[kc]));
+                    state->vmodmap[idx].encoding |= state->modifier_map[kc];
+                }
+
+                key_vmods = key_vmods & (key_vmods-1);
+            }
+        }
+    }
+
+    // DELETE ME {
+    char *reverse_modifier_definition[KEYBOARD_LAYOUT_MAX_MODIFIERS];
+    for (int i=0; i<KEYBOARD_LAYOUT_MAX_MODIFIERS; i++) {
+        reverse_modifier_definition[i] = NULL;
+    }
+    g_tree_foreach (state->keymap->modifiers, reverse_mapping_create_foreach_test, reverse_modifier_definition);
+
+    for (int i=0; i<KEYBOARD_LAYOUT_MAX_MODIFIERS; i++) {
+        if (state->vmodmap[i].name != NULL && state->vmodmap[i].encoding) {
+            printf ("%s: ", state->vmodmap[i].name);
+
+            string_t str = {0};
+            xkb_file_write_modifier_mask_reverse (reverse_modifier_definition, &str, state->vmodmap[i].encoding);
+            printf ("%s\n", str_data(&str));
+        }
+    }
+    // }
+
+    // TODO: Iterate all virtual modifier definitions and decide which of those
+    // are actually necessary. If virtual modifiers are necessary... not sure
+    // what to do. Add them to a xkb backend specific structure? transform them
+    // into real modifiers anyway, just add the possibility to assign multiple
+    // modifiers to an action? (this is probably already supported...).
 }
 
 // This parses a subset of the xkb file syntax into our internal representation

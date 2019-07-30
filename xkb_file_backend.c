@@ -1849,8 +1849,7 @@ void add_interpret_vmod_definition (struct xkb_parser_state_t *state,
     interpret_vmod_end->vmods |= vmod_mask;
 }
 
-// DELETE ME {
-gboolean reverse_mapping_create_foreach_test (gpointer modifier_name, gpointer mask_ptr, gpointer data)
+gboolean reverse_mapping_create_foreach (gpointer modifier_name, gpointer mask_ptr, gpointer data)
 {
     char **reverse_modifier_definition = (char**)data;
 
@@ -1872,10 +1871,28 @@ gboolean reverse_mapping_create_foreach_test (gpointer modifier_name, gpointer m
             reverse_modifier_definition[pos] = modifier_name;
         }
     }
+    // else {
+    // The 'none' modifier can't be represented with the current reverse mapping
+    // data structure. We ignore it and later when writing masks we handle it as
+    // a special case.
+    // :none_modifier
+    // }
 
     return FALSE;
 }
 
+//NOTE: This expects reverse_modifier_definition to have at least
+//KEYBOARD_LAYOUT_MAX_MODIFIERS elements allocated.
+void create_reverse_modifier_name_map (struct keyboard_layout_t *keymap, char **reverse_modifier_definition)
+{
+    for (int i=0; i<KEYBOARD_LAYOUT_MAX_MODIFIERS; i++) {
+        reverse_modifier_definition[i] = NULL;
+    }
+
+    g_tree_foreach (keymap->modifiers, reverse_mapping_create_foreach, reverse_modifier_definition);
+}
+
+// DELETE ME {
 void xkb_file_write_modifier_mask_reverse (char **reverse_modifier_definition, string_t *str, key_modifier_mask_t mask)
 {
     int bit_pos = 0;
@@ -1902,7 +1919,7 @@ void xkb_file_write_modifier_mask_reverse (char **reverse_modifier_definition, s
 }
 // }
 
-void xkb_parser_simplify_layout (struct xkb_parser_state_t *state)
+void xkb_parser_simplify_layout (struct xkb_parser_state_t *state, string_t *vmod_map_log)
 {
     struct xkb_compat_t *compatibility = &state->compatibility;
 
@@ -2149,23 +2166,22 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state)
         }
     }
 
-    // DELETE ME {
-    char *reverse_modifier_definition[KEYBOARD_LAYOUT_MAX_MODIFIERS];
-    for (int i=0; i<KEYBOARD_LAYOUT_MAX_MODIFIERS; i++) {
-        reverse_modifier_definition[i] = NULL;
-    }
-    g_tree_foreach (state->keymap->modifiers, reverse_mapping_create_foreach_test, reverse_modifier_definition);
+    if (vmod_map_log != NULL) {
+        char *reverse_modifier_name_map[KEYBOARD_LAYOUT_MAX_MODIFIERS];
+        create_reverse_modifier_name_map (state->keymap, reverse_modifier_name_map);
 
-    for (int i=0; i<KEYBOARD_LAYOUT_MAX_MODIFIERS; i++) {
-        if (state->vmodmap[i].name != NULL && state->vmodmap[i].encoding) {
-            printf ("%s: ", state->vmodmap[i].name);
+        str_cat_c (vmod_map_log, "Virtual modifier encoding:\n");
 
-            string_t str = {0};
-            xkb_file_write_modifier_mask_reverse (reverse_modifier_definition, &str, state->vmodmap[i].encoding);
-            printf ("%s\n", str_data(&str));
+        for (int i=0; i<KEYBOARD_LAYOUT_MAX_MODIFIERS; i++) {
+            if (state->vmodmap[i].name != NULL && state->vmodmap[i].encoding) {
+                str_cat_printf (vmod_map_log, " %s: ", state->vmodmap[i].name);
+
+                string_t str = {0};
+                xkb_file_write_modifier_mask_reverse (reverse_modifier_name_map, &str, state->vmodmap[i].encoding);
+                str_cat_printf (vmod_map_log, "%s\n", str_data(&str));
+            }
         }
     }
-    // }
 
     // TODO: Iterate all virtual modifier definitions and decide which of those
     // are actually necessary. If virtual modifiers are necessary... not sure
@@ -2179,7 +2195,7 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state)
 // xkbcomp. Notable differences from a full xkb compiler are the lack of include
 // statements and a more strict ordering of things.
 // TODO: Use status_t here.
-bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
+bool xkb_file_parse_verbose (char *xkb_str, struct keyboard_layout_t *keymap, string_t *log)
 {
     struct xkb_parser_state_t state;
     xkb_parser_state_init (&state, xkb_str, keymap);
@@ -2241,7 +2257,7 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
     } else {
         // Here we translate the compatibility section;s actions into actions
         // that are stored the way symbols are stored.
-        xkb_parser_simplify_layout (&state);
+        xkb_parser_simplify_layout (&state, log);
 
         // Make a validation of the successfully parsed layout. A layout can be
         // valid syntactically but have issues semantically.
@@ -2266,6 +2282,10 @@ bool xkb_file_parse (char *xkb_str, struct keyboard_layout_t *keymap)
     // :keyboard_layout_compact
 
     return success;
+}
+bool xkb_file_parse(char *xkb_str, struct keyboard_layout_t *keymap)
+{
+    return xkb_file_parse_verbose(xkb_str,keymap,NULL);
 }
 
 struct modifier_map_element_t {
@@ -2328,38 +2348,6 @@ void xkb_file_write_modifier_mask (struct xkb_writer_state_t *state, string_t *s
             mask >>= 1;
         }
     }
-}
-
-gboolean reverse_mapping_create_foreach (gpointer modifier_name, gpointer mask_ptr, gpointer data)
-{
-    struct xkb_writer_state_t *state = (struct xkb_writer_state_t*)data;
-
-    key_modifier_mask_t mask = *(key_modifier_mask_t*)mask_ptr;
-    if (mask != 0) {
-        int pos = 0;
-        while (!(mask&0x1) && pos < KEYBOARD_LAYOUT_MAX_MODIFIERS) {
-            pos++;
-            mask >>= 1;
-        }
-
-        if (state->reverse_modifier_definition[pos]) {
-            printf ("Modfier mapping is not 1:1, keymap seems to be corrupted.\n");
-
-        } else if (pos == KEYBOARD_LAYOUT_MAX_MODIFIERS) {
-            printf ("Invalid modifier mask, keymap seems to be corrupted.\n");
-
-        } else {
-            state->reverse_modifier_definition[pos] = modifier_name;
-        }
-    }
-    // else {
-    // The 'none' modifier can't be represented with the current reverse mapping
-    // data structure. We ignore it and later when writing masks we handle it as
-    // a special case.
-    // :none_modifier
-    // }
-
-    return FALSE;
 }
 
 gboolean print_modifiers_foreach (gpointer modifier_name, gpointer mask_ptr, gpointer data)
@@ -2463,7 +2451,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
     state.real_modifiers = xkb_get_real_modifiers_mask (keymap);
     // Create a reverse mapping of the modifier mapping in the internal
     // representation.
-    g_tree_foreach (keymap->modifiers, reverse_mapping_create_foreach, &state);
+    create_reverse_modifier_name_map (keymap, state.reverse_modifier_definition);
 
     // TODO: Print our extra informtion as comments.
 

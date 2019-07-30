@@ -459,8 +459,9 @@ int main (int argc, char **argv)
     }
 
     printf ("\n------ xkb backend output -----\n");
+    string_t parser_out = {0};
     struct keyboard_layout_t keymap = {0};
-    if (!xkb_file_parse (str_data (&input_str), &keymap)) {
+    if (!xkb_file_parse_verbose (str_data (&input_str), &keymap, &parser_out)) {
         if (input_type == INPUT_RMLVO_NAMES) {
             // TODO: Print all used input options
             printf ("Errors parsing input layout '%s'.\n", layout);
@@ -503,6 +504,8 @@ int main (int argc, char **argv)
             } else {
                 // Get an overview of the layout loaded from libxkbcommon.
                 xkbcommon_print_modifier_info (internal_keymap);
+
+                printf ("\n%s", str_data(&parser_out));
 
                 if (file_output_enabled) {
                     printf ("\n");

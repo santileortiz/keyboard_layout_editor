@@ -1919,6 +1919,33 @@ void xkb_file_write_modifier_mask_reverse (char **reverse_modifier_definition, s
 }
 // }
 
+// NOTE: This assumes vmodmap has at least KEYBOARD_LAYOUT_MAX_MODIFIERS
+// elements and that elements are mapped by the result of bit_mask_perfect_hash
+// applied to the virtual modifier.
+key_modifier_mask_t remove_vmods (struct vmodmap_element_t *vmodmap,
+                                  key_modifier_mask_t real_modifiers, key_modifier_mask_t mask)
+{
+    key_modifier_mask_t only_real_modifiers = 0x0;
+    key_modifier_mask_t action_mods = mask;
+    while (action_mods) {
+        key_modifier_mask_t next_bit_mask = action_mods & -action_mods;
+
+        if (real_modifiers & next_bit_mask) {
+            only_real_modifiers |= next_bit_mask;
+
+        } else {
+            uint32_t idx = bit_mask_perfect_hash (next_bit_mask);
+            if (vmodmap[idx].name != NULL && vmodmap[idx].encoding) {
+                only_real_modifiers |= vmodmap[idx].encoding;
+            }
+        }
+
+        action_mods = action_mods & (action_mods-1);
+    }
+
+    return only_real_modifiers;
+}
+
 void xkb_parser_simplify_layout (struct xkb_parser_state_t *state, string_t *vmod_map_log)
 {
     struct xkb_compat_t *compatibility = &state->compatibility;
@@ -2166,6 +2193,7 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state, string_t *vmo
         }
     }
 
+    // If the caller wants to see the virtual modifier encoding, print it.
     if (vmod_map_log != NULL) {
         char *reverse_modifier_name_map[KEYBOARD_LAYOUT_MAX_MODIFIERS];
         create_reverse_modifier_name_map (state->keymap, reverse_modifier_name_map);
@@ -2183,11 +2211,32 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state, string_t *vmo
         }
     }
 
-    // TODO: Iterate all virtual modifier definitions and decide which of those
-    // are actually necessary. If virtual modifiers are necessary... not sure
-    // what to do. Add them to a xkb backend specific structure? transform them
-    // into real modifiers anyway, just add the possibility to assign multiple
-    // modifiers to an action? (this is probably already supported...).
+    // Transform modifier masks in actions to masks with only real modifiers.
+    for (int kc=0; kc<KEY_CNT; kc++) {
+        struct key_t *curr_key = state->keymap->keys[kc];
+
+        if (curr_key != NULL) {
+            int num_levels = keyboard_layout_type_get_num_levels (curr_key->type);
+            for (int j=0; j<num_levels; j++) {
+                curr_key->levels[j].action.modifiers =
+                    remove_vmods (state->vmodmap, real_modifiers, curr_key->levels[j].action.modifiers);
+            }
+        }
+    }
+
+    // Translate all modifier masks in types to masks with only real modifiers.
+    struct key_type_t *curr_type = state->keymap->types;
+    while (curr_type) {
+        curr_type->modifier_mask = remove_vmods (state->vmodmap, real_modifiers, curr_type->modifier_mask);
+
+        struct level_modifier_mapping_t *curr_modifier_mapping = curr_type->modifier_mappings;
+        while (curr_modifier_mapping) {
+            curr_modifier_mapping->modifiers = remove_vmods (state->vmodmap, real_modifiers, curr_type->modifier_mask);
+
+            curr_modifier_mapping = curr_modifier_mapping->next;
+        }
+        curr_type = curr_type->next;
+    }
 }
 
 // This parses a subset of the xkb file syntax into our internal representation

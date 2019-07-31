@@ -4,6 +4,8 @@
 
 #define _GNU_SOURCE // Used to enable strcasestr()
 #include "common.h"
+#include "scanner.c"
+
 #include <xkbcommon/xkbcommon.h>
 #include <linux/input-event-codes.h>
 #include "keycode_names.h"

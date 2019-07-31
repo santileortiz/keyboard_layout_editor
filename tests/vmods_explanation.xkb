@@ -5,18 +5,77 @@
 // they don't say how. This layout sets up 11 working modifiers, 8 real and 3
 // virtual.
 //
+// As I thought from the beginning, the only way in which you can get more
+// modifiers is by assigning virtual modifiers to a set of the 8 real
+// modifiers, as if we were encoding a binary 8 bit number. What is not stright
+// forward is how the xkb file format defines these. The most stright forward
+// thing would have been something like
+//
+//        vmod myVirtualMod = Mod1 + Mod2;
+//
+// This is not what happens. Instead, this encoding is spread accross
+// virtualModifier definitions in interprets, vmods definitions in key
+// statements and modifier_map statements inside the symbols section.
+//
+// First of all is important to understand that the virtualModifier field in
+// interpret statements and the vmods one in key statements are logically the
+// same, and serve the same purpose: To assign a list of virtual modifier names
+// to a keycode. We call this list of virtual modifier names, the virtual
+// modifier definition list of that key. In key statements we have multiple
+// vmods because a single key has multiple levels and each level can match a
+// different interpret statement with a different virtualModifier, in this case
+// all these virtual modifier names are mapped to the same key.
+//
+// Now, what the modifier_map statement in the symbols section does is, assign
+// a real modifier to a key. Note that a key at most can have a single real
+// modifier mapped to it.
+//
+// Then, the encoding of a virtual modifier V will be the logical or of all
+// real modifiers mapped to keys where V appears in its virtual modifier
+// definition list. Lets see a better example to understand this:
+//
+//   modifier_map             Virtual modifier definition list
+//       Mod1 ---> <KC1> ---> L: NumLock, AltGr, Alt
+//       Mod2 ---> <KC2> ---> L: AltGr, Alt
+//       Mod3 ---> <KC3> ---> L: AltGr
+//
+// The encoding of each virtual modifier will be:
+//               NumLock: Mod1
+//                   Alt: Mod1 + Mod2
+//                 AltGr: Mod1 + Mod2 + Mod3
+//
+// Note that, because things are spread in different places of the file format
+// some of them can be missing, in this case the corresponding 'bit' of the
+// virtual modifier won't be mapped. It's also possible that a real modifier is
+// mapped to multiple keys, in which case they are just merged together.
+//
+// From the example we can see the main drawback of virtual modifiers: They are
+// not independent. If AltGr is triggered, Alt and NumLock will be triggered
+// too, because these are subsets of the encoding of AltGr. In the same way
+// triggering Alt will also trigger NumLock but not AltGr. Also, if actions are
+// added to different keys to set Mod1, Mod2 and Mod3, pressing Mod1 and Mod2
+// simultaneously will be equivalent to setting the Alt virtual modifier.
+//
+// This example (assuming a normal QWERTY keyboard) adds actions to the
+// QWERTYUI keys to set the 8 real modifiers, keys 12345678 are indicators for
+// each real modifier, and each one corresponds to the one below. Then we do
+// the same for the P, [ and ] keys but for the 3 virtual modifiers Foo, Bar
+// and Baz respectiveley, the indicators for these modifiers are 0, - and =
+// keys. The best way to see how this layout works is by using the
+// xkbcommon-view program. Build it and run it using:
+//
+//         ./pymk xkbcommon_view
+//         ./bin/xkbcommon-view ./test/vmods_explanation.xkb
+//
+// There are some extra details on how the interpret virtualModifier interacts
+// with key vmods, they are tested in the interpret_vs_symbol_vmod_*.xkb
+// layouts. These can also be tested with the xkbcommon-view program.
+//
 // Conclusions regarding the layout editor:
 //
-//  * I think most default layouts don't need virtual modifiers at all. They
-//    are only necessary if the total number of required modifiers exceeds 8.
-//    ANY layout with 8 or less modifiers can be translated to a simpler one
-//    with only real modifiers and no compatibility section. I will try to
-//    create a default database where all layouts are of this kind.
-//
-//  * The sense in which virtual modifiers are not 'real', is that they can't
-//    be simultaneously pressed. At least not in general. Their purpose is to
-//    allow balancing 2 resources: number of total modifiers and number of
-//    distinct modifiers that need to be pressed simultaneously.
+//  * The purpose of virtual modifiers is to allow balancing 2 resources:
+//    number of total modifiers and number of distinct modifiers that need to
+//    be pressed simultaneously.
 //
 //    A 100% real modifier layout allows up to 8 total modifiers where all of
 //    them can be pressed at the same time and each one be independent of the
@@ -24,17 +83,19 @@
 //    but pressing 2 modifiers at the same time will ALWAYS trigger a 3rd
 //    modifier.
 //
-//  * It is possible to create an algorithm that, given a full layout with more
-//    than 8 modifiers, tries to encode the necessary virtual modifiers in such
-//    a way that all modifiers behave as real modidifers. This actually looks
-//    like an interesting algorithm to develop.
+//  * Virtual modifiers are not necessary, we can always just have an action
+//    set multiple real modifiers and a level of a key type be assigned to
+//    multiple modifiers. The keyboard layout editor will not expose this
+//    complexity to the user, we will only support real modifiers. All layouts
+//    loaded that contain virtual modifiers will be translated to versions
+//    without them.
 //
-//  * The keyboard layout editor's UI, in Linux at least, will not expose
-//    virtual modifier concepts. Anything that virtual modifiers do can be
-//    achieved with a UI to configure types, and by allowing a key to be mapped
-//    to multiple real modifiers. Then the program in the backend translates
-//    this into something that uses virtual modifiers. I don't think many
-//    layouts require virtual modifiers in practice.
+//  * It is possible to create an algorithm that, given a full layout that
+//    requires more than 8 modifiers, tries to encode the necessary virtual
+//    modifiers in such a way that all modifiers behave as real modidifers.
+//    This actually looks like an interesting algorithm to develop. Until such
+//    algorithm exists users can use real modifiers and create the custom
+//    encoding by themselves.
 
 xkb_keymap {
 xkb_keycodes "keys_k" {

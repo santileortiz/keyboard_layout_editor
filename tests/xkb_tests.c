@@ -68,8 +68,6 @@ bool cli_parser_opt_lookup (struct cli_parser_t *parser, const char *opt_name, s
         if (curr_opt->opt == NULL || strcmp (opt_name, curr_opt->opt) == 0) {
             if (opt != NULL) {
                 *opt = *curr_opt;
-            }
-            return true;
         }
 
         curr_opt = curr_opt->next;
@@ -151,6 +149,41 @@ void print_mod_state (struct xkb_state *xkb_state, struct xkb_keymap *xkb_keymap
 struct print_modifier_info_foreach_clsr_t {
     xkb_mod_index_t xkb_num_mods;
 };
+
+struct compare_key_foreach_clsr_t {
+    mem_pool_t pool;
+
+    struct xkb_keymap *keymap;
+
+    struct *xkb_state *s1;
+    struct *xkb_state *s2;
+
+    bool different_keys;
+};
+
+void compare_key_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *data)
+{
+    struct compare_key_foreach_clsr_t *clsr = (struct compare_key_foreach_clsr_t*) data;
+
+    xkb_state_update_key (clsr->s1, kc+8, XKB_KEY_DOWN);
+    xkb_state_update_key (clsr->s2, kc+8, XKB_KEY_DOWN);
+    if (xkb_state_key_get_one_sym(clsr->s1, kc+8) != xkb_state_key_get_one_sym(clsr->s2, kc+8)) {
+        clsr = false;
+    }
+}
+
+bool keymap_states_equal (xkb_keymap *keymap, xkb_state *s1, xkb_state *s2)
+{
+    struct compare_key_foreach_clsr_t clsr;
+    clsr.keymap = keymap;
+    clsr.s1 = s1;
+    clsr.s2 = s2;
+    clsr.different_keys = NULL;
+
+    xkb_keymap_key_for_each (keymap, compare_key_foreach, &clsr);
+
+    return clsr == NULL;
+}
 
 void print_modifier_info_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *data)
 {

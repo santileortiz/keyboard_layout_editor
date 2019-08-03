@@ -68,6 +68,8 @@ bool cli_parser_opt_lookup (struct cli_parser_t *parser, const char *opt_name, s
         if (curr_opt->opt == NULL || strcmp (opt_name, curr_opt->opt) == 0) {
             if (opt != NULL) {
                 *opt = *curr_opt;
+            }
+            return true;
         }
 
         curr_opt = curr_opt->next;
@@ -146,44 +148,94 @@ void print_mod_state (struct xkb_state *xkb_state, struct xkb_keymap *xkb_keymap
     }
 }
 
-struct print_modifier_info_foreach_clsr_t {
-    xkb_mod_index_t xkb_num_mods;
-};
-
 struct compare_key_foreach_clsr_t {
     mem_pool_t pool;
 
-    struct xkb_keymap *keymap;
+    string_t *msg;
 
-    struct *xkb_state *s1;
-    struct *xkb_state *s2;
+    struct xkb_keymap *k1;
+    struct xkb_keymap *k2;
 
-    bool different_keys;
+    bool equal_keymaps;
 };
 
 void compare_key_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *data)
 {
     struct compare_key_foreach_clsr_t *clsr = (struct compare_key_foreach_clsr_t*) data;
+    struct xkb_keymap *k1 = clsr->k1;
+    struct xkb_keymap *k2 = clsr->k2;
+    string_t *msg = clsr->msg;
 
-    xkb_state_update_key (clsr->s1, kc+8, XKB_KEY_DOWN);
-    xkb_state_update_key (clsr->s2, kc+8, XKB_KEY_DOWN);
-    if (xkb_state_key_get_one_sym(clsr->s1, kc+8) != xkb_state_key_get_one_sym(clsr->s2, kc+8)) {
-        clsr = false;
+    // Check the number of layouts in the key is valid
+    int k1_num_layouts = xkb_keymap_num_layouts_for_key (k1, kc);
+    int k2_num_layouts = xkb_keymap_num_layouts_for_key (k2, kc);
+    if (k1_num_layouts != k2_num_layouts) {
+        str_set_printf (msg, "Key %d has %d layouts in k1 but %d in k2.", kc, k1_num_layouts, k2_num_layouts);
+        clsr->equal_keymaps = false;
+
+    } else if (k1_num_layouts > 1) {
+        // NOTE: What does it mean to have a number of layouts of 0? (yes, it
+        // happens).
+        str_set (msg, "Compared keymaps have more than 1 layout, this is not supported yet.");
+        clsr->equal_keymaps = false;
+    }
+
+    // Check the number of levels in the key is valid.
+    int k1_num_levels = xkb_keymap_num_levels_for_key (k1, kc, 0);
+    int k2_num_levels = xkb_keymap_num_levels_for_key (k2, kc, 0);
+    if (clsr->equal_keymaps && k1_num_levels != k2_num_levels) {
+        str_set_printf (msg, "Key %d has %d levels in k1 but %d in k2.", kc, k1_num_levels, k2_num_levels);
+        clsr->equal_keymaps = false;
+    }
+
+    // Compare all keysyms in each level.
+    if (clsr->equal_keymaps) {
+        for (int lvl=0; clsr->equal_keymaps && lvl<k1_num_levels; lvl++) {
+            const xkb_keysym_t *k1_keysyms;
+            const xkb_keysym_t *k2_keysyms;
+            int k1_num_syms = xkb_keymap_key_get_syms_by_level (k1, kc, 0, lvl, &k1_keysyms);
+            int k2_num_syms = xkb_keymap_key_get_syms_by_level (k2, kc, 0, lvl, &k2_keysyms);
+            if (k1_num_syms != k2_num_syms) {
+                str_set_printf (msg, "Key %d has %d keysyms in k1 but %d in k2.", kc, k1_num_syms, k2_num_syms);
+                clsr->equal_keymaps = false;
+
+            } else {
+                for (int idx=0; clsr->equal_keymaps && idx<k1_num_syms; idx++) {
+                    if (k1_keysyms[idx] != k2_keysyms[idx]) {
+                        str_set_printf (msg, "k1[kc:%d][lvl:%d] -> %d != k1[kc:%d][lvl:%d] -> %d",
+                                        kc, lvl, k1_keysyms[idx], kc, lvl, k2_keysyms[idx]);
+                        clsr->equal_keymaps = false;
+                    }
+                }
+            }
+        }
     }
 }
 
-bool keymap_states_equal (xkb_keymap *keymap, xkb_state *s1, xkb_state *s2)
+bool keymap_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, string_t *msg)
 {
+    assert (msg != NULL);
+
     struct compare_key_foreach_clsr_t clsr;
-    clsr.keymap = keymap;
-    clsr.s1 = s1;
-    clsr.s2 = s2;
-    clsr.different_keys = NULL;
+    clsr.k1 = k1;
+    clsr.k2 = k2;
+    clsr.msg = msg;
+    clsr.equal_keymaps = true;
 
-    xkb_keymap_key_for_each (keymap, compare_key_foreach, &clsr);
+    if (xkb_keymap_num_layouts (k1) != xkb_keymap_num_layouts (k2)) {
+        str_set (msg, "Keymaps have different number of layouts.");
+        clsr.equal_keymaps = false;
+    }
 
-    return clsr == NULL;
+    xkb_keymap_key_for_each (k1, compare_key_foreach, &clsr);
+    xkb_keymap_key_for_each (k2, compare_key_foreach, &clsr);
+
+    return clsr.equal_keymaps;
 }
+
+struct print_modifier_info_foreach_clsr_t {
+    xkb_mod_index_t xkb_num_mods;
+};
 
 void print_modifier_info_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *data)
 {
@@ -491,6 +543,7 @@ int main (int argc, char **argv)
         }
     }
 
+    struct xkb_keymap *internal_keymap = NULL;
     printf ("\n------ xkb backend output -----\n");
     string_t parser_out = {0};
     struct keyboard_layout_t keymap = {0};
@@ -521,7 +574,7 @@ int main (int argc, char **argv)
             }
 
         } else {
-            struct xkb_keymap *internal_keymap =
+            internal_keymap =
                 xkb_keymap_new_from_string(xkb_ctx, str_data(&xkb_out_str),
                                            XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
             if (!internal_keymap) {
@@ -549,8 +602,16 @@ int main (int argc, char **argv)
                 }
             }
         }
+    }
 
-
+    printf ("\n------ Equality Test -----\n");
+    if (internal_keymap != NULL && input_keymap != NULL) {
+        string_t msg = {0};
+        if (!keymap_equality_test (internal_keymap, input_keymap, &msg)) {
+            printf ("Keymaps not equal: %s\n", str_data(&msg));
+        } else {
+            printf ("Keymaps are the same!\n");
+        }
     }
 
     str_free (&input_str);

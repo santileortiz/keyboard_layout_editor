@@ -136,6 +136,9 @@ void print_mod_state (struct xkb_state *xkb_state, struct xkb_keymap *xkb_keymap
                       xkb_mod_index_t xkb_num_mods, enum xkb_state_component type)
 {
     bool is_first = true;
+    // TODO: This assumes modifier indices in libxkbcommon are consecutive from
+    // 0 to xkb_num_mods-1. For now it looks like it, but the documentation does
+    // not say this explicitly.
     for (int i=0; i<xkb_num_mods; i++) {
         if (xkb_state_mod_index_is_active (xkb_state, i, type)) {
             if (!is_first) {
@@ -149,8 +152,6 @@ void print_mod_state (struct xkb_state *xkb_state, struct xkb_keymap *xkb_keymap
 }
 
 struct compare_key_foreach_clsr_t {
-    mem_pool_t pool;
-
     string_t *msg;
 
     struct xkb_keymap *k1;
@@ -212,6 +213,10 @@ void compare_key_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *dat
     }
 }
 
+// This tet check that two keymaps have the same keysym table. This means that
+// each keycode had the same keysyms in each level.
+// NOTE: This doesn't guarantee that the two keymaps will behave in the same way
+// as they may have different modifier or key type configurations.
 bool keymap_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, string_t *msg)
 {
     assert (msg != NULL);
@@ -231,6 +236,198 @@ bool keymap_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, string_
     xkb_keymap_key_for_each (k2, compare_key_foreach, &clsr);
 
     return clsr.equal_keymaps;
+}
+
+struct modifier_key_t {
+    int kc;
+    key_modifier_mask_t modifiers;
+    enum action_type_t type;
+
+    struct modifier_key_t *next;
+};
+
+struct get_modifier_keys_list_clsr_t {
+    mem_pool_t *pool;
+
+    struct modifier_key_t *modifier_list_end;
+    struct modifier_key_t *modifier_list;
+};
+
+void append_modifier_key (struct get_modifier_keys_list_clsr_t *clsr, int kc, enum action_type_t type)
+{
+    struct modifier_key_t *new_key = mem_pool_push_struct (clsr->pool, struct modifier_key_t);
+    new_key->next = NULL;
+    new_key->kc = kc;
+    new_key->type = type;
+
+    // TODO: Set a mask here corresponding to the modifiers that changed. Where
+    // can we get this from?. Not straightforward because we need to make sure
+    // these masks are comparable across different keymaps. Maybe assume they
+    // will always be real modifiers and have a global predefined mask
+    // definition for them. As fas as I can tell libxkbcommon always uses real
+    // modifiers here, even when virtual modifiers are defined in the keymap.
+    // :modifier_key_modifier_mask_test
+    new_key->modifiers = 0x0;
+
+    if (clsr->modifier_list == NULL) {
+        clsr->modifier_list = new_key;
+    } else {
+        clsr->modifier_list_end->next = new_key;
+    }
+    clsr->modifier_list_end = new_key;
+}
+
+void get_modifier_keys_list_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *data)
+{
+    struct xkb_state *xkb_state = xkb_state_new(keymap);
+    if (!xkb_state) {
+        printf ("could not create xkb state.\n");
+        return;
+    }
+
+    struct get_modifier_keys_list_clsr_t *clsr =
+        (struct get_modifier_keys_list_clsr_t*)data;
+
+    enum xkb_state_component changed_components = xkb_state_update_key (xkb_state, kc+8, XKB_KEY_DOWN);
+    if (changed_components) {
+        if (changed_components & XKB_STATE_MODS_DEPRESSED) {
+            append_modifier_key (clsr, kc, KEY_ACTION_TYPE_MOD_SET);
+        }
+
+        //if (changed_components & XKB_STATE_MODS_LATCHED) {
+        // Ignored... (for now?)
+        //}
+
+        if (changed_components & XKB_STATE_MODS_LOCKED) {
+            append_modifier_key (clsr, kc, KEY_ACTION_TYPE_MOD_LOCK);
+        }
+    }
+
+    xkb_state_unref(xkb_state);
+}
+
+struct modifier_key_t* get_modifier_keys_list (mem_pool_t *pool, struct xkb_keymap *keymap)
+{
+    struct get_modifier_keys_list_clsr_t clsr;
+    clsr.pool = pool;
+    xkb_keymap_key_for_each (keymap, get_modifier_keys_list_foreach, &clsr);
+
+    return clsr.modifier_list;
+}
+
+void compare_key_states_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *data)
+{
+    // TODO: Implement state comparison loop
+}
+
+// This test is a more functional equality test of the keymaps. The idea is to
+// press all modifier combinations and check that the resulting keysyms in each
+// key are the same. Some caveats of how the test works, (we could fix them but
+// it probably will be overkill?):
+//
+//  - We only get modifiers from the first level, actions that set modifiers in
+//    other key levels are ignored and not checked.
+//  - We currently ignore latched modifiers.
+//  - We only compare the keysyms of keys that don't set a modifier in their
+//    first level. It's possible to have modifier keys that in an other level
+//    produces a keysym, differences here won't be caught.
+//  - We ignore keysyms of keys that set/lock modifiers (modifier keys).
+//
+// NOTE: This assumes that the keymaps passed the keymap_equality_test.
+// NOTE: This has exponential complexity on the number of keys that trigger
+// modifiers. We could do a faster test based on key type information. The
+// problem is I don't see how we can get type information from libxkbcommon, so
+// we would need to use our internal representation of keymaps, and that's what
+// we want to check.
+// TODO: Do something like this that checks the LED states.
+bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, string_t *msg)
+{
+    mem_pool_t pool;
+    bool are_equal = true;
+    int num_mod_keys = 0;
+    struct modifier_key_t *mod_list_k1 = get_modifier_keys_list (&pool, k1);
+    struct modifier_key_t *mod_list_k2 = get_modifier_keys_list (&pool, k2);
+
+    // Check that both keymaps have the same modifiers.
+    {
+        struct modifier_key_t *curr_mod_k1 = mod_list_k1, *curr_mod_k2 = mod_list_k2;
+        while (are_equal == true && curr_mod_k1 != NULL && curr_mod_k2 != NULL) {
+            if (curr_mod_k1->kc != curr_mod_k2->kc) {
+                str_set (msg, "Keymaps don't map modifiers to the same keys.");
+                are_equal = false;
+
+            } else if (curr_mod_k1->modifiers != curr_mod_k2->modifiers) {
+                // TODO: This is currently not implemented, we need to think
+                // about how to get global modifier masks.
+                // :modifier_key_modifier_mask_test
+                str_set_printf (msg, "Keymaps set or lock different real modifiers with key %d.", curr_mod_k1->kc);
+                are_equal = false;
+            }
+
+            num_mod_keys++;
+
+            curr_mod_k1 = curr_mod_k1->next;
+            curr_mod_k2 = curr_mod_k2->next;
+        }
+
+        if ((curr_mod_k1 != NULL && curr_mod_k2 == NULL) ||
+            (curr_mod_k1 == NULL && curr_mod_k2 != NULL)) {
+            str_set (msg, "Keymaps don't have the same number of modifier keys.");
+            are_equal = false;
+        }
+    }
+
+    // Put keycodes of modifier keys into an array for fast retrieval. They are
+    // indexed by the perfect hash of a bitmask.
+    int *kc_map = mem_pool_push_array (&pool, num_mod_keys, int);
+    uint32_t mask = 1;
+    struct modifier_key_t *curr_mod_k1 = mod_list_k1;
+    while (curr_mod_k1) {
+        uint32_t idx = bit_mask_perfect_hash (mask);
+        kc_map[idx] = curr_mod_k1->kc;
+
+        mask <<= 1;
+        curr_mod_k1 = curr_mod_k1->next;
+    }
+
+    // Iterate all num_mod_keys^2 combinations and check that the resulting
+    // keysyms are the same.
+    // NOTE: This grows exponentially with the number of modifier keys in a
+    // layout!
+    int max_mod_keys = 20;
+    if (are_equal && num_mod_keys <= max_mod_keys) {
+        for (uint32_t pressed_keys = 1; pressed_keys<num_mod_keys*num_mod_keys; pressed_keys++) {
+            struct xkb_state *s1 = xkb_state_new(k1);
+            assert (s1);
+
+            struct xkb_state *s2 = xkb_state_new(k2);
+            assert (s2);
+
+            // Iterate bits of pressed_keys and press the correspoiding keys in
+            // the keymap states.
+            while (pressed_keys) {
+                key_modifier_mask_t next_bit_mask = pressed_keys & -pressed_keys;
+
+                uint32_t idx = bit_mask_perfect_hash (next_bit_mask);
+                xkb_state_update_key (s1, kc_map[idx]+8, XKB_KEY_DOWN);
+                xkb_state_update_key (s2, kc_map[idx]+8, XKB_KEY_DOWN);
+
+                pressed_keys = pressed_keys & (pressed_keys-1);
+            }
+
+            xkb_keymap_key_for_each (k1, compare_key_states_foreach, NULL);
+
+            xkb_state_unref(s1);
+            xkb_state_unref(s2);
+        }
+    }
+
+    if (are_equal && num_mod_keys > max_mod_keys) {
+        str_set_printf (msg, "We don't do modifier tests on keymaps with more than %d modifier keys.", max_mod_keys);
+    }
+
+    mem_pool_destroy (&pool);
+    return are_equal;
 }
 
 struct print_modifier_info_foreach_clsr_t {
@@ -604,7 +801,7 @@ int main (int argc, char **argv)
         }
     }
 
-    printf ("\n------ Equality Test -----\n");
+    printf ("\n------ Symbol Equality Test -----\n");
     if (internal_keymap != NULL && input_keymap != NULL) {
         string_t msg = {0};
         if (!keymap_equality_test (internal_keymap, input_keymap, &msg)) {

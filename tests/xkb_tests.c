@@ -317,7 +317,6 @@ struct modifier_key_t* get_modifier_keys_list (mem_pool_t *pool, struct xkb_keym
 
 void compare_key_states_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *data)
 {
-    // TODO: Implement state comparison loop
 }
 
 // This test is a more functional equality test of the keymaps. The idea is to

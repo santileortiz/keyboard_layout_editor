@@ -296,9 +296,9 @@ void get_modifier_keys_list_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc
             append_modifier_key (clsr, kc, KEY_ACTION_TYPE_MOD_SET);
         }
 
-        //if (changed_components & XKB_STATE_MODS_LATCHED) {
-        // Ignored... (for now?)
-        //}
+        if (changed_components & XKB_STATE_MODS_LATCHED) {
+            append_modifier_key (clsr, kc, KEY_ACTION_TYPE_MOD_LATCH);
+        }
 
         if (changed_components & XKB_STATE_MODS_LOCKED) {
             append_modifier_key (clsr, kc, KEY_ACTION_TYPE_MOD_LOCK);
@@ -419,9 +419,19 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
                     key_modifier_mask_t next_bit_mask = pressed_keys & -pressed_keys;
 
                     uint32_t idx = bit_mask_perfect_hash (next_bit_mask);
-                    int kc = clsr.mod_keys[clsr.bit_lookup[idx]].kc;
-                    xkb_state_update_key (s1, kc+8, XKB_KEY_DOWN);
-                    xkb_state_update_key (s2, kc+8, XKB_KEY_DOWN);
+                    struct modifier_key_t mod_key = clsr.mod_keys[clsr.bit_lookup[idx]];
+                    if (mod_key.type != KEY_ACTION_TYPE_MOD_LATCH) {
+                        // We don't test latch modifiers. They need a special
+                        // treatment because they are unset everytime a key is
+                        // pressed. Currently we press modifier keys, then press
+                        // each non modifier key compare the keysyms produced.
+                        //
+                        // They are considered modifier keys, though. Because we
+                        // don't want to press them (as if they were non
+                        // modifier keys) when comparing keysyms.
+                        xkb_state_update_key (s1, mod_key.kc+8, XKB_KEY_DOWN);
+                        xkb_state_update_key (s2, mod_key.kc+8, XKB_KEY_DOWN);
+                    }
 
                     pressed_keys = pressed_keys & (pressed_keys-1);
                 }

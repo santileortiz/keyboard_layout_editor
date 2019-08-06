@@ -246,6 +246,7 @@ struct modifier_key_t {
 
     struct modifier_key_t *next;
 };
+templ_sort(modifier_key_sort, struct modifier_key_t, a->kc < b->kc);
 
 struct get_modifier_keys_list_clsr_t {
     mem_pool_t *pool;
@@ -316,6 +317,11 @@ struct modifier_key_t* get_modifier_keys_list (mem_pool_t *pool, struct xkb_keym
     return clsr.modifier_list;
 }
 
+struct compare_key_states_foreach_clsr_t {
+    int *bit_lookup;
+    struct modifier_key_t *mod_keys;
+};
+
 void compare_key_states_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *data)
 {
 }
@@ -377,53 +383,60 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
         }
     }
 
-    // Put keycodes of modifier keys into an array for fast retrieval. They are
-    // indexed by the perfect hash of a bitmask.
-    int *kc_map = mem_pool_push_array (&pool, num_mod_keys, int);
-    uint32_t mask = 1;
-    struct modifier_key_t *curr_mod_k1 = mod_list_k1;
-    while (curr_mod_k1) {
-        uint32_t idx = bit_mask_perfect_hash (mask);
-        kc_map[idx] = curr_mod_k1->kc;
-
-        mask <<= 1;
-        curr_mod_k1 = curr_mod_k1->next;
-    }
-
-    // Iterate all num_mod_keys^2 combinations and check that the resulting
-    // keysyms are the same.
-    // NOTE: This grows exponentially with the number of modifier keys in a
-    // layout!
     int max_mod_keys = 20;
-    if (are_equal && num_mod_keys <= max_mod_keys) {
-        for (uint32_t pressed_keys = 1; pressed_keys<num_mod_keys*num_mod_keys; pressed_keys++) {
-            struct xkb_state *s1 = xkb_state_new(k1);
-            assert (s1);
+    if (are_equal) {
+        struct compare_key_states_foreach_clsr_t clsr;
+        clsr.bit_lookup = create_bit_pos_lookup (&pool);
 
-            struct xkb_state *s2 = xkb_state_new(k2);
-            assert (s2);
+        // Put modifier key nodes into an array sorted by keycode. This is required
+        // so we can check in a fast way if a keycode is a modifier key.
+        struct modifier_key_t *curr_mod_k1 = mod_list_k1;
+        clsr.mod_keys = mem_pool_push_array (&pool, num_mod_keys, struct modifier_key_t);
+        for (int i=0; i<num_mod_keys; i++) {
+            clsr.mod_keys[i] = *curr_mod_k1;
+            clsr.mod_keys[i].next = NULL;
 
-            // Iterate bits of pressed_keys and press the correspoiding keys in
-            // the keymap states.
-            while (pressed_keys) {
-                key_modifier_mask_t next_bit_mask = pressed_keys & -pressed_keys;
+            curr_mod_k1 = curr_mod_k1->next;
+        }
 
-                uint32_t idx = bit_mask_perfect_hash (next_bit_mask);
-                xkb_state_update_key (s1, kc_map[idx]+8, XKB_KEY_DOWN);
-                xkb_state_update_key (s2, kc_map[idx]+8, XKB_KEY_DOWN);
+        modifier_key_sort (clsr.mod_keys, num_mod_keys);
 
-                pressed_keys = pressed_keys & (pressed_keys-1);
+        // Iterate all num_mod_keys^2 combinations and check that the resulting
+        // keysyms are the same.
+        // NOTE: This grows exponentially with the number of modifier keys in a
+        // layout!
+        if (are_equal && num_mod_keys <= max_mod_keys) {
+            for (uint32_t pressed_keys = 1; pressed_keys<num_mod_keys*num_mod_keys; pressed_keys++) {
+                struct xkb_state *s1 = xkb_state_new(k1);
+                assert (s1);
+
+                struct xkb_state *s2 = xkb_state_new(k2);
+                assert (s2);
+
+                // Iterate bits of pressed_keys and press the correspoiding keys in
+                // the keymap states.
+                while (pressed_keys) {
+                    key_modifier_mask_t next_bit_mask = pressed_keys & -pressed_keys;
+
+                    uint32_t idx = bit_mask_perfect_hash (next_bit_mask);
+                    int kc = clsr.mod_keys[clsr.bit_lookup[idx]].kc;
+                    xkb_state_update_key (s1, kc+8, XKB_KEY_DOWN);
+                    xkb_state_update_key (s2, kc+8, XKB_KEY_DOWN);
+
+                    pressed_keys = pressed_keys & (pressed_keys-1);
+                }
+
+                xkb_keymap_key_for_each (k1, compare_key_states_foreach, NULL);
+
+                xkb_state_unref(s1);
+                xkb_state_unref(s2);
             }
-
-            xkb_keymap_key_for_each (k1, compare_key_states_foreach, NULL);
-
-            xkb_state_unref(s1);
-            xkb_state_unref(s2);
         }
     }
 
     if (are_equal && num_mod_keys > max_mod_keys) {
-        str_set_printf (msg, "We don't do modifier tests on keymaps with more than %d modifier keys.", max_mod_keys);
+        str_set_printf (msg, "We don't do modifier tests on keymaps with more than %d modifier keys.",
+                        max_mod_keys);
     }
 
     mem_pool_destroy (&pool);

@@ -25,3 +25,29 @@ uint32_t bit_mask_perfect_hash (uint32_t mask)
     return (uint32_t)(mask*0x077CB531UL) >> 27;
 }
 
+// This creates the lookup table used in [1] to compute the number of trailing
+// zeros.
+//
+// [1]: Leiserson, Charles E.; Prokop, Harald; Randall, Keith H. (1998),
+//      Using de Bruijn Sequences to Index a 1 in a Computer Word
+//      http://supertech.csail.mit.edu/papers/debruijn.pdf
+//
+// NOTE: res must be of size 32.
+void init_bit_pos_lookup (int *res)
+{
+    int i = 0;
+    uint32_t mask = 1;
+    while (i< 32) {
+        uint32_t idx = bit_mask_perfect_hash (mask);
+        res[idx] = i;
+
+        i++;
+        mask <<= 1;
+    }
+}
+int* create_bit_pos_lookup (mem_pool_t *pool)
+{
+    int *res = mem_pool_push_array (pool, 32, int);
+    init_bit_pos_lookup (res);
+    return res;
+}

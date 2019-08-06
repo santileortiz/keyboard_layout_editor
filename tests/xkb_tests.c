@@ -2,6 +2,7 @@
  * Copiright (C) 2019 Santiago León O.
  */
 #include "common.h"
+#include "bit_operations.c"
 #include "status.c"
 #include "scanner.c"
 

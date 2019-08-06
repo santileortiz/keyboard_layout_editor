@@ -2,12 +2,6 @@
  * Copiright (C) 2019 Santiago León O.
  */
 
-static inline
-bool single_modifier_in_mask (key_modifier_mask_t mask)
-{
-    return mask && !(mask & (mask-1));
-}
-
 bool parse_unicode_str (const char *str, uint32_t *cp)
 {
     assert (str != NULL && cp != NULL);
@@ -1302,7 +1296,7 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
                 } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "virtualModifier")) {
                     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
                     xkb_parser_parse_modifier_mask (state, ";", &new_interpret_data.virtual_modifier);
-                    if (!single_modifier_in_mask (new_interpret_data.virtual_modifier)) {
+                    if (!single_bit_set (new_interpret_data.virtual_modifier)) {
                         xkb_parser_error (state, "Expected single virtual modifier, more provided.");
                     }
 
@@ -1783,22 +1777,6 @@ xkb_backend_interpret_compare (struct xkb_compat_interpret_t *old, struct xkb_co
     return winner;
 }
 
-// This uses a de Brujin sequence, and the fact that mask has a single bit set
-// in it, to generate a unique integer value in the range [0..31]. This hash
-// function is used in the algorithm from Leiserson, Prokop, and Randal to
-// compute the number of trailing zeros [1].
-//
-// [1]: Leiserson, Charles E.; Prokop, Harald; Randall, Keith H. (1998),
-//      Using de Bruijn Sequences to Index a 1 in a Computer Word
-//      http://supertech.csail.mit.edu/papers/debruijn.pdf
-//
-// TODO: If available, a CTZ intrinsic should be faster. Look into that.
-uint32_t bit_mask_perfect_hash (key_modifier_mask_t mask)
-{
-    assert (single_modifier_in_mask (mask));
-    return (uint32_t)(mask*0x077CB531UL) >> 27;
-}
-
 gboolean populate_vmod_map_foreach (gpointer modifier_name, gpointer mask_ptr, gpointer data)
 {
     key_modifier_mask_t mask = *(key_modifier_mask_t*)mask_ptr;
@@ -2184,7 +2162,7 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state, string_t *vmo
                 if (state->modifier_map[kc]) {
                     key_modifier_mask_t next_bit_mask = key_vmods & -key_vmods;
                     uint32_t idx = bit_mask_perfect_hash (next_bit_mask);
-                    assert (single_modifier_in_mask(state->modifier_map[kc]));
+                    assert (single_bit_set(state->modifier_map[kc]));
                     state->vmodmap[idx].encoding |= state->modifier_map[kc];
                 }
 

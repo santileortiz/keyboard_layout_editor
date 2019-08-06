@@ -4,6 +4,7 @@
 
 #define _GNU_SOURCE // Used to enable strcasestr()
 #include "common.h"
+#include "bit_operations.c"
 #include "status.c"
 #include "scanner.c"
 

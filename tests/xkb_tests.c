@@ -324,6 +324,7 @@ struct compare_key_states_foreach_clsr_t {
 
 void compare_key_states_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *data)
 {
+
 }
 
 // This test is a more functional equality test of the keymaps. The idea is to

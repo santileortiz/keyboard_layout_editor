@@ -10,7 +10,7 @@ modes = {
         'profile_debug': '-O2 -g -pg -Wall',
         'release': '-O2 -g -DNDEBUG -Wall'
         }
-cli_mode = get_cli_option('-M,--mode', modes.keys())
+cli_mode = get_cli_arg_opt('-M,--mode', modes.keys())
 FLAGS = modes[pers('mode', 'debug', cli_mode)]
 GTK3_FLAGS = ex ('pkg-config --cflags --libs gtk+-3.0', ret_stdout=True, echo=False)
 GTK2_FLAGS = ex ('pkg-config --cflags --libs gtk+-2.0', ret_stdout=True, echo=False)

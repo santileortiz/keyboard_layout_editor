@@ -94,7 +94,7 @@ def handle_tab_complete ():
 
     # Check that the tab completion script is installed
     if not check_completions ():
-        if get_cli_option('--install_completions'):
+        if get_cli_bool_opt('--install_completions'):
             print ('Installing tab completions...')
             ex ("cp mkpy/pymk.py /usr/share/bash-completion/completions/")
             exit ()
@@ -105,9 +105,9 @@ def handle_tab_complete ():
 
     # Add the builtin tab completions the user wants
     if len(builtin_completions) > 0:
-        [get_cli_option (c) for c in builtin_completions]
+        [get_cli_bool_opt (c) for c in builtin_completions]
 
-    data_str = get_cli_option('--get_completions', unique_option=True, has_argument=True)
+    data_str = get_cli_arg_opt('--get_completions', unique_option=True)
     if data_str != None:
         data_lst = data_str.split(' ')
         curs_pos = int(data_lst[0])
@@ -132,21 +132,17 @@ def handle_tab_complete ():
                 print (' '.join(def_opts))
         exit ()
 
-def get_cli_option (opts, values=None, has_argument=False, unique_option=False):
+def get_cli_arg_opt (opts, values=None, unique_option=False):
     """
-    Parses sys.argv looking for option _opt_.
+    Parses sys.argv looking for option _opt_ and expects an argument after it.
 
-    If _opt_ is not found, returns None.
-    If _opt_ does not have arguments, returns True if the option is found.
-    If _opt_ has an argument, returns the value of the argument. In this case
-    additional error checking is available if _values_ is set to a list of the
-    possible values the argument could take.
-
-    NOTE: We don't detect if there is an argument, the caller must tell if it
-    expects an argument or not by using has_argument.
+    If _opt_ is found and it has an argument after it, it returns the value of
+    the argument as a string.
+    If _values_ is set, we check that the argument is present in the list.
+    If _opt_ is not found, there is no argument or _values_ is provided and the
+    argument doesn't match, it returns None.
 
     When unique_option is True then _opt_ must be the only option used.
-
     """
     global cli_completions
 
@@ -155,31 +151,56 @@ def get_cli_option (opts, values=None, has_argument=False, unique_option=False):
     if values != None: has_argument = True
     cli_completions[opts] = values
 
+    # TODO: Right now a missing argument is only detected if _opt_ is the last
+    # value of argv. Something like ./pymk.py --opt1 --opt2 will return
+    # '--opt2' as argument of --opt1. How bad is this?
     while i<len(sys.argv):
         if sys.argv[i] in opts.split(','):
-            if has_argument:
-                if i+1 >= len(sys.argv):
-                    print ('Missing argument for option '+opt+'.');
-                    if values != None:
-                        print ('Possible values are [ '+' | '.join(values)+' ].')
-                    return
-                else:
-                    res = sys.argv[i+1]
-                    break
+            if i+1 >= len(sys.argv):
+                print ('Missing argument for option '+opt+'.');
+                if values != None:
+                    print ('Possible values are [ '+' | '.join(values)+' ].')
+                return
             else:
-                res = True
+                res = sys.argv[i+1]
+                break
         i = i+1
 
     if unique_option and res != None:
-        if (has_argument and len(sys.argv) != 3) or  (not has_argument and len(sys.argv) != 2):
+        if len(sys.argv) != 3:
             print ('Option '+opt+' receives no other option.')
             return
 
     if values != None and res != None:
         if res not in values:
             print ('Argument '+res+' is not valid for option '+opt+',')
-            print ('Possible values are: [ '+' | '.join(values)+' ].')
+            if values != None:
+                print ('Possible values are: [ '+' | '.join(values)+' ].')
             return
+    return res
+
+def get_cli_bool_opt(opts, has_argument=False, unique_option=False):
+    """
+    Parses sys.argv looking for option _opt_.
+
+    If _opt_ is found, returns True, otherwise it returns False.
+
+    When unique_option is True then _opt_ must be the only option used.
+    """
+    global cli_completions
+
+    res = None
+    i = 1
+    while i<len(sys.argv):
+        if sys.argv[i] in opts.split(','):
+            res = True
+        i = i+1
+
+    if unique_option and res != None:
+        if len(sys.argv) != 2:
+            print ('Option '+opt+' receives no other option.')
+            return
+
     return res
 
 def get_cli_rest ():
@@ -633,7 +654,7 @@ def pymk_default ():
     global ex_cmds
     t = get_target()
 
-    if '--get_run_deps' in builtin_completions and get_cli_option ('--get_run_deps'):
+    if '--get_run_deps' in builtin_completions and get_cli_bool_opt ('--get_run_deps'):
         # Look for all gcc commands that generate an executable and get the
         # packages that provide the shared libraries it uses.
         #
@@ -692,7 +713,7 @@ def pymk_default ():
                 break
         exit ()
 
-    if '--get_build_deps' in builtin_completions and get_cli_option ('--get_build_deps'):
+    if '--get_build_deps' in builtin_completions and get_cli_bool_opt ('--get_build_deps'):
         # Call the target in dry run mode and for each gcc command find the
         # packages that provide the include files it needs.
         #

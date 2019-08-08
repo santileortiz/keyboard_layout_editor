@@ -221,10 +221,18 @@ def pkg_config_includes (packages):
 
 ex_cmds = []
 g_dry_run = False
+g_echo_mode = False
 
+# TODO: Is this useful? maybe just ask the user to set the global variable
+# :global_variable_setters
 def set_dry_run():
     global g_dry_run
     g_dry_run = True
+
+# :global_variable_setters
+def set_echo_mode():
+    global g_echo_mode
+    g_echo_mode = True
 
 def ex_escape (s):
     return s.replace ('\n', '').replace ('{', '{{').replace ('}','}}')
@@ -234,6 +242,7 @@ def ex (cmd, no_stdout=False, ret_stdout=False, echo=True):
     # variable. If this is the case, escape the content that has braces using
     # the ex_escape() function. This is required for things like awk scripts.
     global g_dry_run
+    global g_echo_mode
 
     resolved_cmd = cmd.format(**get_user_str_vars())
 
@@ -241,7 +250,10 @@ def ex (cmd, no_stdout=False, ret_stdout=False, echo=True):
     if g_dry_run:
         return
 
-    if echo: print (resolved_cmd)
+    if echo or g_echo_mode: print (resolved_cmd)
+
+    if g_echo_mode:
+        return
 
     if not ret_stdout:
         redirect = open(os.devnull, 'wb') if no_stdout else None

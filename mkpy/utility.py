@@ -234,6 +234,33 @@ def set_echo_mode():
     global g_echo_mode
     g_echo_mode = True
 
+# TODO: ex_escape() seems very useless. I never remember it exists, it's
+# tedious to wrap the content of an ex command with it and if we have variables
+# we actually want to replace this will escape them too. The use case for this
+# is that if the command uses { and } a lot we don't want to have to replace
+# each occurence with {{ and }}, as this makes it complicated to take the
+# string and run it in it's normal context. A better approach is to have ex
+# receive an argument that defines how to identify variables maybe something
+# like
+#
+#   ex ("""awk 'BEGIN {print "A %{REPLACE_VAR}%"} {print $0} file""", escs='%{', esce='}%')
+#
+# or
+#
+#   ex ("""awk 'BEGIN {print "A %{REPLACE_VAR}%"} {print $0} file""", esc='%')
+#
+# This would escape all occurences of { and }, and replace %{ and }% for { and
+# } respectiveley. I'm leaning towards the 2nd option because it's more concise
+# and easy to remember. Note that I use %{ }% not %{ %} like the \ character
+# works in C strings, the reason for this is that we can still grep for
+# {REPLACE_VAR} and find where the variable is being used.
+#
+# Also, the new echo mode allows getting the resolved commands without running
+# them. Maybe this makes it not that bad to replace all {{ and }}?. The thing
+# is I normally develop the awk script in the console, then copy paste it to a
+# pymk script, I expect to add variables not have to replace each { and }. This
+# also applies for C code that may be present in a command. Let's wait and see
+# if I see cases where I need it.
 def ex_escape (s):
     return s.replace ('\n', '').replace ('{', '{{').replace ('}','}}')
 

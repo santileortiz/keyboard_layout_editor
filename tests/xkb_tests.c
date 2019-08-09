@@ -381,7 +381,7 @@ void compare_key_states_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, vo
             for (int i=0; clsr->equal_states && i<num_syms_1; i++) {
                 if (syms_1[i] != syms_2[i]) {
                     clsr->equal_states = false;
-                    clsr->differing_kc = kc;
+                    clsr->differing_kc = kc-8;
                     clsr->sym_1 = syms_1[i];
                     clsr->sym_2 = syms_2[i];
                 }
@@ -389,7 +389,7 @@ void compare_key_states_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, vo
 
         } else {
             clsr->equal_states = false;
-            clsr->differing_kc = kc;
+            clsr->differing_kc = kc-8;
             clsr->num_syms_1 = num_syms_1;
             clsr->num_syms_2 = num_syms_2;
         }
@@ -527,6 +527,21 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
 
                 if (!clsr.equal_states) {
                     str_set_printf (msg, "Modifiers produce different keysyms.\n");
+
+
+                    for (int passed_test = 1; passed_test < pressed_keys; passed_test++) {
+                        str_cat_c (msg, " PASS:");
+                        uint32_t passed_test_cpy = passed_test;
+                        while (passed_test_cpy) {
+                            key_modifier_mask_t next_bit_mask = passed_test_cpy & -passed_test_cpy;
+                            uint32_t idx = bit_mask_perfect_hash (next_bit_mask);
+                            struct modifier_key_t mod_key = clsr.mod_keys[clsr.bit_lookup[idx]];
+                            str_cat_c (msg, " ");
+                            str_cat_kc (msg, mod_key.kc);
+                            passed_test_cpy = passed_test_cpy & (passed_test_cpy-1);
+                        }
+                        str_cat_c (msg, "\n");
+                    }
 
                     str_cat_c (msg, " Pressed keys:");
                     uint32_t pressed_keys_cpy = pressed_keys;
@@ -958,7 +973,7 @@ int main (int argc, char **argv)
     printf ("\n------ Modifier Equality Test -----\n");
     if (internal_keymap != NULL && input_keymap != NULL) {
         string_t msg = {0};
-        if (!modifier_equality_test (internal_keymap, input_keymap, &msg)) {
+        if (!modifier_equality_test (input_keymap, internal_keymap, &msg)) {
             printf ("%s\n", str_data(&msg));
         } else {
             printf ("Keymaps are the same!\n");

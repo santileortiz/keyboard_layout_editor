@@ -2209,7 +2209,8 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state, string_t *vmo
 
         struct level_modifier_mapping_t *curr_modifier_mapping = curr_type->modifier_mappings;
         while (curr_modifier_mapping) {
-            curr_modifier_mapping->modifiers = remove_vmods (state->vmodmap, real_modifiers, curr_type->modifier_mask);
+            curr_modifier_mapping->modifiers =
+                remove_vmods (state->vmodmap, real_modifiers, curr_modifier_mapping->modifiers);
 
             curr_modifier_mapping = curr_modifier_mapping->next;
         }

@@ -2,6 +2,42 @@
  * Copiright (C) 2019 Santiago León O.
  */
 
+// xkbcommon does this by calling XConvertCase once. The implementation of
+// xkb_keysym_to_lower and xkb_keysym_to_upper call XConvertCase, so we are
+// effectiveley calling it twice here.
+//
+// The reason we don't call XConvertCase directly is that I think the defining
+// code for the XKB file format is now libxkbcommon not Xlib. Calling
+// libxkbcommon is better to remain compatible in the future.
+// :keysym_case_compatibility
+bool sym_is_lower (xkb_keysym_t sym)
+{
+    xkb_keysym_t lower = xkb_keysym_to_lower(sym);
+    xkb_keysym_t upper = xkb_keysym_to_upper(sym);
+
+    if (lower == upper)
+        return false;
+
+    return (sym == lower ? true : false);
+}
+
+// :keysym_case_compatibility
+bool sym_is_upper (xkb_keysym_t sym)
+{
+    xkb_keysym_t lower = xkb_keysym_to_lower(sym);
+    xkb_keysym_t upper = xkb_keysym_to_upper(sym);
+
+    if (lower == upper)
+        return false;
+
+    return (sym == upper ? true : false);
+}
+
+bool sym_is_keypad (xkb_keysym_t sym)
+{
+    return sym >= XKB_KEY_KP_Space && sym <= XKB_KEY_KP_Equal;
+}
+
 bool parse_unicode_str (const char *str, uint32_t *cp)
 {
     assert (str != NULL && cp != NULL);
@@ -1422,6 +1458,9 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
             struct xkb_backend_key_action_t actions[KEYBOARD_LAYOUT_MAX_LEVELS];
             for (int i=0; i<KEYBOARD_LAYOUT_MAX_LEVELS; i++) {
                 actions[i] = ZERO_INIT(struct xkb_backend_key_action_t);
+
+                // :symbols_initialization
+                symbols[i] = XKB_KEY_NoSymbol;
             }
 
             int num_symbols = 0;
@@ -1595,18 +1634,47 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
             // This ensures the only case type==NULL is when num_symbols==0,
             // then we will leave the type for the key unassigned.
             if (type == NULL && num_symbols > 0) {
+                // The following logic comes from:
+                //  <libxkbcommon_repo>/src/xkbcommon/xkbcomp/symbols.c:FindAutomaticType()
                 if (num_symbols == 1) {
                     type = keyboard_layout_type_lookup (state->keymap, "ONE_LEVEL");
+
                 } else if (num_symbols == 2) {
-                    type = keyboard_layout_type_lookup (state->keymap, "TWO_LEVEL");
-                    // TODO: It looks like xkbcomp does something fancier here.
-                    // If it contains capitalized letters instead of TWO_LEVEL
-                    // it becomes ALPHABETIC. I'm not sure how this
-                    // capitalization is detected though.
+                    if (sym_is_lower(symbols[0]) && sym_is_upper(symbols[1])) {
+                        type = keyboard_layout_type_lookup (state->keymap, "ALPHABETIC");
+
+                    } else if (sym_is_keypad(symbols[0]) || sym_is_keypad(symbols[1])) {
+                        type = keyboard_layout_type_lookup (state->keymap, "KEYPAD");
+
+                    } else {
+                        type = keyboard_layout_type_lookup (state->keymap, "TWO_LEVEL");
+                    }
+
+                } else if (num_symbols <= 4) {
+                    if (sym_is_lower(symbols[0]) && sym_is_upper(symbols[1])) {
+                        // NOTE: symbols[3] is safe because symbols was
+                        // initialized to XKB_KEY_NoSymbol.
+                        // :symbols_initialization
+                        if (sym_is_lower(symbols[2]) && sym_is_upper(symbols[3])) {
+                            type = keyboard_layout_type_lookup (state->keymap, "FOUR_LEVEL_ALPHABETIC");
+
+                        } else {
+                            type = keyboard_layout_type_lookup (state->keymap, "FOUR_LEVEL_SEMIALPHABETIC");
+                        }
+
+                    } else {
+                        if (sym_is_keypad(symbols[0]) || sym_is_keypad(symbols[1])) {
+                            type = keyboard_layout_type_lookup (state->keymap, "FOUR_LEVEL_KEYPAD");
+
+                        } else {
+                            type = keyboard_layout_type_lookup (state->keymap, "FOUR_LEVEL");
+                        }
+                    }
 
                 } else {
-                    // TODO: I'm not sure this is the actual default in xkbcomp
-                    // for this situation. Research that.
+                    // Looks like 'None' is set as type in this case, I still
+                    // don't know what implications this would have. We do it
+                    // differently so we always have a type.
                     type = keyboard_layout_type_lookup (state->keymap, "TWO_LEVEL");
                 }
             }

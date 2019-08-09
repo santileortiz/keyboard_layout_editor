@@ -18,6 +18,15 @@
 #include "keyboard_layout.c"
 #include "xkb_file_backend.c"
 
+void str_cat_kc (string_t *str, xkb_keycode_t kc)
+{
+    if (keycode_names[kc] != NULL) {
+        str_cat_printf (str, "%d(%s)", kc, keycode_names[kc]);
+    } else {
+        str_cat_printf (str, "%d", kc);
+    }
+}
+
 struct cli_opt_t {
     int id;
     const char *opt;
@@ -525,12 +534,15 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
                         key_modifier_mask_t next_bit_mask = pressed_keys_cpy & -pressed_keys_cpy;
                         uint32_t idx = bit_mask_perfect_hash (next_bit_mask);
                         struct modifier_key_t mod_key = clsr.mod_keys[clsr.bit_lookup[idx]];
-                        str_cat_printf (msg, " %d", mod_key.kc);
+                        str_cat_c (msg, " ");
+                        str_cat_kc (msg, mod_key.kc);
                         pressed_keys_cpy = pressed_keys_cpy & (pressed_keys_cpy-1);
                     }
                     str_cat_c (msg, "\n");
 
-                    str_cat_printf (msg, " kc: %d\n", clsr.differing_kc);
+                    str_cat_c (msg, " kc: ");
+                    str_cat_kc (msg, clsr.differing_kc);
+                    str_cat_c (msg, "\n");
                     if (clsr.num_syms_1 == clsr.num_syms_2) {
                         char buff[64];
                         xkb_keysym_get_name (clsr.sym_1, buff, ARRAY_SIZE(buff));

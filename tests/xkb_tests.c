@@ -960,19 +960,20 @@ int main (int argc, char **argv)
         }
     }
 
-    printf ("\n------ Symbol Equality Test -----\n");
-    if (internal_keymap != NULL && input_keymap != NULL) {
+    if (success && internal_keymap != NULL && input_keymap != NULL) {
         string_t msg = {0};
-        if (!keymap_equality_test (internal_keymap, input_keymap, &msg)) {
+        printf ("\n------ Symbol Equality Test -----\n");
+        if (!keymap_equality_test (input_keymap, internal_keymap, &msg)) {
             printf ("Keymaps not equal: %s\n", str_data(&msg));
+            success = false;
         } else {
             printf ("Keymaps are the same!\n");
         }
     }
 
-    printf ("\n------ Modifier Equality Test -----\n");
-    if (internal_keymap != NULL && input_keymap != NULL) {
+    if (success && internal_keymap != NULL && input_keymap != NULL) {
         string_t msg = {0};
+        printf ("\n------ Modifier Equality Test -----\n");
         if (!modifier_equality_test (input_keymap, internal_keymap, &msg)) {
             printf ("%s\n", str_data(&msg));
         } else {

@@ -708,19 +708,18 @@ bool writeback_test (struct xkb_context *xkb_ctx,
         success = false;
 
     } else {
-        str_cat_c (msg, "\nParser input info (libxkbcommon):\n");
-        str_cat_c (msg, "---------------------------------\n");
-        str_cat_xkbcommon_modifier_info (msg, *parser_keymap);
     }
 
-    // Parse the xkb string using out parser.
+    // Parse the xkb string using our parser.
     struct keyboard_layout_t keymap = {0};
     if (success) {
-        str_cat_c (msg, "\nXKB parser info:\n");
-        str_cat_c (msg, "----------------\n");
-        if (!xkb_file_parse_verbose (xkb_str, &keymap, msg)) {
+
+        string_t log = {0};
+        if (!xkb_file_parse_verbose (xkb_str, &keymap, &log)) {
+            str_cat (msg, &log);
             success = false;
         }
+        str_free (&log);
     }
 
     // Write the keymap back to an xkb file.
@@ -745,10 +744,6 @@ bool writeback_test (struct xkb_context *xkb_ctx,
             str_cat_c (msg, "Failed to load the writer's output to libxkbcommon.\n");
             success = false;
 
-        } else {
-            str_cat_c (msg, "\nWriter output info (libxkbcommon):\n");
-            str_cat_c (msg, "----------------------------------\n");
-            str_cat_xkbcommon_modifier_info (msg, *writer_keymap);
         }
     }
 
@@ -982,10 +977,14 @@ int main (int argc, char **argv)
         str_cat_c (&msg, "\n=============================\n");
         str_cat_c (&msg, "------ Idempotency Test -----\n");
         str_cat_c (&msg, "=============================\n");
-        if (!xkb_file_parse_verbose (str_data(&writer_keymap_str), &keymap, &msg)) {
+
+        string_t log = {0};
+        if (!xkb_file_parse_verbose (str_data(&writer_keymap_str), &keymap, &log)) {
             str_cat_c (&msg, "Can't parse our own output.\n");
+            str_cat (&msg, &log);
             success = false;
         }
+        str_free (&log);
 
         if (success) {
             struct status_t status = {0};
@@ -1006,15 +1005,37 @@ int main (int argc, char **argv)
         }
     }
 
-    printf ("%s", str_data(&msg));
+    // Print parser input information
+    if (parser_keymap) {
+        str_cat_c (&msg, "\nParser input info (libxkbcommon):\n");
+        str_cat_c (&msg, "---------------------------------\n");
+        str_cat_xkbcommon_modifier_info (&msg, parser_keymap);
+    }
+
+    // Print writer output information
+    if (writer_keymap) {
+        str_cat_c (&msg, "\nWriter output info (libxkbcommon):\n");
+        str_cat_c (&msg, "----------------------------------\n");
+        str_cat_xkbcommon_modifier_info (&msg, writer_keymap);
+
+        // TODO: Maybe don't parse the layout again here? get this from the original
+        // call inside the writeback test. Or... maybe just don't but the writeback
+        // test in a separate function?.
+        struct keyboard_layout_t keymap = {0};
+        str_cat_c (&msg, "\nXKB parser info:\n");
+        str_cat_c (&msg, "----------------\n");
+        xkb_file_parse_verbose (str_data(&input_str), &keymap, &msg);
+    }
 
     if (file_output_enabled) {
-        printf ("\n");
-        printf ("Wrote xkb parser input to: parser_input.xkb\n");
+        str_cat_c (&msg, "\n");
+        str_cat_c (&msg, "Wrote xkb parser input to: parser_input.xkb\n");
         full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
-        printf ("Wrote xkb writer output to: writer_output.xkb\n");
+        str_cat_c (&msg, "Wrote xkb writer output to: writer_output.xkb\n");
         full_file_write (str_data(&writer_keymap_str), str_len(&writer_keymap_str), "writer_output.xkb");
     }
+
+    printf ("%s", str_data(&msg));
 
     str_free (&input_str);
     str_free (&msg);

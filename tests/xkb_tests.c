@@ -142,7 +142,8 @@ void cli_parser_destroy (struct cli_parser_t *parser)
     mem_pool_destroy (&parser->pool);
 }
 
-void print_mod_state (struct xkb_state *xkb_state, struct xkb_keymap *xkb_keymap,
+void str_cat_mod_state (string_t *str,
+                      struct xkb_state *xkb_state, struct xkb_keymap *xkb_keymap,
                       xkb_mod_index_t xkb_num_mods, enum xkb_state_component type)
 {
     bool is_first = true;
@@ -156,7 +157,7 @@ void print_mod_state (struct xkb_state *xkb_state, struct xkb_keymap *xkb_keymap
             }
             is_first = false;
 
-            printf ("%s", xkb_keymap_mod_get_name (xkb_keymap, i));
+            str_cat_printf (str, "%s", xkb_keymap_mod_get_name (xkb_keymap, i));
         }
     }
 }
@@ -591,83 +592,86 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
 
 struct print_modifier_info_foreach_clsr_t {
     xkb_mod_index_t xkb_num_mods;
+    string_t *str;
 };
 
 void print_modifier_info_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *data)
 {
+    struct print_modifier_info_foreach_clsr_t *clsr =
+        (struct print_modifier_info_foreach_clsr_t*)data;
+    string_t *str = clsr->str;
+
     struct xkb_state *xkb_state = xkb_state_new(keymap);
     if (!xkb_state) {
-        printf ("could not create xkb state.\n");
+        str_cat_c (str, "could not create xkb state.\n");
         return;
     }
 
-    struct print_modifier_info_foreach_clsr_t *clsr =
-        (struct print_modifier_info_foreach_clsr_t*)data;
     xkb_mod_index_t xkb_num_mods = clsr->xkb_num_mods;
 
     enum xkb_state_component changed_components = xkb_state_update_key (xkb_state, kc+8, XKB_KEY_DOWN);
     if (changed_components) {
-        printf (" %s (%d): ", keycode_names[kc], kc);
+        str_cat_printf (str, " %s (%d): ", keycode_names[kc], kc);
         if (changed_components & XKB_STATE_MODS_DEPRESSED) {
-            printf ("Sets(");
-            print_mod_state (xkb_state, keymap, xkb_num_mods, XKB_STATE_MODS_DEPRESSED);
-            printf (") ");
+            str_cat_c (str, "Sets(");
+            str_cat_mod_state (str, xkb_state, keymap, xkb_num_mods, XKB_STATE_MODS_DEPRESSED);
+            str_cat_c (str, ") ");
         }
 
         if (changed_components & XKB_STATE_MODS_LATCHED) {
-            printf ("Latches(");
-            print_mod_state (xkb_state, keymap, xkb_num_mods, XKB_STATE_MODS_LATCHED);
-            printf (") ");
+            str_cat_c (str, "Latches(");
+            str_cat_mod_state (str, xkb_state, keymap, xkb_num_mods, XKB_STATE_MODS_LATCHED);
+            str_cat_c (str, ") ");
         }
 
         if (changed_components & XKB_STATE_MODS_LOCKED) {
-            printf ("Locks(");
-            print_mod_state (xkb_state, keymap, xkb_num_mods, XKB_STATE_MODS_LOCKED);
-            printf (") ");
+            str_cat_c (str, "Locks(");
+            str_cat_mod_state (str, xkb_state, keymap, xkb_num_mods, XKB_STATE_MODS_LOCKED);
+            str_cat_c (str, ") ");
         }
 
         if (changed_components & XKB_STATE_MODS_EFFECTIVE) {
             // Is this just an OR of the other modifier masks? or is
             // this related to "consumed mods".
-            printf ("Effective(");
-            print_mod_state (xkb_state, keymap, xkb_num_mods, XKB_STATE_MODS_EFFECTIVE);
-            printf (") ");
+            str_cat_c (str, "Effective(");
+            str_cat_mod_state (str, xkb_state, keymap, xkb_num_mods, XKB_STATE_MODS_EFFECTIVE);
+            str_cat_c (str, ") ");
         }
 
         if (changed_components & XKB_STATE_LAYOUT_DEPRESSED ||
             changed_components & XKB_STATE_LAYOUT_LATCHED ||
             changed_components & XKB_STATE_LAYOUT_LOCKED ||
             changed_components & XKB_STATE_LAYOUT_EFFECTIVE ) {
-            printf ("LayoutChange ");
+            str_cat_c (str, "LayoutChange ");
         }
 
         if (changed_components & XKB_STATE_LEDS) {
-            printf ("LedsChange ");
+            str_cat_c (str, "LedsChange ");
         }
 
-        printf ("\n");
+        str_cat_c (str, "\n");
     }
 
     xkb_state_unref(xkb_state);
 }
 
-void xkbcommon_print_modifier_info (struct xkb_keymap *keymap)
+void str_cat_xkbcommon_modifier_info (string_t *str, struct xkb_keymap *keymap)
 {
-    printf ("Modifiers: ");
+    str_cat_c (str, "Modifiers: ");
     xkb_mod_index_t xkb_num_mods = xkb_keymap_num_mods (keymap);
     for (int i=0; i<xkb_num_mods; i++) {
-        printf ("%s", xkb_keymap_mod_get_name (keymap, i));
+        str_cat_printf (str, "%s", xkb_keymap_mod_get_name (keymap, i));
         if (i < xkb_num_mods-1) {
-            printf (", ");
+            str_cat_c (str, ", ");
         }
     }
 
-    printf ("\n\n");
-    printf ("Modifier mapping:\n");
+    str_cat_c (str, "\n\nModifier mapping:\n");
     // Iterate all keycodes and detect those that change the state of a
     // modifier.
     struct print_modifier_info_foreach_clsr_t clsr;
     clsr.xkb_num_mods = xkb_num_mods;
+    clsr.str = str;
     xkb_keymap_key_for_each (keymap, print_modifier_info_foreach, &clsr);
 }
 
@@ -675,6 +679,81 @@ enum input_type_t {
     INPUT_RMLVO_NAMES,
     INPUT_XKB_FILE
 };
+
+// This takes an .xkb file as a string, then does the following:
+//   1) Parse it with our xkb parser and with libxkbcommon
+//   2) Write back the parsed internal representation with our xkb writer.
+//   3) Check the output of the writer can be parsed by libxbcommon and our parser.
+//
+// The writer_keymap argument will be set to the libxkbcommon keymap of the
+// writers output. The caller must call xkb_keymap_unref() on it.
+bool writeback_test (struct xkb_context *xkb_ctx,
+                     char *xkb_str, struct xkb_keymap **parser_keymap,
+                     string_t *writer_keymap_str, struct xkb_keymap **writer_keymap,
+                     string_t *msg)
+{
+    assert (writer_keymap!= NULL && msg != NULL);
+
+    bool success = true;
+
+    *parser_keymap =
+        xkb_keymap_new_from_string(xkb_ctx, xkb_str,
+                                   XKB_KEYMAP_FORMAT_TEXT_V1,
+                                   XKB_KEYMAP_COMPILE_NO_FLAGS);
+
+    // Print modifier information from a libxkbcommon keymap created from the
+    // received CLI input
+    if (!*parser_keymap) {
+        str_cat_c (msg, "Failed to load the parser's input to libxkbcommon.\n");
+        success = false;
+
+    } else {
+        str_cat_c (msg, "\nParser input info (libxkbcommon):\n");
+        str_cat_c (msg, "---------------------------------\n");
+        str_cat_xkbcommon_modifier_info (msg, *parser_keymap);
+    }
+
+    // Parse the xkb string using out parser.
+    struct keyboard_layout_t keymap = {0};
+    if (success) {
+        str_cat_c (msg, "\nXKB parser info:\n");
+        str_cat_c (msg, "----------------\n");
+        if (!xkb_file_parse_verbose (xkb_str, &keymap, msg)) {
+            success = false;
+        }
+    }
+
+    // Write the keymap back to an xkb file.
+    if (success) {
+        struct status_t status = {0};
+        xkb_file_write (&keymap, writer_keymap_str, &status);
+
+        if (status_is_error (&status)) {
+            str_cat_status (msg, &status);
+            str_cat_c (msg, "Internal xkb writer failed.\n");
+            success = false;
+        }
+    }
+
+    // Load the writer's output to libxkbcommon, and print the information.
+    if (success) {
+        *writer_keymap =
+            xkb_keymap_new_from_string(xkb_ctx, str_data(writer_keymap_str),
+                                       XKB_KEYMAP_FORMAT_TEXT_V1,
+                                       XKB_KEYMAP_COMPILE_NO_FLAGS);
+        if (!*writer_keymap) {
+            str_cat_c (msg, "Failed to load the writer's output to libxkbcommon.\n");
+            success = false;
+
+        } else {
+            str_cat_c (msg, "\nWriter output info (libxkbcommon):\n");
+            str_cat_c (msg, "----------------------------------\n");
+            str_cat_xkbcommon_modifier_info (msg, *writer_keymap);
+        }
+    }
+
+    return success;
+}
 
 int main (int argc, char **argv)
 {
@@ -786,15 +865,6 @@ int main (int argc, char **argv)
     if (!success) {
         // TODO: Show a message here. Usage documentation?
         return 1;
-
-    } else {
-        printf ("Used xkb_rule_names:\n");
-        printf ("  rules: %s\n", rules);
-        printf ("  model: %s\n", model);
-        printf ("  layout: %s\n", layout);
-        printf ("  variant: %s\n", variant);
-        printf ("  options: %s\n", options);
-        printf ("\n");
     }
 
     // Get an xkb string from the CLI input
@@ -868,122 +938,89 @@ int main (int argc, char **argv)
         mem_pool_destroy (&tmp);
     }
 
-    // Print modifier information from a libxkbcommon keymap created from the
-    // received CLI input
-    struct xkb_keymap *input_keymap;
-    {
-        if (input_type == INPUT_RMLVO_NAMES) {
-            struct xkb_rule_names names = {
-                .rules = rules,
-                .model = model,
-                .layout = layout,
-                .variant = variant,
-                .options = options
-            };
-
-            input_keymap = xkb_keymap_new_from_names(xkb_ctx, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
-
-        } else {
-            input_keymap =
-                xkb_keymap_new_from_string(xkb_ctx, str_data(&input_str),
-                                           XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
-        }
-
-        if (!input_keymap) {
-            printf ("could not create xkbcommon keymap.\n");
-
-        } else {
-            // Get an overview of the layout loaded from libxkbcommon.
-            printf ("------ libxkbcommon -----\n");
-            xkbcommon_print_modifier_info (input_keymap);
+    string_t msg = {0};
+    string_t writer_keymap_str = {0};
+    struct xkb_keymap *parser_keymap, *writer_keymap;
+    if (success) {
+        str_cat_c (&msg, "===========================\n");
+        str_cat_c (&msg, "------ Writeback Test -----\n");
+        str_cat_c (&msg, "===========================\n");
+        if (!writeback_test (xkb_ctx,
+                             str_data(&input_str), &parser_keymap,
+                             &writer_keymap_str, &writer_keymap, &msg)) {
+            success = false;
         }
     }
 
-    struct xkb_keymap *internal_keymap = NULL;
-    printf ("\n------ xkb backend output -----\n");
-    string_t parser_out = {0};
-    struct keyboard_layout_t keymap = {0};
-    if (!xkb_file_parse_verbose (str_data (&input_str), &keymap, &parser_out)) {
-        if (input_type == INPUT_RMLVO_NAMES) {
-            // TODO: Print all used input options
-            printf ("Errors parsing input layout '%s'.\n", layout);
-        } else {
-            printf ("Errors parsing input layout '%s'.\n", input_file);
-        }
-
-    } else {
-        // Our parser was successful, write the keymap back to an xkb file, load
-        // it into libxkbcommon and print the modifier information of it.
-        struct status_t status = {0};
-        string_t xkb_out_str = {0};
-        xkb_file_write (&keymap, &xkb_out_str, &status);
-
-        if (status_is_error (&status)) {
-            printf ("Internal xkb writer failed.\n");
-            status_print (&status);
-            if (file_output_enabled) {
-                printf ("\n");
-                printf ("Wrote xkb input file to: parser_input.xkb\n");
-                full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
-                printf ("Wrote incomplete xkb file to: writer_output.xkb\n");
-                full_file_write (str_data(&xkb_out_str), str_len(&xkb_out_str), "writer_output.xkb");
-            }
-
-        } else {
-            internal_keymap =
-                xkb_keymap_new_from_string(xkb_ctx, str_data(&xkb_out_str),
-                                           XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
-            if (!internal_keymap) {
-                printf ("Could not create keymap from internal writer's output.\n");
-                if (file_output_enabled) {
-                    printf ("\n");
-                    printf ("Wrote xkb input file to: parser_input.xkb\n");
-                    full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
-                    printf ("Wrote writer's output xkb file to: writer_output.xkb\n");
-                    full_file_write (str_data(&xkb_out_str), str_len(&xkb_out_str), "writer_output.xkb");
-                }
-
-            } else {
-                // Get an overview of the layout loaded from libxkbcommon.
-                xkbcommon_print_modifier_info (internal_keymap);
-
-                printf ("\n%s", str_data(&parser_out));
-
-                if (file_output_enabled) {
-                    printf ("\n");
-                    printf ("Wrote parser input to: parser_input.xkb\n");
-                    full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
-                    printf ("Wrote writer output to: writer_output.xkb\n");
-                    full_file_write (str_data(&xkb_out_str), str_len(&xkb_out_str), "writer_output.xkb");
-                }
-            }
-        }
-    }
-
-    if (success && internal_keymap != NULL && input_keymap != NULL) {
-        string_t msg = {0};
-        printf ("\n------ Symbol Equality Test -----\n");
-        if (!keymap_equality_test (input_keymap, internal_keymap, &msg)) {
-            printf ("Keymaps not equal: %s\n", str_data(&msg));
+    if (success) {
+        str_cat_c (&msg, "\n=================================\n");
+        str_cat_c (&msg, "------ Symbol Equality Test -----\n");
+        str_cat_c (&msg, "=================================\n");
+        if (!keymap_equality_test (parser_keymap, writer_keymap, &msg)) {
+            str_cat_printf (&msg, "%s\n", str_data(&msg));
             success = false;
         } else {
-            printf ("Keymaps are the same!\n");
+            str_cat_c (&msg, "Keymaps are the same!\n");
         }
     }
 
-    if (success && internal_keymap != NULL && input_keymap != NULL) {
-        string_t msg = {0};
-        printf ("\n------ Modifier Equality Test -----\n");
-        if (!modifier_equality_test (input_keymap, internal_keymap, &msg)) {
-            printf ("%s\n", str_data(&msg));
+    if (success) {
+        str_cat_c (&msg, "\n===================================\n");
+        str_cat_c (&msg, "------ Modifier Equality Test -----\n");
+        str_cat_c (&msg, "===================================\n");
+        if (!modifier_equality_test (parser_keymap, writer_keymap, &msg)) {
+            str_cat_printf (&msg, "%s\n", str_data(&msg));
+            success = false;
         } else {
-            printf ("Keymaps are the same!\n");
+            str_cat_c (&msg, "Keymaps are the same!\n");
         }
+    }
+
+    if (success) {
+        string_t writer_keymap_str_2 = {0};
+        struct keyboard_layout_t keymap = {0};
+        str_cat_c (&msg, "\n=============================\n");
+        str_cat_c (&msg, "------ Idempotency Test -----\n");
+        str_cat_c (&msg, "=============================\n");
+        if (!xkb_file_parse_verbose (str_data(&writer_keymap_str), &keymap, &msg)) {
+            str_cat_c (&msg, "Can't parse our own output.\n");
+            success = false;
+        }
+
+        if (success) {
+            struct status_t status = {0};
+            xkb_file_write (&keymap, &writer_keymap_str_2, &status);
+
+            if (status_is_error (&status)) {
+                str_cat_status (&msg, &status);
+                str_cat_c (&msg, "Can't write our own output.\n");
+                success = false;
+            }
+        }
+
+        if(success) {
+            if (strcmp (str_data(&writer_keymap_str), str_data(&writer_keymap_str_2)) != 0) {
+                str_cat_c (&msg, "Parsing our own output does not generate identical XKB files.\n");
+                success = false;
+            }
+        }
+    }
+
+    printf ("%s", str_data(&msg));
+
+    if (file_output_enabled) {
+        printf ("\n");
+        printf ("Wrote xkb parser input to: parser_input.xkb\n");
+        full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
+        printf ("Wrote xkb writer output to: writer_output.xkb\n");
+        full_file_write (str_data(&writer_keymap_str), str_len(&writer_keymap_str), "writer_output.xkb");
     }
 
     str_free (&input_str);
+    str_free (&msg);
 
-    xkb_keymap_unref(input_keymap);
+    xkb_keymap_unref(parser_keymap);
+    xkb_keymap_unref(writer_keymap);
     xkb_context_unref(xkb_ctx);
 
     return 0;

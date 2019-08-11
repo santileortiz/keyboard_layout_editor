@@ -787,13 +787,13 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
                             // level, it's computed from the position in the
                             // list.
                             // :none_mapping_is_reserved_for_level1
-                            xkb_parser_error (state, "Can't map 'none' to level %d. It's reserved for level 1.\n", level);
+                            xkb_parser_error (state, "Can't map 'none' to level %d. It's reserved for level 1.", level);
 
                         } else if (~type_modifier_mask & level_modifiers) {
                             // TODO: Tell the user which modifiers are the
                             // problematic ones.
                             xkb_parser_error (state,
-                                              "Modifier map for level %d uses modifiers not in the mask for type '%s'.\n",
+                                              "Modifier map for level %d uses modifiers not in the mask for type '%s'.",
                                               level, new_type->name);
                         }
 
@@ -2347,7 +2347,7 @@ bool xkb_file_parse_verbose (char *xkb_str, struct keyboard_layout_t *keymap, st
 
     bool success = true;
     if (state.scnr.error) {
-        printf ("Error: %s\n", state.scnr.error_message);
+        str_cat_printf (log, "Error: %s\n", state.scnr.error_message);
         success = false;
 
     } else {

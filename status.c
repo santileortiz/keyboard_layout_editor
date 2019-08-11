@@ -130,6 +130,21 @@ void status_warning (struct status_t *status, char *msg, ...)
     status->warnings_last = new_msg;
 }
 
+void str_cat_status (string_t *str, struct status_t *status)
+{
+    assert (status != NULL);
+
+    struct status_message_t *curr_msg = status->warnings;
+    while (curr_msg) {
+        str_cat_printf (str, "[WARN] %s\n", curr_msg->msg);
+        curr_msg = curr_msg->next;
+    }
+
+    if (status->error) {
+        str_cat_printf (str, "[ERROR] %s\n", status->error_msg);
+    }
+}
+
 void status_print (struct status_t *status)
 {
     assert (status != NULL);

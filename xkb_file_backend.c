@@ -1868,31 +1868,30 @@ struct interpret_vmod_definition_t {
 
 void add_interpret_vmod_definition (struct xkb_parser_state_t *state,
                                     struct interpret_vmod_definition_t **interpret_vmod_definition,
+                                    struct interpret_vmod_definition_t **interpret_vmod_definition_end,
                                     int kc, key_modifier_mask_t vmod_mask)
 {
     assert (interpret_vmod_definition != NULL);
 
-    static struct interpret_vmod_definition_t *interpret_vmod_end = NULL;
-
-    if (interpret_vmod_end == NULL) {
+    if ((*interpret_vmod_definition_end) == NULL) {
         *interpret_vmod_definition = mem_pool_push_struct (&state->pool, struct interpret_vmod_definition_t);
         **interpret_vmod_definition = ZERO_INIT (struct interpret_vmod_definition_t);
 
-        interpret_vmod_end = *interpret_vmod_definition;
-        interpret_vmod_end->kc = kc;
+        (*interpret_vmod_definition_end) = *interpret_vmod_definition;
+        (*interpret_vmod_definition_end)->kc = kc;
     }
 
-    if (interpret_vmod_end->kc != kc) {
+    if ((*interpret_vmod_definition_end)->kc != kc) {
         struct interpret_vmod_definition_t *new_vmod_definition =
             mem_pool_push_struct (&state->pool, struct interpret_vmod_definition_t);
         *new_vmod_definition = ZERO_INIT (struct interpret_vmod_definition_t);
 
-        interpret_vmod_end->next = new_vmod_definition;
-        interpret_vmod_end = new_vmod_definition;
-        interpret_vmod_end->kc = kc;
+        (*interpret_vmod_definition_end)->next = new_vmod_definition;
+        (*interpret_vmod_definition_end) = new_vmod_definition;
+        (*interpret_vmod_definition_end)->kc = kc;
     }
 
-    interpret_vmod_end->vmods |= vmod_mask;
+    (*interpret_vmod_definition_end)->vmods |= vmod_mask;
 }
 
 gboolean reverse_mapping_create_foreach (gpointer modifier_name, gpointer mask_ptr, gpointer data)
@@ -2002,6 +2001,7 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state, string_t *vmo
     // algorithm, so that later the one that computes virtual modifier
     // definitions (:virtual_modifier_definition) uses it.
     struct interpret_vmod_definition_t *interpret_vmod_definition = NULL;
+    struct interpret_vmod_definition_t *interpret_vmod_definition_end = NULL;
 
     //////////////////////////////////////////////////////////////////////
     // Compute winning interprets and resolve key level actions from them.
@@ -2174,7 +2174,10 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state, string_t *vmo
                         // Build the data structure required for virtual
                         // modifier definition computation.
                         // :virtual_modifier_definition
-                        add_interpret_vmod_definition (state, &interpret_vmod_definition,
+                        add_interpret_vmod_definition (
+                            state,
+                            &interpret_vmod_definition,
+                            &interpret_vmod_definition_end,
                             kc, winning_interpret[j]->virtual_modifier);
                     }
                 }

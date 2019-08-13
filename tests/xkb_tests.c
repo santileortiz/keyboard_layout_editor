@@ -298,13 +298,13 @@ void compare_key_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *dat
     int k1_num_layouts = xkb_keymap_num_layouts_for_key (k1, kc);
     int k2_num_layouts = xkb_keymap_num_layouts_for_key (k2, kc);
     if (k1_num_layouts != k2_num_layouts) {
-        str_set_printf (msg, "Key %d has %d layouts in k1 but %d in k2.", kc, k1_num_layouts, k2_num_layouts);
+        str_cat_printf (msg, "Key %d has %d layouts in k1 but %d in k2.\n", kc, k1_num_layouts, k2_num_layouts);
         clsr->equal_keymaps = false;
 
     } else if (k1_num_layouts > 1) {
         // NOTE: What does it mean to have a number of layouts of 0? (yes, it
         // happens).
-        str_set (msg, "Compared keymaps have more than 1 layout, this is not supported yet.");
+        str_cat_c (msg, "Compared keymaps have more than 1 layout, this is not supported yet.\n");
         clsr->equal_keymaps = false;
     }
 
@@ -312,7 +312,7 @@ void compare_key_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *dat
     int k1_num_levels = xkb_keymap_num_levels_for_key (k1, kc, 0);
     int k2_num_levels = xkb_keymap_num_levels_for_key (k2, kc, 0);
     if (clsr->equal_keymaps && k1_num_levels != k2_num_levels) {
-        str_set_printf (msg, "Key %d has %d levels in k1 but %d in k2.", kc, k1_num_levels, k2_num_levels);
+        str_cat_printf (msg, "Key %d has %d levels in k1 but %d in k2.\n", kc, k1_num_levels, k2_num_levels);
         clsr->equal_keymaps = false;
     }
 
@@ -324,13 +324,13 @@ void compare_key_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *dat
             int k1_num_syms = xkb_keymap_key_get_syms_by_level (k1, kc, 0, lvl, &k1_keysyms);
             int k2_num_syms = xkb_keymap_key_get_syms_by_level (k2, kc, 0, lvl, &k2_keysyms);
             if (k1_num_syms != k2_num_syms) {
-                str_set_printf (msg, "Key %d has %d keysyms in k1 but %d in k2.", kc, k1_num_syms, k2_num_syms);
+                str_cat_printf (msg, "Key %d has %d keysyms in k1 but %d in k2.\n", kc, k1_num_syms, k2_num_syms);
                 clsr->equal_keymaps = false;
 
             } else {
                 for (int idx=0; clsr->equal_keymaps && idx<k1_num_syms; idx++) {
                     if (k1_keysyms[idx] != k2_keysyms[idx]) {
-                        str_set_printf (msg, "k1[kc:%d][lvl:%d] -> %d != k1[kc:%d][lvl:%d] -> %d",
+                        str_cat_printf (msg, "k1[kc:%d][lvl:%d] -> %d != k1[kc:%d][lvl:%d] -> %d\n",
                                         kc, lvl, k1_keysyms[idx], kc, lvl, k2_keysyms[idx]);
                         clsr->equal_keymaps = false;
                     }
@@ -355,7 +355,7 @@ bool keymap_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, string_
     clsr.equal_keymaps = true;
 
     if (xkb_keymap_num_layouts (k1) != xkb_keymap_num_layouts (k2)) {
-        str_set (msg, "Keymaps have different number of layouts.");
+        str_cat_c (msg, "Keymaps have different number of layouts.\n");
         clsr.equal_keymaps = false;
     }
 
@@ -552,14 +552,14 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
         struct modifier_key_t *curr_mod_k1 = mod_list_k1, *curr_mod_k2 = mod_list_k2;
         while (are_equal == true && curr_mod_k1 != NULL && curr_mod_k2 != NULL) {
             if (curr_mod_k1->kc != curr_mod_k2->kc) {
-                str_set (msg, "Keymaps don't map modifiers to the same keys.");
+                str_cat_c (msg, "Keymaps don't map modifiers to the same keys.\n");
                 are_equal = false;
 
             } else if (curr_mod_k1->modifiers != curr_mod_k2->modifiers) {
                 // TODO: This is currently not implemented, we need to think
                 // about how to get global modifier masks.
                 // :modifier_key_modifier_mask_test
-                str_set_printf (msg, "Keymaps set or lock different real modifiers with key %d.", curr_mod_k1->kc);
+                str_cat_printf (msg, "Keymaps set or lock different real modifiers with key %d.\n", curr_mod_k1->kc);
                 are_equal = false;
             }
 
@@ -571,7 +571,7 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
 
         if ((curr_mod_k1 != NULL && curr_mod_k2 == NULL) ||
             (curr_mod_k1 == NULL && curr_mod_k2 != NULL)) {
-            str_set (msg, "Keymaps don't have the same number of modifier keys.");
+            str_cat_c (msg, "Keymaps don't have the same number of modifier keys.\n");
             are_equal = false;
         }
     }
@@ -643,7 +643,7 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
                 xkb_keymap_key_for_each (k1, compare_key_states_foreach, &clsr);
 
                 if (!clsr.equal_states) {
-                    str_set_printf (msg, "Modifiers produce different keysyms.\n");
+                    str_cat_printf (msg, "Modifiers produce different keysyms.\n");
 
 
                     for (int passed_test = 1; passed_test < pressed_keys; passed_test++) {
@@ -698,7 +698,7 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
     }
 
     if (are_equal && num_mod_keys > max_mod_keys) {
-        str_set_printf (msg, "We don't do modifier tests on keymaps with more than %d modifier keys.",
+        str_cat_printf (msg, "We don't do modifier tests on keymaps with more than %d modifier keys.\n",
                         max_mod_keys);
     }
 
@@ -1099,9 +1099,10 @@ int main (int argc, char **argv)
 
     if (success) {
         str_cat_test_name (&msg, "Symbol Equality Test");
-        if (!keymap_equality_test (parser_keymap, writer_keymap, &msg)) {
+        string_t tmp = {0};
+        if (!keymap_equality_test (parser_keymap, writer_keymap, &tmp)) {
             str_cat_c (&msg, FAIL);
-            str_cat_printf (&msg, "%s\n", str_data(&msg));
+            str_cat (&msg, &tmp);
             success = false;
         } else {
             str_cat_c (&msg, SUCCESS);
@@ -1110,9 +1111,10 @@ int main (int argc, char **argv)
 
     if (success) {
         str_cat_test_name (&msg, "Modifier Equality Test");
-        if (!modifier_equality_test (parser_keymap, writer_keymap, &msg)) {
+        string_t tmp = {0};
+        if (!modifier_equality_test (parser_keymap, writer_keymap, &tmp)) {
             str_cat_c (&msg, FAIL);
-            str_cat_printf (&msg, "%s\n", str_data(&msg));
+            str_cat (&msg, &tmp);
             success = false;
         } else {
             str_cat_c (&msg, SUCCESS);

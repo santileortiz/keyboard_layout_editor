@@ -785,6 +785,29 @@ void str_cat_indented (string_t *str1, string_t *str2, int num_spaces)
     }
 }
 
+void printf_indented (char *str, int num_spaces)
+{
+    char *c = str;
+
+    for (int i=0; i<num_spaces; i++) {
+        printf (" ");
+    }
+
+    while (c && *c) {
+        if (*c == '\n' && *(c+1) != '\n' && *(c+1) != '\0') {
+            printf ("\n");
+            for (int i=0; i<num_spaces; i++) {
+                printf (" ");
+            }
+
+        } else {
+            // Use putc?
+            printf ("%c", *c);
+        }
+        c++;
+    }
+}
+
 bool test_xkb_file (string_t *input_str,
                     string_t *result, string_t *info,
                     string_t *writer_keymap_str, string_t *writer_keymap_str_2)
@@ -872,32 +895,34 @@ bool test_xkb_file (string_t *input_str,
         }
     }
 
-    // Print parser input information
-    if (parser_keymap) {
-        str_cat_c (info, ECMA_MAGENTA("\nParser input info (libxkbcommon):\n"));
+    if (info != NULL) {
+        // Print parser input information
+        if (parser_keymap) {
+            str_cat_c (info, ECMA_MAGENTA("\nParser input info (libxkbcommon):\n"));
 
-        string_t tmp = {0};
-        str_cat_xkbcommon_modifier_info (&tmp, parser_keymap);
-        str_cat_indented (info, &tmp, 1);
-    }
+            string_t tmp = {0};
+            str_cat_xkbcommon_modifier_info (&tmp, parser_keymap);
+            str_cat_indented (info, &tmp, 1);
+        }
 
-    // Print writer output information
-    if (writer_keymap) {
-        str_cat_c (info, ECMA_MAGENTA("\nWriter output info (libxkbcommon):\n"));
+        // Print writer output information
+        if (writer_keymap) {
+            str_cat_c (info, ECMA_MAGENTA("\nWriter output info (libxkbcommon):\n"));
 
-        string_t tmp = {0};
-        str_cat_xkbcommon_modifier_info (&tmp, writer_keymap);
-        str_cat_indented (info, &tmp, 1);
+            string_t tmp = {0};
+            str_cat_xkbcommon_modifier_info (&tmp, writer_keymap);
+            str_cat_indented (info, &tmp, 1);
 
-        // TODO: Maybe don't parse the layout again here? get this from the original
-        // call inside the writeback test. Or... maybe just don't but the writeback
-        // test in a separate function?.
-        struct keyboard_layout_t keymap = {0};
-        str_cat_c (info, ECMA_MAGENTA("\nXKB parser info:\n"));
+            // TODO: Maybe don't parse the layout again here? get this from the original
+            // call inside the writeback test. Or... maybe just don't but the writeback
+            // test in a separate function?.
+            struct keyboard_layout_t keymap = {0};
+            str_cat_c (info, ECMA_MAGENTA("\nXKB parser info:\n"));
 
-        tmp = ZERO_INIT(string_t);
-        xkb_file_parse_verbose (str_data(input_str), &keymap, &tmp);
-        str_cat_indented (info, &tmp, 1);
+            tmp = ZERO_INIT(string_t);
+            xkb_file_parse_verbose (str_data(input_str), &keymap, &tmp);
+            str_cat_indented (info, &tmp, 1);
+        }
     }
 
     xkb_context_unref(xkb_ctx);
@@ -905,6 +930,81 @@ bool test_xkb_file (string_t *input_str,
     xkb_keymap_unref(writer_keymap);
 
     return success;
+}
+
+void xkb_str_from_rmlvo (char *rules, char *model, char *layout, char *variant, char *options, string_t *xkb_str)
+{
+    assert (xkb_str != NULL);
+
+    // NOTE: This is a slow process, and there is a high chance of messing the
+    // user's current layout. In the actual application we should have a
+    // predefined library of base layouts in resolved xkb form. We can use this
+    // code to generate that library.
+    // TODO: Is there a way to get this from libxkbcommon? if so, that should be
+    // faster, we should do that instead of calling the bash script.
+    string_t cmd = str_new ("./tests/get_xkb_str.sh");
+    if (rules != NULL) {
+        str_cat_printf (&cmd, " -rules %s", rules);
+    }
+
+    if (model != NULL) {
+        str_cat_printf (&cmd, " -model %s", model);
+    }
+
+    if (layout != NULL) {
+        str_cat_printf (&cmd, " -layout %s", layout);
+    }
+
+    if (variant != NULL) {
+        str_cat_printf (&cmd, " -variant %s", variant);
+    }
+
+    // TODO: setxkbmap only receives one option per -option argument, I
+    // think we probably want to do the same? but our CLI parser only
+    // hanldles a single -o. For now I don't care because I won't be testing
+    // layouts that have options set, probably I won't even support them.
+    if (options != NULL) {
+        str_cat_printf (&cmd, " -option %s", options);
+    }
+
+    FILE* cmd_stdout = popen (str_data(&cmd), "r");
+    if (cmd_stdout != NULL) {
+
+        char buff[1024];
+        size_t total_bytes = 0;
+        size_t bytes_read = 0;
+        do {
+            bytes_read = fread (buff, 1, ARRAY_SIZE(buff), cmd_stdout);
+            strn_cat_c (xkb_str, buff, bytes_read);
+            total_bytes += bytes_read;
+
+        } while (bytes_read == ARRAY_SIZE(buff));
+        str_cat_c (xkb_str, "\0");
+
+        if (ferror (cmd_stdout)) {
+            printf ("An error occurred while reading output of script.");
+        }
+
+        assert (feof (cmd_stdout));
+
+        int exit_status = pclose (cmd_stdout);
+        if (exit_status != 0) {
+            printf ("Command exited with %d.\n", exit_status%255);
+        }
+    }
+
+    str_free (&cmd);
+
+}
+
+void xkb_str_from_file (char *fname, string_t *xkb_str)
+{
+    // TODO: Make a file read that writes directly to a string_t?, maybe don't
+    // use a string_t for input_str?
+    mem_pool_t tmp = {0};
+    char *data = full_file_read (&tmp, fname);
+    str_set (xkb_str, data);
+    mem_pool_destroy (&tmp);
 }
 
 int main (int argc, char **argv)
@@ -960,88 +1060,42 @@ int main (int argc, char **argv)
         return 1;
     }
 
-    // Get an xkb string from the CLI input
     string_t input_str = {0};
-    if (input_type == INPUT_RMLVO_NAMES) {
-        // NOTE: This is a slow process, and there is a high chance of messing the
-        // user's current layout. In the actual application we should have a
-        // predefined library of base layouts in resolved xkb form. We can use this
-        // code to generate that library.
-        // TODO: Is there a way to get this from libxkbcommon? if so, that should be
-        // faster, we should do that instead of calling the bash script.
-        string_t cmd = str_new ("./tests/get_xkb_str.sh");
-        if (rules != NULL) {
-            str_cat_printf (&cmd, " -rules %s", rules);
-        }
-
-        if (model != NULL) {
-            str_cat_printf (&cmd, " -model %s", model);
-        }
-
-        if (layout != NULL) {
-            str_cat_printf (&cmd, " -layout %s", layout);
-        }
-
-        if (variant != NULL) {
-            str_cat_printf (&cmd, " -variant %s", variant);
-        }
-
-        // TODO: setxkbmap only receives one option per -option argument, I
-        // think we probably want to do the same? but our CLI parser only
-        // hanldles a single -o. For now I don't care because I won't be testing
-        // layouts that have options set, probably I won't even support them.
-        if (options != NULL) {
-            str_cat_printf (&cmd, " -option %s", options);
-        }
-
-        FILE* cmd_stdout = popen (str_data(&cmd), "r");
-        if (cmd_stdout != NULL) {
-
-            char buff[1024];
-            size_t total_bytes = 0;
-            size_t bytes_read = 0;
-            do {
-                bytes_read = fread (buff, 1, ARRAY_SIZE(buff), cmd_stdout);
-                strn_cat_c (&input_str, buff, bytes_read);
-                total_bytes += bytes_read;
-
-            } while (bytes_read == ARRAY_SIZE(buff));
-            str_cat_c (&input_str, "\0");
-
-            if (ferror (cmd_stdout)) {
-                printf ("An error occurred while reading output of script.");
-            }
-
-            assert (feof (cmd_stdout));
-
-            int exit_status = pclose (cmd_stdout);
-            if (exit_status != 0) {
-                printf ("Command exited with %d.\n", exit_status%255);
-            }
-        }
-
-        str_free (&cmd);
-
-    } else if (input_type == INPUT_XKB_FILE) {
-        // TODO: Make a file read that writes directly to a string_t?, maybe
-        // don't use a string_t for input_str?
-        mem_pool_t tmp = {0};
-        char *data = full_file_read (&tmp, input_file);
-        str_set (&input_str, data);
-        mem_pool_destroy (&tmp);
-    }
+    string_t result = {0};
+    string_t info = {0};
+    string_t writer_keymap_str = {0};
+    string_t writer_keymap_str_2 = {0};
 
     if (input_type == INPUT_NONE) {
-        // TODO: Iterate over all tests in this case
-        printf ("At least a layout name should be provided.\n");
-        success = false;
+        // TODO: Get all 'common' layouts. For some definition of 'common'.
+        char *test_layouts[] = {"us", "ru", "br", "latam"};
+        for (int i=0; i<ARRAY_SIZE(test_layouts); i++) {
+            str_set (&input_str, "");
+            // TODO: X11 freezes badly when calling this... we should precompute
+            // this and cache them somewhere.
+            xkb_str_from_rmlvo (NULL, NULL, test_layouts[i], NULL, NULL, &input_str);
+
+            str_set (&result, "");
+            str_set (&info, "");
+            str_set (&writer_keymap_str, "");
+            str_set (&writer_keymap_str_2, "");
+            test_xkb_file (&input_str, &result, &info, &writer_keymap_str, &writer_keymap_str_2);
+
+            printf ("Layout %s:\n", test_layouts[i]);
+            printf_indented (str_data(&result), 4);
+            printf ("\n");
+        }
+
+        str_free (&input_str);
+        str_free (&result);
 
     } else {
-        string_t result = {0};
-        string_t info = {0};
-        string_t writer_keymap_str = {0};
-        string_t writer_keymap_str_2 = {0};
-        test_xkb_file (&input_str, &result, &info, &writer_keymap_str, &writer_keymap_str_2);
+        // Get an xkb string from the CLI input
+        if (input_type == INPUT_RMLVO_NAMES) {
+            xkb_str_from_rmlvo (rules, model, layout, variant, options, &input_str);
+        } else if (input_type == INPUT_XKB_FILE) {
+            xkb_str_from_file (input_file, &input_str);
+        }
 
         if (file_output_enabled) {
             str_cat_c (&info, "\n");
@@ -1055,13 +1109,12 @@ int main (int argc, char **argv)
 
         printf ("%s", str_data(&result));
         printf ("%s", str_data(&info));
-
-        str_free (&writer_keymap_str);
-        str_free (&writer_keymap_str_2);
-        str_free (&result);
-        str_free (&info);
     }
 
+    str_free (&writer_keymap_str);
+    str_free (&writer_keymap_str_2);
+    str_free (&result);
+    str_free (&info);
     str_free (&input_str);
 
     return 0;

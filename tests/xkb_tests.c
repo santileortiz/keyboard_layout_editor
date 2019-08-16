@@ -677,6 +677,7 @@ void str_cat_xkbcommon_modifier_info (string_t *str, struct xkb_keymap *keymap)
 }
 
 enum input_type_t {
+    INPUT_NONE,
     INPUT_RMLVO_NAMES,
     INPUT_XKB_FILE
 };
@@ -784,9 +785,10 @@ void str_cat_indented (string_t *str1, string_t *str2, int num_spaces)
     }
 }
 
-int main (int argc, char **argv)
+bool test_xkb_file (string_t *input_str,
+                    string_t *result, string_t *info,
+                    string_t *writer_keymap_str, string_t *writer_keymap_str_2)
 {
-    init_keycode_names ();
     bool success = true;
 
     struct xkb_context *xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
@@ -794,6 +796,121 @@ int main (int argc, char **argv)
         printf ("could not create xkb context.\n");
         success = false;
     }
+
+    struct xkb_keymap *parser_keymap, *writer_keymap;
+    if (success) {
+        str_cat_test_name (result, "Writeback test");
+        if (!writeback_test (xkb_ctx,
+                             str_data(input_str), &parser_keymap,
+                             writer_keymap_str, &writer_keymap, result)) {
+            str_cat_c (result, FAIL);
+            success = false;
+        } else {
+            str_cat_c (result, SUCCESS);
+        }
+    }
+
+    if (success) {
+        str_cat_test_name (result, "Symbol Equality Test");
+        string_t tmp = {0};
+        if (!keymap_equality_test (parser_keymap, writer_keymap, &tmp)) {
+            str_cat_c (result, FAIL);
+            str_cat (result, &tmp);
+            success = false;
+        } else {
+            str_cat_c (result, SUCCESS);
+        }
+    }
+
+    if (success) {
+        str_cat_test_name (result, "Modifier Equality Test");
+        string_t tmp = {0};
+        if (!modifier_equality_test (parser_keymap, writer_keymap, &tmp)) {
+            str_cat_c (result, FAIL);
+            str_cat (result, &tmp);
+            success = false;
+        } else {
+            str_cat_c (result, SUCCESS);
+        }
+    }
+
+    if (success) {
+        struct keyboard_layout_t keymap = {0};
+        str_cat_test_name (result, "Idempotency Test");
+
+        string_t log = {0};
+        if (!xkb_file_parse_verbose (str_data(writer_keymap_str), &keymap, &log)) {
+            str_cat_c (result, FAIL);
+            str_cat_c (result, "Can't parse our own output.\n");
+            str_cat (result, &log);
+            success = false;
+        }
+        str_free (&log);
+
+        if (success) {
+            struct status_t status = {0};
+            xkb_file_write (&keymap, writer_keymap_str_2, &status);
+
+            if (status_is_error (&status)) {
+                str_cat_c (result, FAIL);
+                str_cat_status (result, &status);
+                str_cat_c (result, "Can't write our own output.\n");
+                success = false;
+            }
+        }
+
+        if(success) {
+            if (strcmp (str_data(writer_keymap_str), str_data(writer_keymap_str_2)) != 0) {
+                str_cat_c (result, FAIL);
+                str_cat_c (result, "Parsing our own output does not generate identical XKB files.\n");
+                success = false;
+
+            } else {
+                str_cat_c (result, SUCCESS);
+            }
+
+        }
+    }
+
+    // Print parser input information
+    if (parser_keymap) {
+        str_cat_c (info, ECMA_MAGENTA("\nParser input info (libxkbcommon):\n"));
+
+        string_t tmp = {0};
+        str_cat_xkbcommon_modifier_info (&tmp, parser_keymap);
+        str_cat_indented (info, &tmp, 1);
+    }
+
+    // Print writer output information
+    if (writer_keymap) {
+        str_cat_c (info, ECMA_MAGENTA("\nWriter output info (libxkbcommon):\n"));
+
+        string_t tmp = {0};
+        str_cat_xkbcommon_modifier_info (&tmp, writer_keymap);
+        str_cat_indented (info, &tmp, 1);
+
+        // TODO: Maybe don't parse the layout again here? get this from the original
+        // call inside the writeback test. Or... maybe just don't but the writeback
+        // test in a separate function?.
+        struct keyboard_layout_t keymap = {0};
+        str_cat_c (info, ECMA_MAGENTA("\nXKB parser info:\n"));
+
+        tmp = ZERO_INIT(string_t);
+        xkb_file_parse_verbose (str_data(input_str), &keymap, &tmp);
+        str_cat_indented (info, &tmp, 1);
+    }
+
+    xkb_context_unref(xkb_ctx);
+    xkb_keymap_unref(parser_keymap);
+    xkb_keymap_unref(writer_keymap);
+
+    return success;
+}
+
+int main (int argc, char **argv)
+{
+    init_keycode_names ();
+    bool success = true;
 
     enum input_type_t input_type;
 
@@ -832,9 +949,7 @@ int main (int argc, char **argv)
             }
 
         } else {
-            // TODO: Iterate over all tests in this case
-            printf ("At least a layout name should be provided.\n");
-            success = false;
+            input_type = INPUT_NONE;
         }
     }
 
@@ -907,7 +1022,7 @@ int main (int argc, char **argv)
 
         str_free (&cmd);
 
-    } else {
+    } else if (input_type == INPUT_XKB_FILE) {
         // TODO: Make a file read that writes directly to a string_t?, maybe
         // don't use a string_t for input_str?
         mem_pool_t tmp = {0};
@@ -916,128 +1031,38 @@ int main (int argc, char **argv)
         mem_pool_destroy (&tmp);
     }
 
-    string_t msg = {0};
-    string_t writer_keymap_str = {0};
-    struct xkb_keymap *parser_keymap, *writer_keymap;
-    if (success) {
-        str_cat_test_name (&msg, "Writeback test");
-        if (!writeback_test (xkb_ctx,
-                             str_data(&input_str), &parser_keymap,
-                             &writer_keymap_str, &writer_keymap, &msg)) {
-            str_cat_c (&msg, FAIL);
-            success = false;
-        } else {
-            str_cat_c (&msg, SUCCESS);
-        }
-    }
+    if (input_type == INPUT_NONE) {
+        // TODO: Iterate over all tests in this case
+        printf ("At least a layout name should be provided.\n");
+        success = false;
 
-    if (success) {
-        str_cat_test_name (&msg, "Symbol Equality Test");
-        string_t tmp = {0};
-        if (!keymap_equality_test (parser_keymap, writer_keymap, &tmp)) {
-            str_cat_c (&msg, FAIL);
-            str_cat (&msg, &tmp);
-            success = false;
-        } else {
-            str_cat_c (&msg, SUCCESS);
-        }
-    }
-
-    if (success) {
-        str_cat_test_name (&msg, "Modifier Equality Test");
-        string_t tmp = {0};
-        if (!modifier_equality_test (parser_keymap, writer_keymap, &tmp)) {
-            str_cat_c (&msg, FAIL);
-            str_cat (&msg, &tmp);
-            success = false;
-        } else {
-            str_cat_c (&msg, SUCCESS);
-        }
-    }
-
-    if (success) {
+    } else {
+        string_t result = {0};
+        string_t info = {0};
+        string_t writer_keymap_str = {0};
         string_t writer_keymap_str_2 = {0};
-        struct keyboard_layout_t keymap = {0};
-        str_cat_test_name (&msg, "Idempotency Test");
+        test_xkb_file (&input_str, &result, &info, &writer_keymap_str, &writer_keymap_str_2);
 
-        string_t log = {0};
-        if (!xkb_file_parse_verbose (str_data(&writer_keymap_str), &keymap, &log)) {
-            str_cat_c (&msg, FAIL);
-            str_cat_c (&msg, "Can't parse our own output.\n");
-            str_cat (&msg, &log);
-            success = false;
-        }
-        str_free (&log);
-
-        if (success) {
-            struct status_t status = {0};
-            xkb_file_write (&keymap, &writer_keymap_str_2, &status);
-
-            if (status_is_error (&status)) {
-                str_cat_c (&msg, FAIL);
-                str_cat_status (&msg, &status);
-                str_cat_c (&msg, "Can't write our own output.\n");
-                success = false;
-            }
+        if (file_output_enabled) {
+            str_cat_c (&info, "\n");
+            str_cat_c (&info, ECMA_CYAN("Wrote xkb parser input to: parser_input.xkb\n"));
+            full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
+            str_cat_c (&info, ECMA_CYAN("Wrote xkb writer output to: writer_output.xkb\n"));
+            full_file_write (str_data(&writer_keymap_str), str_len(&writer_keymap_str), "writer_output.xkb");
+            str_cat_c (&info, ECMA_CYAN("Wrote xkb 2nd time writer output to: writer_output_2.xkb\n"));
+            full_file_write (str_data(&writer_keymap_str_2), str_len(&writer_keymap_str_2), "writer_output_2.xkb");
         }
 
-        if(success) {
-            if (strcmp (str_data(&writer_keymap_str), str_data(&writer_keymap_str_2)) != 0) {
-                str_cat_c (&msg, FAIL);
-                str_cat_c (&msg, "Parsing our own output does not generate identical XKB files.\n");
-                success = false;
+        printf ("%s", str_data(&result));
+        printf ("%s", str_data(&info));
 
-            } else {
-                str_cat_c (&msg, SUCCESS);
-            }
-
-        }
+        str_free (&writer_keymap_str);
+        str_free (&writer_keymap_str_2);
+        str_free (&result);
+        str_free (&info);
     }
-
-    // Print parser input information
-    if (parser_keymap) {
-        str_cat_c (&msg, ECMA_MAGENTA("\nParser input info (libxkbcommon):\n"));
-
-        string_t tmp = {0};
-        str_cat_xkbcommon_modifier_info (&tmp, parser_keymap);
-        str_cat_indented (&msg, &tmp, 1);
-    }
-
-    // Print writer output information
-    if (writer_keymap) {
-        str_cat_c (&msg, ECMA_MAGENTA("\nWriter output info (libxkbcommon):\n"));
-
-        string_t tmp = {0};
-        str_cat_xkbcommon_modifier_info (&tmp, writer_keymap);
-        str_cat_indented (&msg, &tmp, 1);
-
-        // TODO: Maybe don't parse the layout again here? get this from the original
-        // call inside the writeback test. Or... maybe just don't but the writeback
-        // test in a separate function?.
-        struct keyboard_layout_t keymap = {0};
-        str_cat_c (&msg, ECMA_MAGENTA("\nXKB parser info:\n"));
-
-        tmp = ZERO_INIT(string_t);
-        xkb_file_parse_verbose (str_data(&input_str), &keymap, &tmp);
-        str_cat_indented (&msg, &tmp, 1);
-    }
-
-    if (file_output_enabled) {
-        str_cat_c (&msg, "\n");
-        str_cat_c (&msg, ECMA_CYAN("Wrote xkb parser input to: parser_input.xkb\n"));
-        full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
-        str_cat_c (&msg, ECMA_CYAN("Wrote xkb writer output to: writer_output.xkb\n"));
-        full_file_write (str_data(&writer_keymap_str), str_len(&writer_keymap_str), "writer_output.xkb");
-    }
-
-    printf ("%s", str_data(&msg));
 
     str_free (&input_str);
-    str_free (&msg);
-
-    xkb_keymap_unref(parser_keymap);
-    xkb_keymap_unref(writer_keymap);
-    xkb_context_unref(xkb_ctx);
 
     return 0;
 }

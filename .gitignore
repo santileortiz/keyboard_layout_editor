@@ -4,6 +4,7 @@ gresource.c
 # Failed tests output
 parser_input.xkb
 writer_output.xkb
+writer_output_2.xkb
 
 *.swp
 *.log

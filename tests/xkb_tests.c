@@ -1140,12 +1140,22 @@ int main (int argc, char **argv)
 
         if (file_output_enabled) {
             str_cat_c (&info, "\n");
-            str_cat_c (&info, ECMA_CYAN("Wrote xkb parser input to: parser_input.xkb\n"));
-            full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
-            str_cat_c (&info, ECMA_CYAN("Wrote xkb writer output to: writer_output.xkb\n"));
-            full_file_write (str_data(&writer_keymap_str), str_len(&writer_keymap_str), "writer_output.xkb");
-            str_cat_c (&info, ECMA_CYAN("Wrote xkb 2nd time writer output to: writer_output_2.xkb\n"));
-            full_file_write (str_data(&writer_keymap_str_2), str_len(&writer_keymap_str_2), "writer_output_2.xkb");
+            if (str_len(&input_str) != 0) {
+                str_cat_c (&info, ECMA_CYAN("Wrote xkb parser input to: parser_input.xkb\n"));
+                full_file_write (str_data(&input_str), str_len(&input_str), "parser_input.xkb");
+            }
+
+            if (str_len(&writer_keymap_str) != 0) {
+                str_cat_c (&info, ECMA_CYAN("Wrote xkb writer output to: writer_output.xkb\n"));
+                full_file_write (str_data(&writer_keymap_str), str_len(&writer_keymap_str),
+                                 "writer_output.xkb");
+            }
+
+            if (str_len(&writer_keymap_str_2) != 0) {
+                str_cat_c (&info, ECMA_CYAN("Wrote xkb 2nd time writer output to: writer_output_2.xkb\n"));
+                full_file_write (str_data(&writer_keymap_str_2), str_len(&writer_keymap_str_2),
+                                 "writer_output_2.xkb");
+            }
         }
 
         printf ("%s", str_data(&result));

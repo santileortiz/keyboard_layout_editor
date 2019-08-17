@@ -694,7 +694,7 @@ bool writeback_test (struct xkb_context *xkb_ctx,
                      string_t *writer_keymap_str, struct xkb_keymap **writer_keymap,
                      string_t *msg)
 {
-    assert (writer_keymap!= NULL && msg != NULL);
+    assert (xkb_ctx && xkb_str && parser_keymap && writer_keymap_str && writer_keymap && msg);
 
     bool success = true;
 
@@ -706,10 +706,10 @@ bool writeback_test (struct xkb_context *xkb_ctx,
     // Print modifier information from a libxkbcommon keymap created from the
     // received CLI input
     if (!*parser_keymap) {
-        str_cat_c (msg, "Failed to load the parser's input to libxkbcommon.\n");
+        str_cat_c (msg, FAIL);
+        str_cat_c (msg, "libxkbcommon parser failed.\n");
         success = false;
 
-    } else {
     }
 
     // Parse the xkb string using our parser.
@@ -718,6 +718,8 @@ bool writeback_test (struct xkb_context *xkb_ctx,
 
         string_t log = {0};
         if (!xkb_file_parse_verbose (xkb_str, &keymap, &log)) {
+            str_cat_c (msg, FAIL);
+            str_cat_printf (msg, "Internal parser failed.\n");
             str_cat (msg, &log);
             success = false;
         }
@@ -730,8 +732,9 @@ bool writeback_test (struct xkb_context *xkb_ctx,
         xkb_file_write (&keymap, writer_keymap_str, &status);
 
         if (status_is_error (&status)) {
-            str_cat_status (msg, &status);
+            str_cat_c (msg, FAIL);
             str_cat_c (msg, "Internal xkb writer failed.\n");
+            str_cat_status (msg, &status);
             success = false;
         }
     }
@@ -743,6 +746,7 @@ bool writeback_test (struct xkb_context *xkb_ctx,
                                        XKB_KEYMAP_FORMAT_TEXT_V1,
                                        XKB_KEYMAP_COMPILE_NO_FLAGS);
         if (!*writer_keymap) {
+            str_cat_c (msg, FAIL);
             str_cat_c (msg, "Failed to load the writer's output to libxkbcommon.\n");
             success = false;
 
@@ -812,6 +816,8 @@ bool test_xkb_file (string_t *input_str,
                     string_t *result, string_t *info,
                     string_t *writer_keymap_str, string_t *writer_keymap_str_2)
 {
+    assert (input_str != NULL && result != NULL &&
+            writer_keymap_str != NULL && writer_keymap_str_2 != NULL);
     bool success = true;
 
     struct xkb_context *xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
@@ -820,13 +826,12 @@ bool test_xkb_file (string_t *input_str,
         success = false;
     }
 
-    struct xkb_keymap *parser_keymap, *writer_keymap;
+    struct xkb_keymap *parser_keymap = NULL, *writer_keymap = NULL;
     if (success) {
         str_cat_test_name (result, "Writeback test");
         if (!writeback_test (xkb_ctx,
                              str_data(input_str), &parser_keymap,
                              writer_keymap_str, &writer_keymap, result)) {
-            str_cat_c (result, FAIL);
             success = false;
         } else {
             str_cat_c (result, SUCCESS);
@@ -925,9 +930,9 @@ bool test_xkb_file (string_t *input_str,
         }
     }
 
-    xkb_context_unref(xkb_ctx);
-    xkb_keymap_unref(parser_keymap);
-    xkb_keymap_unref(writer_keymap);
+    if (xkb_ctx) xkb_context_unref(xkb_ctx);
+    if (parser_keymap) xkb_keymap_unref(parser_keymap);
+    if (writer_keymap) xkb_keymap_unref(writer_keymap);
 
     return success;
 }
@@ -1007,6 +1012,34 @@ void xkb_str_from_file (char *fname, string_t *xkb_str)
     mem_pool_destroy (&tmp);
 }
 
+struct iterate_tests_dir_clsr_t {
+    string_t *result;
+    string_t *writer_keymap_str;
+    string_t *writer_keymap_str_2;
+};
+
+ITERATE_DIR_CB(iterate_tests_dir)
+{
+    if (!is_dir) {
+        char *extension = get_extension (fname);
+        if (extension && strncmp (extension, "xkb", 3) == 0) {
+            string_t input_str = {0};
+            struct iterate_tests_dir_clsr_t *clsr = (struct iterate_tests_dir_clsr_t*)data;
+            xkb_str_from_file (fname, &input_str);
+
+            str_set (clsr->result, "");
+            str_set (clsr->writer_keymap_str, "");
+            str_set (clsr->writer_keymap_str_2, "");
+            test_xkb_file (&input_str, clsr->result, NULL, clsr->writer_keymap_str, clsr->writer_keymap_str_2);
+
+            printf ("Layout %s:\n", fname);
+            printf_indented (str_data(clsr->result), 4);
+            printf ("\n");
+            str_free (&input_str);
+        }
+    }
+}
+
 int main (int argc, char **argv)
 {
     init_keycode_names ();
@@ -1062,40 +1095,48 @@ int main (int argc, char **argv)
 
     string_t input_str = {0};
     string_t result = {0};
-    string_t info = {0};
     string_t writer_keymap_str = {0};
     string_t writer_keymap_str_2 = {0};
 
     if (input_type == INPUT_NONE) {
         // TODO: Get all 'common' layouts. For some definition of 'common'.
-        char *test_layouts[] = {"us", "ru", "br", "latam"};
-        for (int i=0; i<ARRAY_SIZE(test_layouts); i++) {
-            str_set (&input_str, "");
-            // TODO: X11 freezes badly when calling this... we should precompute
-            // this and cache them somewhere.
-            xkb_str_from_rmlvo (NULL, NULL, test_layouts[i], NULL, NULL, &input_str);
+        //char *test_layouts[] = {"us", "ru", "br", "latam"};
+        //for (int i=0; i<ARRAY_SIZE(test_layouts); i++) {
+        //    str_set (&input_str, "");
+        //    // TODO: X11 freezes badly when calling this... we should precompute
+        //    // this and cache them somewhere.
+        //    xkb_str_from_rmlvo (NULL, NULL, test_layouts[i], NULL, NULL, &input_str);
 
-            str_set (&result, "");
-            str_set (&info, "");
-            str_set (&writer_keymap_str, "");
-            str_set (&writer_keymap_str_2, "");
-            test_xkb_file (&input_str, &result, &info, &writer_keymap_str, &writer_keymap_str_2);
+        //    str_set (&result, "");
+        //    str_set (&writer_keymap_str, "");
+        //    str_set (&writer_keymap_str_2, "");
+        //    test_xkb_file (&input_str, &result, NULL, &writer_keymap_str, &writer_keymap_str_2);
 
-            printf ("Layout %s:\n", test_layouts[i]);
-            printf_indented (str_data(&result), 4);
-            printf ("\n");
-        }
+        //    printf ("Layout %s:\n", test_layouts[i]);
+        //    printf_indented (str_data(&result), 4);
+        //    printf ("\n");
+        //}
+
+        struct iterate_tests_dir_clsr_t clsr;
+        clsr.result = &result;
+        clsr.writer_keymap_str = &writer_keymap_str;
+        clsr.writer_keymap_str_2 = &writer_keymap_str_2;
+        iterate_dir ("./tests", iterate_tests_dir, &clsr);
 
         str_free (&input_str);
         str_free (&result);
 
     } else {
+        string_t info = {0};
+
         // Get an xkb string from the CLI input
         if (input_type == INPUT_RMLVO_NAMES) {
             xkb_str_from_rmlvo (rules, model, layout, variant, options, &input_str);
         } else if (input_type == INPUT_XKB_FILE) {
             xkb_str_from_file (input_file, &input_str);
         }
+
+        test_xkb_file (&input_str, &result, &info, &writer_keymap_str, &writer_keymap_str_2);
 
         if (file_output_enabled) {
             str_cat_c (&info, "\n");
@@ -1109,12 +1150,12 @@ int main (int argc, char **argv)
 
         printf ("%s", str_data(&result));
         printf ("%s", str_data(&info));
+        str_free (&info);
     }
 
     str_free (&writer_keymap_str);
     str_free (&writer_keymap_str_2);
     str_free (&result);
-    str_free (&info);
     str_free (&input_str);
 
     return 0;

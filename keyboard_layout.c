@@ -58,7 +58,7 @@ struct level_modifier_mapping_t {
 };
 
 struct key_type_t {
-    char *name;
+    string_t name;
     key_modifier_mask_t modifier_mask;
     // NOTE: It's important to support multiple modifier masks to be assigned to
     // a single level, while forbidding the same modifier mask to be assigned to
@@ -216,10 +216,7 @@ struct key_type_t* keyboard_layout_new_type (struct keyboard_layout_t *keymap,
     struct key_type_t *new_type = mem_pool_push_size (&keymap->pool, sizeof(struct key_type_t));
     *new_type = ZERO_INIT (struct key_type_t);
 
-    // TODO: For now, types will not be destroyed or renamed, if they do, the
-    // name will leak space inside the keymap's pool. This could be a good place
-    // to use pooled strings.
-    new_type->name = pom_strdup (&keymap->pool, name);
+    str_set_pooled (&keymap->pool, &new_type->name, name);
     new_type->modifier_mask = modifier_mask;
 
     // Get the end of the type linked list. Even though this does a linear
@@ -243,7 +240,7 @@ struct key_type_t* keyboard_layout_type_lookup (struct keyboard_layout_t *keymap
     // tree or a hash table? @performance
     struct key_type_t *curr_type = keymap->types;
     while (curr_type != NULL) {
-        if (strcmp (curr_type->name, name) == 0) break;
+        if (strcmp (str_data(&curr_type->name), name) == 0) break;
         curr_type = curr_type->next;
     }
 
@@ -419,7 +416,7 @@ bool keyboard_layout_is_valid (struct keyboard_layout_t *keymap, struct status_t
                 if (curr_mapping->level == level+1) {
                     level++;
                 } else {
-                    status_error (status, "Type '%s' has non contiguous levels\n", curr_type->name);
+                    status_error (status, "Type '%s' has non contiguous levels\n", str_data(&curr_type->name));
                     is_valid = false;
                     break;
                 }
@@ -456,4 +453,8 @@ bool keyboard_layout_is_valid (struct keyboard_layout_t *keymap, struct status_t
 // necessary. Levels could be made unlimited if we use a linked list but
 // modifiers will always have a limit as they are a bit mask.
 // :keyboard_layout_compact, :level_limit
+void keyboard_layout_compact (struct keyboard_layout_t *keymap)
+{
+    // Remove unused types.
+}
 

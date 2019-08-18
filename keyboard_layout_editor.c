@@ -347,7 +347,7 @@ void on_key_type_changed (GtkComboBox *themes_combobox, gpointer user_data)
 
     struct key_type_t *curr_type = app.keymap->types;
     while (curr_type != NULL) {
-        if (strcmp(curr_type->name, type_name) == 0) {
+        if (strcmp(str_data(&curr_type->name), type_name) == 0) {
             break;
         }
 
@@ -388,14 +388,14 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
 
     struct key_type_t *curr_type = app->keymap->types;
     while (curr_type != NULL) {
-        combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), curr_type->name);
+        combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), str_data(&curr_type->name));
         curr_type = curr_type->next;
     }
     combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(types_combobox), "None");
 
     struct key_t *key = app->keymap->keys[kc];
     if (key != NULL && key->type != NULL) {
-        gtk_combo_box_set_active_id (GTK_COMBO_BOX(types_combobox), key->type->name);
+        gtk_combo_box_set_active_id (GTK_COMBO_BOX(types_combobox), str_data(&key->type->name));
 
         GtkWidget *per_level_data = gtk_grid_new ();
         gtk_widget_set_halign (per_level_data, GTK_ALIGN_CENTER);

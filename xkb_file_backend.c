@@ -794,7 +794,7 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
                             // problematic ones.
                             xkb_parser_error (state,
                                               "Modifier map for level %d uses modifiers not in the mask for type '%s'.",
-                                              level, new_type->name);
+                                              level, str_data(&new_type->name));
                         }
 
                         if (!state->scnr.error) {
@@ -806,7 +806,7 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
                                 // TODO: Print the modifier mask niceley like
                                 // Shift+Alt, not a hexadecimal value.
                                 xkb_parser_error (state, "Modifier mask %x already assigned in type '%s'",
-                                                  level_modifiers, new_type->name);
+                                                  level_modifiers, str_data(&new_type->name));
                             }
                         }
 
@@ -2379,6 +2379,7 @@ bool xkb_file_parse_verbose (char *xkb_str, struct keyboard_layout_t *keymap, st
     // compaction in a single place and not across all IR state modification
     // functions, and will also run this maybe expensive computation less often.
     // :keyboard_layout_compact
+    keyboard_layout_compact (keymap);
 
     return success;
 }
@@ -2546,7 +2547,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
 
     struct key_type_t *curr_type = keymap->types;
     while (curr_type != NULL) {
-        str_cat_printf (xkb_str, "    type \"%s\" {\n", curr_type->name);
+        str_cat_printf (xkb_str, "    type \"%s\" {\n", str_data(&curr_type->name));
         str_cat_c (xkb_str, "        modifiers = ");
         xkb_file_write_modifier_mask (&state, xkb_str, curr_type->modifier_mask);
         str_cat_c (xkb_str, ";\n");
@@ -2586,7 +2587,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
 
             str_cat_printf (xkb_str, "    key <%d> {\n", i);
 
-            str_cat_printf (xkb_str, "        type= \"%s\",\n", curr_key->type->name);
+            str_cat_printf (xkb_str, "        type= \"%s\",\n", str_data(&curr_key->type->name));
 
             str_cat_c (xkb_str, "        symbols[Group1]= [ ");
             for (int j=0; j<num_levels; j++) {

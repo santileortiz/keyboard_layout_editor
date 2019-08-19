@@ -50,6 +50,14 @@
 
 typedef uint32_t key_modifier_mask_t;
 
+// TODO: We should not allow uncontiguous level mappings, unfortunateley the XKB
+// syntax currently supports it, a better syntax is proposed in the comment for
+// :none_mapping_is_reserved_for_level1. Still, I don't think this syntax will
+// change soon. In the meantime we shouldn't keep this limitation in our IR, we
+// should move this concern to xkb_file_backend.c, then remove the level
+// attribute of level_modifier_mapping_t, and assume mappings are contiguous. We
+// could even change the linked list for an array of key_modifier_mask_t in
+// key_type_t of size KEYBOARD_LAYOUT_MAX_LEVELS.
 struct level_modifier_mapping_t {
     int level;
     key_modifier_mask_t modifiers;
@@ -127,6 +135,10 @@ struct keyboard_layout_t {
 
     // Map from modifier names to modifier masks
     GTree *modifiers;
+
+    // Free lists of struct that can be removed
+    struct key_type_t *types_fl;
+    struct level_modifier_mapping_t *level_modifier_mapping_fl;
 };
 
 enum modifier_result_status_t {
@@ -439,9 +451,57 @@ bool keyboard_layout_is_valid (struct keyboard_layout_t *keymap, struct status_t
     //
     // Which other checks are useful?
 
-
     return is_valid;
 }
+
+// ia == insert_after
+static inline
+void type_list_ia_no_head (struct key_type_t *node, struct key_type_t *new_node)
+{
+    assert (node != NULL && new_node != NULL);
+    new_node->next = node->next;
+    node->next = new_node;
+}
+
+static inline
+void type_list_ia (struct key_type_t **head, struct key_type_t *node, struct key_type_t *new_node)
+{
+    assert (head != NULL);
+    if (*head == NULL) {
+        *head = new_node;
+
+    } else {
+        type_list_ia_no_head (node, new_node);
+    }
+}
+
+static inline
+void modifier_mapping_list_ia_no_head (struct level_modifier_mapping_t *node,
+                                       struct level_modifier_mapping_t *new_node)
+{
+    assert (node != NULL && new_node != NULL);
+    new_node->next = node->next;
+    node->next = new_node;
+}
+
+static inline
+void modifier_mapping_list_ia (struct level_modifier_mapping_t **head,
+                               struct level_modifier_mapping_t *node,
+                               struct level_modifier_mapping_t *new_node)
+{
+    assert (head != NULL);
+    if (*head == NULL) {
+        *head = new_node;
+
+    } else {
+        modifier_mapping_list_ia_no_head (node, new_node);
+    }
+}
+
+struct remove_unused_types_helper_t {
+    struct key_type_t *type;
+    bool used;
+};
 
 // TODO: Add a function that prunes all unused components and compacts limited
 // resources, for instance in xkb there can't be more than 16 modifiers. Should
@@ -455,6 +515,151 @@ bool keyboard_layout_is_valid (struct keyboard_layout_t *keymap, struct status_t
 // :keyboard_layout_compact, :level_limit
 void keyboard_layout_compact (struct keyboard_layout_t *keymap)
 {
-    // Remove unused types.
+    mem_pool_t pool = {0};
+
+    //////////////////////
+    // Remove unused types
+    //
+    // 1) Compute number of types.
+    int num_types = 0;
+    {
+        struct key_type_t *curr_type = keymap->types;
+        while (curr_type != NULL) {
+            num_types++;
+            curr_type = curr_type->next;
+        }
+    }
+
+    // 2) create array of pointers to all types.
+    struct remove_unused_types_helper_t *type_helpers =
+        mem_pool_push_array (&pool, num_types, struct remove_unused_types_helper_t);
+    {
+        int i = 0;
+        struct key_type_t *curr_type = keymap->types;
+        while (curr_type != NULL) {
+            type_helpers[i].type = curr_type;
+            type_helpers[i].used = false;
+            i++;
+            curr_type = curr_type->next;
+        }
+    }
+
+    // 3) Iterate all keys, if the type is used look it up in all_types and set
+    // the used flag.
+    //
+    // TODO: This takes KEY_CNT*num_types iterations to compute. We can get it
+    // down to KEY_CNT*log(num_types) if we sort type_helpers and use binary
+    // search on it. The problem here is what key to use for sorting we would
+    // like them to get sorted in the order they were added to the keymap but
+    // for this pointer addresses won't work as we are not guaranteed to
+    // allocate them in increasing order. We would need to have type IDs,
+    // currently we don't have those.
+    //
+    // Another idea is to remove used types so that the number of elements in
+    // type_helpers gets smaller over time. That's a simpler change because we
+    // can do that in O(1) by replacing the type helper to remove with the last
+    // one. Note that this won't keep ordered the list, so we can't implement
+    // the 2 techniques at the same time. The time execution here would greately
+    // depend on how are different types distributed along the keymap, it could
+    // go from num_types^2 to KEY_CNT*(num_types-1) in the worst case, were only
+    // one of the num_types is used. In general, all cases where not all types
+    // are used will end up in a performance of the order O(KEY_CNT*num_types).
+    // @performance
+    int num_used_types = 0;
+    for (int i=0; i<KEY_CNT; i++) {
+        struct key_t *curr_key = keymap->keys[i];
+        if (curr_key != NULL) {
+            for (int j=0; j<num_types; j++) {
+                if (!type_helpers[j].used && type_helpers[j].type == curr_key->type) {
+                    type_helpers[j].used = true;
+                    num_used_types++;
+                    break;
+                }
+            }
+
+            // An early break for the case where all types have been used.
+            // TODO: Check how often we hit this. XKB has some mandatory layout
+            // types, if a keymap doesn't use all of them, then we will never
+            // hit this.
+            if (num_used_types == num_types) {
+                break;
+            }
+        }
+    }
+
+    // 4) Restring types into 2 lists, used and unused with the all_types array.
+    // Set the new used types head in keymap.
+    struct key_type_t *used_types = NULL;
+    struct key_type_t *freed_types = NULL;
+    {
+        struct key_type_t *used_types_end = NULL;
+        struct key_type_t *freed_types_end = NULL;
+        for (int i=0; i<num_types; i++) {
+            type_helpers[i].type->next = NULL;
+            if (type_helpers[i].used) {
+                type_list_ia (&used_types, used_types_end, type_helpers[i].type);
+                used_types_end = type_helpers[i].type;
+
+            } else {
+                type_list_ia (&freed_types, freed_types_end, type_helpers[i].type);
+                freed_types_end = type_helpers[i].type;
+            }
+        }
+    }
+    keymap->types = used_types;
+
+    // 5) Cleanup the unused types. Put all level_modifier_mapping_t structs
+    // into an available list in the keymap. Then clear the contents of the
+    // types. Put the heads of these lists in keymap.
+    struct level_modifier_mapping_t *freed_modifier_mappings = NULL, *freed_modifier_mappings_end = NULL;
+    struct key_type_t *last_type = NULL;
+    for (struct key_type_t *curr_type = freed_types;
+         curr_type;
+         curr_type = curr_type->next) {
+
+        // Append this type's modifier mapping list to the freed modifier list.
+        modifier_mapping_list_ia (&freed_modifier_mappings,
+                                  freed_modifier_mappings_end,
+                                  curr_type->modifier_mappings);
+
+        // Iterate this type's modifier mapping list and clear the content of
+        // the structs. This leaves freed_modifier_mapping_end at the end so we
+        // can concatenate to it in the next loop.
+        for (struct level_modifier_mapping_t *curr_modifier_mapping =
+                 curr_modifier_mapping = curr_type->modifier_mappings;
+             curr_modifier_mapping;
+             curr_modifier_mapping = curr_modifier_mapping->next) {
+
+            curr_modifier_mapping->level = 0;
+            curr_modifier_mapping->modifiers = 0x0;
+
+            if (curr_modifier_mapping->next == NULL) {
+                freed_modifier_mappings_end = curr_modifier_mapping;
+            }
+        }
+
+        if (curr_type->next == NULL) {
+            last_type = curr_type;
+        }
+
+        curr_type->name = ZERO_INIT(string_t);
+        curr_type->modifier_mask = 0x0;
+        curr_type->modifier_mappings = NULL;
+        // Explicitly avoid clearing  curr_type->next. Which is why I we don't
+        // do ZERO_INIT(struct key_type_t)
+    }
+
+    // If there is already a free list concatenate it at the end of the new one.
+    if (keymap->types_fl) {
+        type_list_ia_no_head (last_type, keymap->types_fl);
+    }
+    keymap->types_fl = freed_types;
+
+    // Same as we did for freed types.
+    if (keymap->level_modifier_mapping_fl) {
+        modifier_mapping_list_ia_no_head (freed_modifier_mappings_end,
+                                          keymap->level_modifier_mapping_fl);
+    }
+    keymap->level_modifier_mapping_fl = freed_modifier_mappings;
 }
 

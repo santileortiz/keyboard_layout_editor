@@ -32,6 +32,7 @@
 #define SUCCESS ECMA_GREEN("OK")"\n"
 #define FAIL ECMA_RED("FAILED")"\n"
 #define TEST_NAME_WIDTH 40
+#define TEST_INDENT 4
 
 void str_cat_kc (string_t *str, xkb_keycode_t kc)
 {
@@ -154,7 +155,7 @@ void str_cat_mod_state (string_t *str,
     for (int i=0; i<xkb_num_mods; i++) {
         if (xkb_state_mod_index_is_active (xkb_state, i, type)) {
             if (!is_first) {
-                printf (", ");
+                str_cat_c (str, ", ");
             }
             is_first = false;
 
@@ -293,10 +294,7 @@ void append_modifier_key (struct get_modifier_keys_list_clsr_t *clsr, int kc, en
 void get_modifier_keys_list_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *data)
 {
     struct xkb_state *xkb_state = xkb_state_new(keymap);
-    if (!xkb_state) {
-        printf ("could not create xkb state.\n");
-        return;
-    }
+    assert (xkb_state);
 
     struct get_modifier_keys_list_clsr_t *clsr =
         (struct get_modifier_keys_list_clsr_t*)data;
@@ -350,7 +348,7 @@ bool is_kc_mod_key (int kc, struct modifier_key_t *mod_keys, int num_mod_keys)
     int upper = num_mod_keys-1;
     int lower = 0;
 
-    while (lower >= upper) {
+    while (lower <= upper) {
         int mid = (upper+lower)/2;
         if (mod_keys[mid].kc < kc) {
             lower = mid+1;
@@ -484,8 +482,9 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
         // keysyms are the same.
         // NOTE: This grows exponentially with the number of modifier keys in a
         // layout!
-        if (are_equal && num_mod_keys <= max_mod_keys) {
-            for (uint32_t pressed_keys = 1; are_equal && pressed_keys<num_mod_keys*num_mod_keys; pressed_keys++) {
+        if (num_mod_keys <= max_mod_keys) {
+            for (uint32_t pressed_keys = 1; are_equal && pressed_keys<(1<<num_mod_keys); pressed_keys++) {
+
                 struct xkb_state *s1 = xkb_state_new(k1);
                 assert (s1);
 
@@ -756,6 +755,17 @@ bool writeback_test (struct xkb_context *xkb_ctx,
     return success;
 }
 
+void printf_successful_layout (char *layout)
+{
+    int width = strlen(layout) + 2;
+    printf ("%s: ", layout);
+    while (width < TEST_NAME_WIDTH + TEST_INDENT - 1) {
+        printf (".");
+        width++;
+    }
+    printf (" %s", SUCCESS);
+}
+
 void str_cat_test_name (string_t *str, char *test_name)
 {
     size_t final_width = str_len(str) + TEST_NAME_WIDTH;
@@ -822,7 +832,7 @@ bool test_xkb_file (string_t *input_str,
 
     struct xkb_context *xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
     if (!xkb_ctx) {
-        printf ("could not create xkb context.\n");
+        str_cat_c (result, "could not create xkb context.\n");
         success = false;
     }
 
@@ -1016,6 +1026,10 @@ struct iterate_tests_dir_clsr_t {
     string_t *result;
     string_t *writer_keymap_str;
     string_t *writer_keymap_str_2;
+
+    // Just used for layout output styling. We want to add a linebreak between
+    // blocks of successful layouts and failures.
+    bool prev_layout_success;
 };
 
 ITERATE_DIR_CB(iterate_tests_dir)
@@ -1030,11 +1044,22 @@ ITERATE_DIR_CB(iterate_tests_dir)
             str_set (clsr->result, "");
             str_set (clsr->writer_keymap_str, "");
             str_set (clsr->writer_keymap_str_2, "");
-            test_xkb_file (&input_str, clsr->result, NULL, clsr->writer_keymap_str, clsr->writer_keymap_str_2);
+            bool success =
+                test_xkb_file (&input_str, clsr->result, NULL,
+                               clsr->writer_keymap_str, clsr->writer_keymap_str_2);
 
-            printf ("Layout %s:\n", fname);
-            printf_indented (str_data(clsr->result), 4);
-            printf ("\n");
+            if (success) {
+                printf_successful_layout (fname);
+                clsr->prev_layout_success = true;
+            } else {
+                if (clsr->prev_layout_success) {
+                    printf ("\n");
+                }
+                printf ("%s:\n", fname);
+                printf_indented (str_data(clsr->result), TEST_INDENT);
+                printf ("\n");
+                clsr->prev_layout_success = true;
+            }
             str_free (&input_str);
         }
     }
@@ -1121,6 +1146,7 @@ int main (int argc, char **argv)
         clsr.result = &result;
         clsr.writer_keymap_str = &writer_keymap_str;
         clsr.writer_keymap_str_2 = &writer_keymap_str_2;
+        clsr.prev_layout_success = false;
         iterate_dir ("./tests", iterate_tests_dir, &clsr);
 
         str_free (&input_str);

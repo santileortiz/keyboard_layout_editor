@@ -199,20 +199,24 @@ key_modifier_mask_t keyboard_layout_new_modifier (struct keyboard_layout_t *keym
 key_modifier_mask_t keyboard_layout_get_modifier (struct keyboard_layout_t *keymap,
                                                   char *name, enum modifier_result_status_t *status)
 {
+    assert (keymap != NULL && name != NULL);
+
     key_modifier_mask_t result = 0;
     enum modifier_result_status_t status_l = KEYBOARD_LAYOUT_MOD_UNDEFINED;
 
-    void *value;
-    if (g_tree_lookup_extended (keymap->modifiers, name, NULL, &value)) {
-        status_l = KEYBOARD_LAYOUT_MOD_SUCCESS;
-        result = *(key_modifier_mask_t*)value;
-
-    } else if (strcasecmp (name, "none") == 0) {
+    if (strcasecmp (name, "none") == 0) {
         // TODO: Maybe store this as a normal modifier inside the modifier
         // mapping tree?
         // :none_modifier
         status_l = KEYBOARD_LAYOUT_MOD_SUCCESS;
         result = 0;
+
+    } else if (keymap->modifiers != NULL) {
+        void *value;
+        if (g_tree_lookup_extended (keymap->modifiers, name, NULL, &value)) {
+            status_l = KEYBOARD_LAYOUT_MOD_SUCCESS;
+            result = *(key_modifier_mask_t*)value;
+        }
     }
 
     if (status != NULL) {

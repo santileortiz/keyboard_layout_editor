@@ -1051,6 +1051,7 @@ ITERATE_DIR_CB(iterate_tests_dir)
             if (success) {
                 printf_successful_layout (fname);
                 clsr->prev_layout_success = true;
+
             } else {
                 if (clsr->prev_layout_success) {
                     printf ("\n");
@@ -1058,7 +1059,7 @@ ITERATE_DIR_CB(iterate_tests_dir)
                 printf ("%s:\n", fname);
                 printf_indented (str_data(clsr->result), TEST_INDENT);
                 printf ("\n");
-                clsr->prev_layout_success = true;
+                clsr->prev_layout_success = false;
             }
             str_free (&input_str);
         }

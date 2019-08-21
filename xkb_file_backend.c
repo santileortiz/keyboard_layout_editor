@@ -917,7 +917,7 @@ bool xkb_parser_match_keysym (struct xkb_parser_state_t *state, xkb_keysym_t *ke
 
         xkb_keysym_t keysym_res = xkb_keysym_from_name (str_data(&state->tok_value), XKB_KEYSYM_NO_FLAGS);
         if (strcmp (str_data(&state->tok_value), "NoSymbol") != 0 && keysym_res == XKB_KEY_NoSymbol) {
-            xkb_parser_error_tok (state, "Invalid kesym name '%s'.");
+            xkb_parser_error_tok (state, "Invalid keysym name '%s'.");
             success = false;
         } else {
             *keysym = keysym_res;

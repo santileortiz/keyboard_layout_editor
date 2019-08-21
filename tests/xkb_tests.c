@@ -399,6 +399,26 @@ void compare_key_states_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, vo
     }
 }
 
+void str_cat_modifier_test_pressed_keys (string_t *str, uint32_t pressed_keys,
+                                         struct compare_key_states_foreach_clsr_t *clsr)
+{
+    if (pressed_keys == 0) {
+        str_cat_c (str, " none");
+
+    } else {
+        while (pressed_keys) {
+            key_modifier_mask_t next_bit_mask = pressed_keys & -pressed_keys;
+            uint32_t idx = bit_mask_perfect_hash (next_bit_mask);
+            struct modifier_key_t mod_key = clsr->mod_keys[clsr->bit_lookup[idx]];
+            str_cat_c (str, " ");
+            str_cat_kc (str, mod_key.kc);
+            pressed_keys = pressed_keys & (pressed_keys-1);
+        }
+    }
+    str_cat_c (str, "\n");
+    assert (pressed_keys == 0x0);
+}
+
 // This test is a more functional equality test of the keymaps. The idea is to
 // press all modifier combinations and check that the resulting keysyms in each
 // key are the same. Some caveats of how the test works, (we could fix them but
@@ -483,7 +503,7 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
         // NOTE: This grows exponentially with the number of modifier keys in a
         // layout!
         if (num_mod_keys <= max_mod_keys) {
-            for (uint32_t pressed_keys = 1; are_equal && pressed_keys<(1<<num_mod_keys); pressed_keys++) {
+            for (uint32_t pressed_keys = 0; are_equal && pressed_keys<(1<<num_mod_keys); pressed_keys++) {
 
                 struct xkb_state *s1 = xkb_state_new(k1);
                 assert (s1);
@@ -526,35 +546,18 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
                 clsr.equal_states = true;
                 xkb_keymap_key_for_each (k1, compare_key_states_foreach, &clsr);
 
-                if (!clsr.equal_states) {
+                if (!clsr.equal_states && msg != NULL) {
                     str_cat_printf (msg, "Modifiers produce different keysyms.\n");
 
-
-                    for (int passed_test = 1; passed_test < pressed_keys; passed_test++) {
-                        str_cat_c (msg, " PASS:");
-                        uint32_t passed_test_cpy = passed_test;
-                        while (passed_test_cpy) {
-                            key_modifier_mask_t next_bit_mask = passed_test_cpy & -passed_test_cpy;
-                            uint32_t idx = bit_mask_perfect_hash (next_bit_mask);
-                            struct modifier_key_t mod_key = clsr.mod_keys[clsr.bit_lookup[idx]];
-                            str_cat_c (msg, " ");
-                            str_cat_kc (msg, mod_key.kc);
-                            passed_test_cpy = passed_test_cpy & (passed_test_cpy-1);
-                        }
-                        str_cat_c (msg, "\n");
-                    }
-
-                    str_cat_c (msg, " Pressed keys:");
-                    uint32_t pressed_keys_cpy = pressed_keys;
-                    while (pressed_keys_cpy) {
-                        key_modifier_mask_t next_bit_mask = pressed_keys_cpy & -pressed_keys_cpy;
-                        uint32_t idx = bit_mask_perfect_hash (next_bit_mask);
-                        struct modifier_key_t mod_key = clsr.mod_keys[clsr.bit_lookup[idx]];
-                        str_cat_c (msg, " ");
-                        str_cat_kc (msg, mod_key.kc);
-                        pressed_keys_cpy = pressed_keys_cpy & (pressed_keys_cpy-1);
+                    str_cat_c (msg, " PASSED MODIFIER COMBINATIONS:\n");
+                    for (int passed_test = 0; passed_test < pressed_keys; passed_test++) {
+                        str_cat_c (msg, " -");
+                        str_cat_modifier_test_pressed_keys (msg, passed_test, &clsr);
                     }
                     str_cat_c (msg, "\n");
+
+                    str_cat_c (msg, " Pressed keys:");
+                    str_cat_modifier_test_pressed_keys (msg, pressed_keys, &clsr);
 
                     str_cat_c (msg, " kc: ");
                     str_cat_kc (msg, clsr.differing_kc);

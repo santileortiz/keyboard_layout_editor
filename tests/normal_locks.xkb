@@ -64,7 +64,7 @@ xkb_keycodes "evdev+aliases(qwerty)" {
     //<RALT> = 108;
     //<LWIN> = 133;
     //<RWIN> = 134;
-    // <ALT> = 204;
+    <ALT> = 204;
     <NMLK> = 77;
     //<LVL3> = 92;
     //<META> = 205;

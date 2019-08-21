@@ -2302,6 +2302,14 @@ bool xkb_file_parse_verbose (char *xkb_str, struct keyboard_layout_t *keymap, st
     char *real_modifiers[] = XKB_FILE_BACKEND_REAL_MODIFIER_NAMES_LIST;
     // These modifiers will not be added into the keymap yet, they will be added
     // lazily when they are referenced somewhere in the keymap.
+    // TODO: This now seems unnecessary to me. It was useful when the maximum
+    // number of modifier in our IR was 16 (it's now 32), and we didn't want to
+    // fail if the layout defined many virtual modifiers. I don't think any
+    // layout will define more than 32 real+virtual modifiers, so we could
+    // predefine real modifiers here (we know at least all our layouts will have
+    // at most 8 modifiers because we don't support virtual modifiers). Doing
+    // this will make us internally have consistent modifier masks for real
+    // modifiers, which could simplify the code in some places.
     // :lazy_add_predefined_modifiers
     state.real_modifiers = real_modifiers;
     state.real_modifiers_len = ARRAY_SIZE(real_modifiers);

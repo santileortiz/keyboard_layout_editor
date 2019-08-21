@@ -55,9 +55,7 @@ typedef uint32_t key_modifier_mask_t;
 // :none_mapping_is_reserved_for_level1. Still, I don't think this syntax will
 // change soon. In the meantime we shouldn't keep this limitation in our IR, we
 // should move this concern to xkb_file_backend.c, then remove the level
-// attribute of level_modifier_mapping_t, and assume mappings are contiguous. We
-// could even change the linked list for an array of key_modifier_mask_t in
-// key_type_t of size KEYBOARD_LAYOUT_MAX_LEVELS.
+// attribute of level_modifier_mapping_t, and assume mappings are contiguous.
 struct level_modifier_mapping_t {
     int level;
     key_modifier_mask_t modifiers;
@@ -70,7 +68,7 @@ struct key_type_t {
     key_modifier_mask_t modifier_mask;
     // NOTE: It's important to support multiple modifier masks to be assigned to
     // a single level, while forbidding the same modifier mask to be assigned to
-    // multiple levels.
+    // multiple levels. This is why we use a linked list here.
     // This linked list will be sorted in increasing value of level, and this
     // invariant is kept at insertion time.
     // :modifier_map_insertion
@@ -310,7 +308,7 @@ void keyboard_layout_type_new_level_map (struct keyboard_layout_t *keymap, struc
         // Find the position where it will be inserted
         // :modifier_map_insertion
         struct level_modifier_mapping_t **pos = &type->modifier_mappings;
-        while (*pos != NULL && (*pos)->level < level) {
+        while (*pos != NULL && (*pos)->level <= level) {
             pos = &(*pos)->next;
         }
 
@@ -318,6 +316,7 @@ void keyboard_layout_type_new_level_map (struct keyboard_layout_t *keymap, struc
             mem_pool_push_struct (&keymap->pool, struct level_modifier_mapping_t);
         new_mapping->level = level;
         new_mapping->modifiers = modifiers;
+
         new_mapping->next = *pos;
         *pos = new_mapping;
 

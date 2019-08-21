@@ -805,7 +805,7 @@ xkb_symbols "pc+us+inet(evdev)" {
     key  <KP3> {         [         KP_Next,            KP_3 ] };
     key  <KP0> {         [       KP_Insert,            KP_0 ] };
     key <KPDL> {         [       KP_Delete,      KP_Decimal ] };
-    key <LVL3> {         [ Alt ] };
+    key <LVL3> {         [ ISO_Level3_Shift ] };
     key <LSGT> {
         type= "FOUR_LEVEL",
         symbols[Group1]= [            less,         greater,             bar,       brokenbar ]

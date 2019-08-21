@@ -2554,9 +2554,18 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
 
         struct level_modifier_mapping_t *curr_modifier_mapping = curr_type->modifier_mappings;
         while (curr_modifier_mapping != NULL) {
-            str_cat_c (xkb_str, "        map[");
-            xkb_file_write_modifier_mask (&state, xkb_str, curr_modifier_mapping->modifiers);
-            str_cat_printf (xkb_str, "] = Level%d;\n", curr_modifier_mapping->level);
+            // We don't parse types that assign the 'none' modifier to a level
+            // different than 1 (see :none_mapping_is_reserved_for_level1).
+            // Still, it's possible that we get a modifier mapping with
+            // 'none' as modifier here and not be level 1. This happens if the
+            // original keymap had a virtual modifier and that virtual modifier
+            // was never defined so it maps to the 'none' modifier. We skip
+            // those cases here in the writer.
+            if (curr_modifier_mapping->level == 1 || curr_modifier_mapping->modifiers != 0x0) {
+                str_cat_c (xkb_str, "        map[");
+                xkb_file_write_modifier_mask (&state, xkb_str, curr_modifier_mapping->modifiers);
+                str_cat_printf (xkb_str, "] = Level%d;\n", curr_modifier_mapping->level);
+            }
 
             curr_modifier_mapping = curr_modifier_mapping->next;
         }

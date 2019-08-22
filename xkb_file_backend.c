@@ -1702,6 +1702,13 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
                 xkb_parser_error_tok (state, "Undefined key identifier '%s'.");
             }
             if (state->modifier_map[map_keycode] != 0) {
+                // Turns out some layouts in the database are buggy and do this.
+                // What libxkbcommon does is print an error message and
+                // overwrite the previous modifier_map value. We could comment
+                // this out and get that behavior, but what should really happen
+                // is that we fix those layouts. I'm not going to comment this
+                // out for now, instead I will just not support layouts that
+                // trigger this.
                 xkb_parser_error_tok (state, "Keycode '%s' has already a modifier mapped to it.");
             }
 

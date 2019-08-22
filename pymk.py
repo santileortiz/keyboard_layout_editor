@@ -53,17 +53,17 @@ def generate_base_layout_tests ():
     the X11 server for about 4 minutes (the screen will freeze).
     """
 
+    blacklist = [
+            'mv',  # Maps 2 real modifiers to <MDSW>.
+            'nec_vndr/jp' # Maps 2 real modifiers to <RALT>, also has 2 groups which we currently don't support.
+            ]
+
     layout_names = ex ("./bin/keyboard-layout-editor --list-default", ret_stdout=True).split('\n')
     for name in layout_names:
-        # There is one layout with a / in the name, we can't call the file that
-        # so I replace the / for -.
-        out_fname = ''
-        if '/' in name:
-            out_fname = name.replace('/','-')
-        else:
-            out_fname = name[:]
+        if name in blacklist:
+            continue
 
-        ex ('./tests/get_xkb_str.sh ' + name + ' > ./tests/XKeyboardConfig/' + out_fname + '.xkb')
+        ex ('./tests/get_xkb_str.sh ' + name + ' > ./tests/XKeyboardConfig/' + name + '.xkb')
 
 
 def generate_keycode_names ():

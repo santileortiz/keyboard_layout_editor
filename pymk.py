@@ -54,6 +54,7 @@ def generate_base_layout_tests ():
     """
 
     blacklist = [
+            'dz',  # <SPCE> is of type EIGHT_LEVEL but the keymap never assigns ISO_Level5_Shift so levels 5,6,7,8 are broken.
             'mv',  # Maps 2 real modifiers to <MDSW>.
             'nec_vndr/jp' # Maps 2 real modifiers to <RALT>, also has 2 groups which we currently don't support.
             ]

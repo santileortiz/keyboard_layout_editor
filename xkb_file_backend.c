@@ -516,17 +516,17 @@ void xkb_parser_skip_block (struct xkb_parser_state_t *state, char *block_id)
     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 }
 
-bool xkb_parser_is_predefined_mod (struct xkb_parser_state_t *state, char *name)
+bool xkb_parser_is_real_modifier (struct xkb_parser_state_t *state, char *name)
 {
-    bool res = false;
+    bool is_real_modifier = false;
     for (int i=0; i<state->real_modifiers_len; i++) {
         if (strcasecmp (state->real_modifiers[i], name) == 0) {
-            res = true;
+            is_real_modifier = true;
             break;
         }
     }
 
-    return res;
+    return is_real_modifier;
 }
 
 key_modifier_mask_t xkb_parser_modifier_lookup (struct xkb_parser_state_t *state, char *name)
@@ -536,15 +536,7 @@ key_modifier_mask_t xkb_parser_modifier_lookup (struct xkb_parser_state_t *state
     enum modifier_result_status_t status;
     result = keyboard_layout_get_modifier (state->keymap, str_data(&state->tok_value), &status);
     if (status == KEYBOARD_LAYOUT_MOD_UNDEFINED) {
-        if (xkb_parser_is_predefined_mod (state, name)) {
-            // :lazy_add_predefined_modifiers
-            // NOTE: This should not fail
-            result = keyboard_layout_new_modifier (state->keymap, name, &status);
-            assert (status == KEYBOARD_LAYOUT_MOD_SUCCESS);
-
-        } else {
-            xkb_parser_error_tok (state, "Reference to undefined modifier '%s'.");
-        }
+        xkb_parser_error_tok (state, "Reference to undefined modifier '%s'.");
     }
 
     return result;
@@ -851,19 +843,6 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
     xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
 
     state->scnr.eof_is_error = false;
-}
-
-bool xkb_parser_is_real_modifier (struct xkb_parser_state_t *state, char *name)
-{
-    bool is_real_modifier = false;
-    for (int i=0; i<state->real_modifiers_len; i++) {
-        if (strcasecmp (state->real_modifiers[i], name) == 0) {
-            is_real_modifier = true;
-            break;
-        }
-    }
-
-    return is_real_modifier;
 }
 
 bool xkb_parser_match_real_modifier_mask (struct xkb_parser_state_t *state,
@@ -1751,8 +1730,7 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
     state->scnr.eof_is_error = false;
 }
 
-// NOTE: This defines all real modifiers, so we have a complete mask of
-// them. It will assert if it's not possible to do so.
+// :predefined_real_modifiers
 key_modifier_mask_t xkb_get_real_modifiers_mask (struct keyboard_layout_t *keymap)
 {
     key_modifier_mask_t real_modifiers = 0;
@@ -1761,10 +1739,6 @@ key_modifier_mask_t xkb_get_real_modifiers_mask (struct keyboard_layout_t *keyma
     for (int i=0; i<ARRAY_SIZE(real_modifier_names); i++) {
         enum modifier_result_status_t status = 0;
         key_modifier_mask_t mask = keyboard_layout_get_modifier (keymap, real_modifier_names[i], &status);
-        if (status == KEYBOARD_LAYOUT_MOD_UNDEFINED) {
-            mask = keyboard_layout_new_modifier (keymap, real_modifier_names[i], &status);
-        }
-
         assert (status == KEYBOARD_LAYOUT_MOD_SUCCESS);
         real_modifiers |= mask;
     }
@@ -2300,19 +2274,26 @@ bool xkb_file_parse_verbose (char *xkb_str, struct keyboard_layout_t *keymap, st
     xkb_parser_state_init (&state, xkb_str, keymap);
 
     char *real_modifiers[] = XKB_FILE_BACKEND_REAL_MODIFIER_NAMES_LIST;
-    // These modifiers will not be added into the keymap yet, they will be added
-    // lazily when they are referenced somewhere in the keymap.
-    // TODO: This now seems unnecessary to me. It was useful when the maximum
-    // number of modifier in our IR was 16 (it's now 32), and we didn't want to
-    // fail if the layout defined many virtual modifiers. I don't think any
-    // layout will define more than 32 real+virtual modifiers, so we could
-    // predefine real modifiers here (we know at least all our layouts will have
-    // at most 8 modifiers because we don't support virtual modifiers). Doing
-    // this will make us internally have consistent modifier masks for real
-    // modifiers, which could simplify the code in some places.
-    // :lazy_add_predefined_modifiers
     state.real_modifiers = real_modifiers;
     state.real_modifiers_len = ARRAY_SIZE(real_modifiers);
+
+    // Here we predefine all 8 real modifiers so that our parser always assigns
+    // them the same modifier mask. This is useful because all our layouts will
+    // only have real modifiers, then doing this ensures that things get printed
+    // in the same order every time. Also, we don't need to check if a real
+    // modifier is defined, it will always be. The only reason not to do this
+    // was because of the modifier limit of 16 in XKB, it was possible that the
+    // layout got to this limit by defining lots of virtual modifiers. This
+    // doesn't happen now because our IR supports 32 modifiers and none of the
+    // base layouts tries to define this many. In fact, layouts created by out
+    // writer will have at most 8 modifiers because we only support real
+    // modifiers.
+    // :predefined_real_modifiers
+    for (int i=0; i<ARRAY_SIZE(real_modifiers); i++) {
+        enum modifier_result_status_t status = 0;
+        keyboard_layout_new_modifier (keymap, real_modifiers[i], &status);
+        assert (status == KEYBOARD_LAYOUT_MOD_SUCCESS);
+    }
 
     xkb_parser_consume_tok (&state, XKB_PARSER_TOKEN_IDENTIFIER, "xkb_keymap");
     xkb_parser_consume_tok (&state, XKB_PARSER_TOKEN_OPERATOR, "{");

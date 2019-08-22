@@ -56,6 +56,10 @@ bool xkb_keymap_uninstall_everything ();
 // they are allocated with malloc, and should be freed individually.
 void xkb_keymap_list (mem_pool_t *pool, char ***res, int *res_len);
 
+// Same as xkb_keymap_list() but the resulting list contains names of layouts
+// installed in the system by default from the XKeyboardConfig database.
+void xkb_keymap_list_default (mem_pool_t *pool, char ***res, int *res_len);
+
 //////////////////
 // IMPLEMENTATION
 //
@@ -994,6 +998,80 @@ char* delete_lines (mem_pool_t *pool, const char *str,
     return res;
 }
 
+void get_info_from_layoutList (string_t *layoutList_xml,
+                               mem_pool_t *pool, char ***res, int *res_len)
+{
+    int num_layouts = 0;
+    char **layouts = NULL;
+
+    xmlDocPtr default_xml = xmlParseMemory(str_data(layoutList_xml),
+                                           str_len(layoutList_xml));
+    xmlNodePtr curr_layout = xmlDocGetRootElement (default_xml); // layoutList node
+    num_layouts = xmlChildElementCount (curr_layout);
+    layouts = pom_push_size (pool, sizeof (char *)*num_layouts);
+    int layout_count = 0;
+    curr_layout = xml_get_sibling (curr_layout->children, "layout");
+    while (curr_layout != NULL) {
+        xmlNodePtr configItem = xml_get_child (curr_layout, "configItem");
+        if (configItem != NULL) {
+            xmlNodePtr name_node = xml_get_child (configItem, "name");
+            xmlChar *name = xmlNodeGetContent(name_node);
+            layouts[layout_count] = pom_strndup (pool, (const char*)name, strlen((char*)name));
+            layout_count++;
+            xmlFree (name);
+        }
+        curr_layout = xml_get_sibling (curr_layout->next, "layout");
+    }
+    xmlFreeDoc (default_xml);
+
+    *res = layouts;
+    *res_len = num_layouts;
+}
+
+void xkb_keymap_list_default (mem_pool_t *pool, char ***res, int *res_len)
+{
+    if (res == NULL || res_len == NULL) {
+        return;
+    }
+
+    mem_pool_t local_pool = {0};
+    char *metadata_path = "/usr/share/X11/xkb/rules/evdev.xml";
+    char *metadata = full_file_read (&local_pool, metadata_path);
+
+    string_t default_layouts;
+    char *layoutList_start = strstr (metadata, "<layoutList>");
+
+    char *s = strstr (layoutList_start, "CUSTOM LAYOUTS START");
+    if (s) {
+        while (*s != '\n') {
+            s--;
+        }
+
+        char *e = strstr (s, "CUSTOM LAYOUTS END");
+        assert (e != NULL && "invalid evdev.xml format. Didn't find CUSTOM LAYOUTS END");
+        e = consume_line (e);
+
+        char *layoutList_end = strstr (metadata, "</layoutList>");
+        assert (layoutList_end != NULL && "invalid evdev.xml format. Didn't find </layoutList>");
+        layoutList_end = consume_line (layoutList_end);
+
+        default_layouts = strn_new (layoutList_start, s - layoutList_start);
+        strn_cat_c (&default_layouts, e, layoutList_end - e);
+
+    } else {
+        char *layoutList_end = strstr (metadata, "</layoutList>");
+        assert (layoutList_end != NULL && "invalid evdev.xml format. Didn't find </layoutList>");
+        layoutList_end = consume_line (layoutList_end);
+
+        default_layouts = strn_new (layoutList_start, layoutList_end - layoutList_start);
+    }
+
+    get_info_from_layoutList (&default_layouts, pool, res, res_len);
+
+    str_free (&default_layouts);
+    mem_pool_destroy (&local_pool);
+}
+
 void xkb_keymap_list (mem_pool_t *pool, char ***res, int *res_len)
 {
     if (res == NULL || res_len == NULL) {
@@ -1004,8 +1082,6 @@ void xkb_keymap_list (mem_pool_t *pool, char ***res, int *res_len)
     char *metadata_path = "/usr/share/X11/xkb/rules/evdev.xml";
     char *metadata = full_file_read (&local_pool, metadata_path);
 
-    int num_layouts = 0;
-    char **layouts = NULL;
     char *s = strstr (metadata, "CUSTOM LAYOUTS START");
     if (s) {
         s = consume_line (s);
@@ -1018,33 +1094,11 @@ void xkb_keymap_list (mem_pool_t *pool, char ***res, int *res_len)
         strn_cat_c (&default_layouts, s, e - s);
         str_cat_c (&default_layouts, "</layoutList>");
 
-        xmlDocPtr default_xml = xmlParseMemory(str_data(&default_layouts),
-                                               str_len(&default_layouts));
-        xmlNodePtr curr_layout = xmlDocGetRootElement (default_xml); // layoutList node
-        num_layouts = xmlChildElementCount (curr_layout);
-        layouts = pom_push_size (pool, sizeof (char *)*num_layouts);
-        int layout_count = 0;
-        curr_layout = xml_get_sibling (curr_layout->children, "layout");
-        while (curr_layout != NULL) {
-            xmlNodePtr configItem = xml_get_child (curr_layout, "configItem");
-            if (configItem != NULL) {
-                xmlNodePtr name_node = xml_get_child (configItem, "name");
-                xmlChar *name = xmlNodeGetContent(name_node);
-                layouts[layout_count] = pom_strndup (pool, (const char*)name, strlen((char*)name));
-                layout_count++;
-                xmlFree (name);
-            }
-            curr_layout = xml_get_sibling (curr_layout->next, "layout");
-        }
-        str_free (&default_layouts);
-        xmlFreeDoc (default_xml);
+        get_info_from_layoutList (&default_layouts, pool, res, res_len);
 
     } else {
         // There are no custom layouts
     }
-
-    *res = layouts;
-    *res_len = num_layouts;
 
     mem_pool_destroy (&local_pool);
 }

@@ -44,6 +44,28 @@ def im_gtk2 ():
 def xkb_tests ():
     ex ('gcc {FLAGS} -o bin/xkb_tests tests/xkb_tests.c {GTK3_FLAGS} -I. -lm -lxkbcommon')
 
+def generate_base_layout_tests ():
+    """
+    This target flattens out all available layouts from the installed
+    XKeyboardConfig database and puts the output in ./tests/XKeyboardConfig/,
+    the reason for doing this is that calling the ./tests/get_xkb_str.sh script
+    every time we want them is slow. In fact, running this target will freeze
+    the X11 server for about 4 minutes (the screen will freeze).
+    """
+
+    layout_names = ex ("./bin/keyboard-layout-editor --list-default", ret_stdout=True).split('\n')
+    for name in layout_names:
+        # There is one layout with a / in the name, we can't call the file that
+        # so I replace the / for -.
+        out_fname = ''
+        if '/' in name:
+            out_fname = name.replace('/','-')
+        else:
+            out_fname = name[:]
+
+        ex ('./tests/get_xkb_str.sh ' + name + ' > ./tests/XKeyboardConfig/' + out_fname + '.xkb')
+
+
 def generate_keycode_names ():
     global g_dry_run
     if g_dry_run:

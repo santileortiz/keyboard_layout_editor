@@ -866,7 +866,28 @@ int main (int argc, char *argv[])
             }
         } else if (strcmp (argv[1], "--uninstall-everything") == 0) {
             success = unprivileged_xkb_keymap_uninstall_everything ();
+
+        } else if (strcmp (argv[1], "--list-custom") == 0) {
+            mem_pool_t pool = {0};
+            char **names = NULL;
+            int num_names = 0;
+            xkb_keymap_list (&pool, &names, &num_names);
+            for (int i=0; i<num_names; i++) {
+                printf ("%s\n", names[i]);
+            }
+            mem_pool_destroy (&pool);
+
+        } else if (strcmp (argv[1], "--list-default") == 0) {
+            mem_pool_t pool = {0};
+            char **names = NULL;
+            int num_names = 0;
+            xkb_keymap_list_default (&pool, &names, &num_names);
+            for (int i=0; i<num_names; i++) {
+                printf ("%s\n", names[i]);
+            }
+            mem_pool_destroy (&pool);
         }
+
     } else {
         init_keycode_names ();
         gtk_init(&argc, &argv);

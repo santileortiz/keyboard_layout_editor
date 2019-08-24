@@ -1113,6 +1113,9 @@ int main (int argc, char **argv)
         } else {
             input_type = INPUT_NONE;
         }
+
+    } else {
+        input_type = INPUT_RMLVO_NAMES;
     }
 
     bool file_output_enabled = get_cli_bool_opt ("--write-output", argv, argc);

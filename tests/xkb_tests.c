@@ -149,9 +149,7 @@ void str_cat_mod_state (string_t *str,
                       xkb_mod_index_t xkb_num_mods, enum xkb_state_component type)
 {
     bool is_first = true;
-    // TODO: This assumes modifier indices in libxkbcommon are consecutive from
-    // 0 to xkb_num_mods-1. For now it looks like it, but the documentation does
-    // not say this explicitly.
+    // :libxkbcommon_modifier_indices_are_consecutive
     for (int i=0; i<xkb_num_mods; i++) {
         if (xkb_state_mod_index_is_active (xkb_state, i, type)) {
             if (!is_first) {
@@ -262,26 +260,21 @@ templ_sort(modifier_key_sort, struct modifier_key_t, a->kc < b->kc);
 
 struct get_modifier_keys_list_clsr_t {
     mem_pool_t *pool;
+    int num_mods;
 
     struct modifier_key_t *modifier_list_end;
     struct modifier_key_t *modifier_list;
 };
 
-void append_modifier_key (struct get_modifier_keys_list_clsr_t *clsr, int kc, enum action_type_t type)
+void append_modifier_key (struct get_modifier_keys_list_clsr_t *clsr,
+                          int kc, key_modifier_mask_t mask, enum action_type_t type)
 {
     struct modifier_key_t *new_key = mem_pool_push_struct (clsr->pool, struct modifier_key_t);
     new_key->next = NULL;
     new_key->kc = kc;
     new_key->type = type;
 
-    // TODO: Set a mask here corresponding to the modifiers that changed. Where
-    // can we get this from?. Not straightforward because we need to make sure
-    // these masks are comparable across different keymaps. Maybe assume they
-    // will always be real modifiers and have a global predefined mask
-    // definition for them. As fas as I can tell libxkbcommon always uses real
-    // modifiers here, even when virtual modifiers are defined in the keymap.
-    // :modifier_key_modifier_mask_test
-    new_key->modifiers = 0x0;
+    new_key->modifiers = mask;
 
     if (clsr->modifier_list == NULL) {
         clsr->modifier_list = new_key;
@@ -289,6 +282,43 @@ void append_modifier_key (struct get_modifier_keys_list_clsr_t *clsr, int kc, en
         clsr->modifier_list_end->next = new_key;
     }
     clsr->modifier_list_end = new_key;
+}
+
+// This creates a canonical mask of all active modifiers of the specified type
+// (set, locked or latched). We use it to be able to compare modifiers set
+// across different keymaps.
+// NOTE: As far as I can see libxkbcommon always returns real modifiers here.
+// While computing a canonical representation of modifiers we assume this will
+// be the case, if it ever stops being true we will assert.
+key_modifier_mask_t get_canonical_real_mod_state (struct xkb_keymap *keymap,
+                                                  struct xkb_state *state,
+                                                  int num_mods,
+                                                  enum xkb_state_component type)
+{
+    key_modifier_mask_t res = 0x0;
+    char *real_modifiers[] = XKB_FILE_BACKEND_REAL_MODIFIER_NAMES_LIST;
+
+    // :libxkbcommon_modifier_indices_are_consecutive
+    for (int i=0; i<num_mods; i++) {
+        if (xkb_state_mod_index_is_active (state, i, type)) {
+            key_modifier_mask_t curr_mask = 0x0;
+            const char *name = xkb_keymap_mod_get_name (keymap, i);
+            for (int j=0; j<ARRAY_SIZE(real_modifiers); j++) {
+                if (strcasecmp (name, real_modifiers[j]) == 0) {
+                    curr_mask = 1<<j;
+                    break;
+                }
+            }
+
+            // If this assert fails, then it means we got a modifier not in the
+            // real modifier array, maybe it was a virtual modifier? As far as
+            // I've seen, libxkbcommon doesn't do this.
+            assert (curr_mask != 0x0);
+            res |= curr_mask;
+        }
+    }
+
+    return res;
 }
 
 void get_modifier_keys_list_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, void *data)
@@ -302,13 +332,19 @@ void get_modifier_keys_list_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc
     enum xkb_state_component changed_components = xkb_state_update_key (xkb_state, kc+8, XKB_KEY_DOWN);
     if (changed_components) {
         if (changed_components & XKB_STATE_MODS_LOCKED) {
-            append_modifier_key (clsr, kc, KEY_ACTION_TYPE_MOD_LOCK);
+            key_modifier_mask_t mask =
+                get_canonical_real_mod_state (keymap, xkb_state, clsr->num_mods, XKB_STATE_MODS_LOCKED);
+            append_modifier_key (clsr, kc, mask, KEY_ACTION_TYPE_MOD_LOCK);
 
         } else if (changed_components & XKB_STATE_MODS_LATCHED) {
-            append_modifier_key (clsr, kc, KEY_ACTION_TYPE_MOD_LATCH);
+            key_modifier_mask_t mask =
+                get_canonical_real_mod_state (keymap, xkb_state, clsr->num_mods, XKB_STATE_MODS_LATCHED);
+            append_modifier_key (clsr, kc, mask, KEY_ACTION_TYPE_MOD_LATCH);
 
         } else if (changed_components & XKB_STATE_MODS_DEPRESSED) {
-            append_modifier_key (clsr, kc, KEY_ACTION_TYPE_MOD_SET);
+            key_modifier_mask_t mask =
+                get_canonical_real_mod_state (keymap, xkb_state, clsr->num_mods, XKB_STATE_MODS_DEPRESSED);
+            append_modifier_key (clsr, kc, mask, KEY_ACTION_TYPE_MOD_SET);
         }
     }
 
@@ -319,6 +355,7 @@ struct modifier_key_t* get_modifier_keys_list (mem_pool_t *pool, struct xkb_keym
 {
     struct get_modifier_keys_list_clsr_t clsr = {0};
     clsr.pool = pool;
+    clsr.num_mods = xkb_keymap_num_mods (keymap);
     xkb_keymap_key_for_each (keymap, get_modifier_keys_list_foreach, &clsr);
 
     return clsr.modifier_list;
@@ -459,10 +496,8 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
                 are_equal = false;
 
             } else if (curr_mod_k1->modifiers != curr_mod_k2->modifiers) {
-                // TODO: This is currently not implemented, we need to think
-                // about how to get global modifier masks.
-                // :modifier_key_modifier_mask_test
-                str_cat_printf (msg, "Keymaps set or lock different real modifiers with key %d.\n", curr_mod_k1->kc);
+                str_cat_printf (msg, "Keymaps set, lock or latch different real modifiers with key %d.\n",
+                                curr_mod_k1->kc);
                 are_equal = false;
             }
 
@@ -661,9 +696,9 @@ void print_modifier_info_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, v
 void str_cat_xkbcommon_modifier_info (string_t *str, struct xkb_keymap *keymap)
 {
     str_cat_c (str, "Modifiers: ");
+    // :libxkbcommon_modifier_indices_are_consecutive
     xkb_mod_index_t xkb_num_mods = xkb_keymap_num_mods (keymap);
     for (int i=0; i<xkb_num_mods; i++) {
-        // :libxkbcommon_modifier_indices_are_consecutive
         str_cat_printf (str, "%s", xkb_keymap_mod_get_name (keymap, i));
         if (i < xkb_num_mods-1) {
             str_cat_c (str, ", ");

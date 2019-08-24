@@ -663,6 +663,7 @@ void str_cat_xkbcommon_modifier_info (string_t *str, struct xkb_keymap *keymap)
     str_cat_c (str, "Modifiers: ");
     xkb_mod_index_t xkb_num_mods = xkb_keymap_num_mods (keymap);
     for (int i=0; i<xkb_num_mods; i++) {
+        // :libxkbcommon_modifier_indices_are_consecutive
         str_cat_printf (str, "%s", xkb_keymap_mod_get_name (keymap, i));
         if (i < xkb_num_mods-1) {
             str_cat_c (str, ", ");
@@ -684,6 +685,21 @@ enum input_type_t {
     INPUT_XKB_FILE
 };
 
+// Every time we iterate over the modifiers on a keymap we assume indices are
+// always consecutive. libxkbcommon's documentation does not explicitly
+// guarantees that but it looks like this is true, if this ever becomes false,
+// we will assert in this function. We call this whenever we create a new keymap
+// using libxkbcommon.
+// :libxkbcommon_modifier_indices_are_consecutive
+void assert_consecutive_modifiers (struct xkb_keymap *keymap)
+{
+    xkb_mod_index_t xkb_num_mods = xkb_keymap_num_mods (keymap);
+    for (int i=0; i<xkb_num_mods; i++) {
+        const char *name = xkb_keymap_mod_get_name (keymap, i);
+        assert (name != NULL);
+    }
+}
+
 // This takes an .xkb file as a string, then does the following:
 //   1) Parse it with our xkb parser and with libxkbcommon
 //   2) Write back the parsed internal representation with our xkb writer.
@@ -704,6 +720,7 @@ bool writeback_test (struct xkb_context *xkb_ctx,
         xkb_keymap_new_from_string(xkb_ctx, xkb_str,
                                    XKB_KEYMAP_FORMAT_TEXT_V1,
                                    XKB_KEYMAP_COMPILE_NO_FLAGS);
+    assert_consecutive_modifiers (*parser_keymap);
 
     // Print modifier information from a libxkbcommon keymap created from the
     // received CLI input
@@ -741,12 +758,14 @@ bool writeback_test (struct xkb_context *xkb_ctx,
         }
     }
 
-    // Load the writer's output to libxkbcommon, and print the information.
+    // Load the writer's output to libxkbcommon and print the information.
     if (success) {
         *writer_keymap =
             xkb_keymap_new_from_string(xkb_ctx, str_data(writer_keymap_str),
                                        XKB_KEYMAP_FORMAT_TEXT_V1,
                                        XKB_KEYMAP_COMPILE_NO_FLAGS);
+        assert_consecutive_modifiers (*writer_keymap);
+
         if (!*writer_keymap) {
             str_cat_c (msg, FAIL);
             str_cat_c (msg, "Failed to load the writer's output to libxkbcommon.\n");

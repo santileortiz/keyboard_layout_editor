@@ -256,13 +256,15 @@ struct modifier_key_t {
 
     struct modifier_key_t *next;
 };
-templ_sort(modifier_key_sort, struct modifier_key_t, a->kc < b->kc);
+
+templ_sort_ll(modifier_key_sort, struct modifier_key_t, a->kc < b->kc);
 
 struct get_modifier_keys_list_clsr_t {
     mem_pool_t *pool;
     int num_mods;
 
     struct modifier_key_t *modifier_list_end;
+    int modifier_list_len;
     struct modifier_key_t *modifier_list;
 };
 
@@ -282,6 +284,8 @@ void append_modifier_key (struct get_modifier_keys_list_clsr_t *clsr,
         clsr->modifier_list_end->next = new_key;
     }
     clsr->modifier_list_end = new_key;
+
+    clsr->modifier_list_len++;
 }
 
 // This creates a canonical mask of all active modifiers of the specified type
@@ -351,12 +355,17 @@ void get_modifier_keys_list_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc
     xkb_state_unref(xkb_state);
 }
 
-struct modifier_key_t* get_modifier_keys_list (mem_pool_t *pool, struct xkb_keymap *keymap)
+struct modifier_key_t* get_modifier_keys_list (mem_pool_t *pool, struct xkb_keymap *keymap, int *len)
 {
     struct get_modifier_keys_list_clsr_t clsr = {0};
     clsr.pool = pool;
     clsr.num_mods = xkb_keymap_num_mods (keymap);
+    clsr.modifier_list_len = 0;
     xkb_keymap_key_for_each (keymap, get_modifier_keys_list_foreach, &clsr);
+
+    if (len != NULL) {
+        *len = clsr.modifier_list_len;
+    }
 
     return clsr.modifier_list;
 }
@@ -481,14 +490,22 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
     mem_pool_t pool = {0};
     bool are_equal = true;
     int num_mod_keys = 0;
-    struct modifier_key_t *mod_list_k1 = get_modifier_keys_list (&pool, k1);
-    struct modifier_key_t *mod_list_k2 = get_modifier_keys_list (&pool, k2);
+
+    int mod_list_k1_len;
+    struct modifier_key_t *mod_list_k1 = get_modifier_keys_list (&pool, k1, &mod_list_k1_len);
+    modifier_key_sort (&mod_list_k1, mod_list_k1_len);
+
+    int mod_list_k2_len;
+    struct modifier_key_t *mod_list_k2 = get_modifier_keys_list (&pool, k2, &mod_list_k2_len);
+    modifier_key_sort (&mod_list_k2, mod_list_k2_len);
+
+    if (mod_list_k1_len != mod_list_k2_len) {
+        str_cat_c (msg, "Keymaps don't have the same number of modifier keys.\n");
+        are_equal = false;
+    }
 
     // Check that both keymaps have the same modifiers.
-    {
-        // TODO: We should sort mod_list_k1 and mod_list_k2 before this,
-        // llibxkbcommon's documentation does not guarantee it will be created
-        // in asscending order of keycode.
+    if (are_equal) {
         struct modifier_key_t *curr_mod_k1 = mod_list_k1, *curr_mod_k2 = mod_list_k2;
         while (are_equal == true && curr_mod_k1 != NULL && curr_mod_k2 != NULL) {
             if (curr_mod_k1->kc != curr_mod_k2->kc) {
@@ -507,11 +524,10 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
             curr_mod_k2 = curr_mod_k2->next;
         }
 
-        if ((curr_mod_k1 != NULL && curr_mod_k2 == NULL) ||
-            (curr_mod_k1 == NULL && curr_mod_k2 != NULL)) {
-            str_cat_c (msg, "Keymaps don't have the same number of modifier keys.\n");
-            are_equal = false;
-        }
+
+        // We checked the lengths of the lists of modifier keys before. This
+        // must hold here
+        assert (curr_mod_k1 == NULL && curr_mod_k2 == NULL);
     }
 
     int max_mod_keys = 20;
@@ -530,8 +546,6 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
 
             curr_mod_k1 = curr_mod_k1->next;
         }
-
-        modifier_key_sort (clsr.mod_keys, num_mod_keys);
 
         // Iterate all num_mod_keys^2 combinations and check that the resulting
         // keysyms are the same.

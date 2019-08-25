@@ -1352,7 +1352,8 @@ void FUNCNAME ## _user_data (TYPE *arr, int n, void *user_data) \
         for (i=0; i<n; i++) {                                   \
             TYPE *a = &arr[h];                                  \
             TYPE *b = &arr[k];                                  \
-            if (k==n || (h<n/2 && (IS_A_LT_B))) {               \
+            int c = IS_A_LT_B;                                  \
+            if (k==n || (h<n/2 && c)) {                         \
                 res[i] = arr[h];                                \
                 h++;                                            \
             } else {                                            \
@@ -1485,16 +1486,33 @@ void print_u64_array (uint64_t *arr, int n)
 // Templetized linked list sort
 //
 // IS_A_LT_B is an expression where a and b are pointers of type TYPE and should
-// evaluate to true when *a<*b. NEXT_FIELD specifies the name of the field where
-// the next node pointer is found. The macro templ_sort_ll is convenience for
-// when this field's name is "next". Use n=-1 if the size is unknown, in this
-// case the full linked list will be iterated to compute it.
+// evaluate to true when a->val < b->val. NEXT_FIELD specifies the name of the
+// field where the next node pointer is found. The macro templ_sort_ll is
+// convenience for when this field's name is "next". Use n=-1 if the size is
+// unknown, in this case the full linked list will be iterated to compute it.
 // NOTE: IS_A_LT_B as defined, will sort the linked list in ascending order.
 // NOTE: The last node of the linked list is expected to have NEXT_FIELD field
 // set to NULL.
 // NOTE: It uses a pointer array of size n, and calls merge sort on that array.
+
+// We say a and b are pointers, for arrays it's well defined. When talking about
+// linked lists we could mean a pointer to a node, or a pointer to an element of
+// the pointer array generated internally (a double pointer to a node). I've
+// seen the first one to be the expected way, but passing IS_A_LT_B as is, will
+// have the second semantics. This macro injects some code that dereferences a
+// and b so that we can do a->val < b->val easily.
+#define _linked_list_A_B_dereference_injector(IS_A_LT_B,TYPE) \
+    0;                                                        \
+    TYPE* _a = *a;                                            \
+    TYPE* _b = *b;                                            \
+    {                                                         \
+        TYPE *a = _a;                                         \
+        TYPE *b = _b;                                         \
+        c = IS_A_LT_B;                                        \
+    }
 #define templ_sort_ll_next_field(FUNCNAME,TYPE,NEXT_FIELD,IS_A_LT_B)\
-templ_sort(FUNCNAME ## _arr, TYPE*, IS_A_LT_B)                      \
+templ_sort(FUNCNAME ## _arr, TYPE*,                                 \
+           _linked_list_A_B_dereference_injector(IS_A_LT_B,TYPE))   \
 void FUNCNAME ## _user_data (TYPE **head, int n, void *user_data)   \
 {                                                                   \
     if (n == -1) {                                                  \

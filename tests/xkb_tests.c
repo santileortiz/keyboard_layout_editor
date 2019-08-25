@@ -790,6 +790,7 @@ bool writeback_test (struct xkb_context *xkb_ctx,
             str_cat_printf (msg, "Internal parser failed.\n");
             str_cat (msg, &log);
             success = false;
+
         }
         str_free (&log);
     }
@@ -798,6 +799,7 @@ bool writeback_test (struct xkb_context *xkb_ctx,
     if (success) {
         struct status_t status = {0};
         xkb_file_write (&keymap, writer_keymap_str, &status);
+        keyboard_layout_destroy (&keymap);
 
         if (status_is_error (&status)) {
             str_cat_c (msg, FAIL);
@@ -953,6 +955,7 @@ bool test_xkb_file (string_t *input_str,
             str_cat_c (result, "Can't parse our own output.\n");
             str_cat (result, &log);
             success = false;
+
         }
         str_free (&log);
 
@@ -966,6 +969,7 @@ bool test_xkb_file (string_t *input_str,
                 str_cat_c (result, "Can't write our own output.\n");
                 success = false;
             }
+            keyboard_layout_destroy (&keymap);
         }
 
         if(success) {
@@ -989,6 +993,7 @@ bool test_xkb_file (string_t *input_str,
             string_t tmp = {0};
             str_cat_xkbcommon_modifier_info (&tmp, parser_keymap);
             str_cat_indented (info, &tmp, 1);
+            str_free (&tmp);
         }
 
         // Print writer output information
@@ -1005,9 +1010,12 @@ bool test_xkb_file (string_t *input_str,
             struct keyboard_layout_t keymap = {0};
             str_cat_c (info, ECMA_MAGENTA("\nXKB parser info:\n"));
 
-            tmp = ZERO_INIT(string_t);
+            str_set (&tmp, "");
             xkb_file_parse_verbose (str_data(input_str), &keymap, &tmp);
             str_cat_indented (info, &tmp, 1);
+
+            keyboard_layout_destroy (&keymap);
+            str_free (&tmp);
         }
     }
 

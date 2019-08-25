@@ -20,8 +20,10 @@
 
 #ifdef __cplusplus
 #define ZERO_INIT(type) (type){}
+// TODO: Add the static assert and check it works in C++.
 #else
-#define ZERO_INIT(type) (type){0}
+#define ZERO_INIT(type) (type){0}; \
+{_Static_assert(strcmp(#type, "string_t") != 0, "Clearing string_t is forbidden. Use str_set().");}
 typedef enum {false, true} bool;
 #endif
 
@@ -2185,7 +2187,7 @@ string_t* strn_new_pooled (mem_pool_t *pool, const char *c_str, size_t len)
 {
     assert (pool != NULL && c_str != NULL);
     string_t *str = mem_pool_push_size_cb (pool, sizeof(string_t), destroy_pooled_str);
-    *str = ZERO_INIT (string_t);
+    str_set (str, "");
     strn_set (str, c_str, len);
     return str;
 }
@@ -2194,7 +2196,7 @@ string_t* strn_new_pooled (mem_pool_t *pool, const char *c_str, size_t len)
 void strn_set_pooled (mem_pool_t *pool, string_t *str, const char *c_str, size_t len)
 {
     assert (pool != NULL && str != NULL);
-    *str = ZERO_INIT (string_t);
+    str_set (str, "");
     mem_pool_push_cb (pool, destroy_pooled_str, str);
     strn_set (str, c_str, len);
 }

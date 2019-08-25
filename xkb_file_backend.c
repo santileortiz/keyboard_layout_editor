@@ -2476,7 +2476,7 @@ void xkb_file_write_modifier_action_arguments (struct xkb_writer_state_t *state,
 void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct status_t *status)
 {
     assert (xkb_str != NULL);
-    *xkb_str = ZERO_INIT(string_t);
+    str_set (xkb_str, "");
 
     // TODO: When we have a compact function, we should call it before creating
     // the output string. :keyboard_layout_compact

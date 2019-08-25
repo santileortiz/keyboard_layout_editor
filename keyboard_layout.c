@@ -645,11 +645,11 @@ void keyboard_layout_compact (struct keyboard_layout_t *keymap)
             last_type = curr_type;
         }
 
-        curr_type->name = ZERO_INIT(string_t);
+        str_set (&curr_type->name, "");
         curr_type->modifier_mask = 0x0;
         curr_type->modifier_mappings = NULL;
-        // Explicitly avoid clearing  curr_type->next. Which is why I we don't
-        // do ZERO_INIT(struct key_type_t)
+        // Explicitly avoid clearing curr_type->next and curr_type->name. Which
+        // is why I we don't do ZERO_INIT(struct key_type_t)
     }
 
     // If there is already a free list concatenate it at the end of the new one.
@@ -664,5 +664,7 @@ void keyboard_layout_compact (struct keyboard_layout_t *keymap)
                                           keymap->level_modifier_mapping_fl);
     }
     keymap->level_modifier_mapping_fl = freed_modifier_mappings;
+
+    mem_pool_destroy (&pool);
 }
 

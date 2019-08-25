@@ -1334,7 +1334,7 @@ void swap_n_bytes (void *a, void*b, uint32_t n)
 #define templ_sort(FUNCNAME,TYPE,IS_A_LT_B)                     \
 void FUNCNAME ## _user_data (TYPE *arr, int n, void *user_data) \
 {                                                               \
-    if (n<=1) {                                                 \
+    if (arr == NULL || n<=1) {                                  \
         return;                                                 \
     } else if (n == 2) {                                        \
         TYPE *a = &arr[1];                                      \
@@ -1406,25 +1406,27 @@ void array_clear (int *arr, int n)
 
 void array_print_full (int *arr, int n, const char *sep, const char *start, const char *end)
 {
-    int i;
+    int i=0;
     if (start != NULL) {
         printf ("%s", start);
     }
 
-    if (sep != NULL) {
-        for (i=0; i<n-1; i++) {
-            printf ("%d%s", arr[i], sep);
+    if (n>0) {
+        if (sep != NULL) {
+            for (i=0; i<n-1; i++) {
+                printf ("%d%s", arr[i], sep);
+            }
+        } else {
+            for (i=0; i<n-1; i++) {
+                printf ("%d", arr[i]);
+            }
         }
-    } else {
-        for (i=0; i<n-1; i++) {
-            printf ("%d", arr[i]);
-        }
+
+        printf ("%d", arr[i]);
     }
 
     if (end != NULL) {
-        printf ("%d%s", arr[i], end);
-    } else {
-        printf ("%d", arr[i]);
+        printf ("%s", end);
     }
 }
 
@@ -1517,6 +1519,10 @@ templ_sort(FUNCNAME ## _arr, TYPE*,                                 \
            _linked_list_A_B_dereference_injector(IS_A_LT_B,TYPE))   \
 void FUNCNAME ## _user_data (TYPE **head, int n, void *user_data)   \
 {                                                                   \
+    if (head == NULL || n == 0) {                                   \
+        return;                                                     \
+    }                                                               \
+                                                                    \
     if (n == -1) {                                                  \
         n = 0;                                                      \
         TYPE *node = *head;                                         \

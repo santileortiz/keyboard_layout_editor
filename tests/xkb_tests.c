@@ -5,6 +5,7 @@
 #include "bit_operations.c"
 #include "status.c"
 #include "scanner.c"
+#include "binary_tree.c"
 
 #include <xkbcommon/xkbcommon.h>
 #include <linux/input-event-codes.h>

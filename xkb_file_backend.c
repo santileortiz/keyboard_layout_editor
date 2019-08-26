@@ -226,7 +226,7 @@ struct xkb_parser_state_t {
     string_t tok_value;
     int tok_value_int;
 
-    GTree *key_identifiers_to_keycodes;
+    struct binary_tree_t key_identifiers_to_keycodes;
 
     struct keyboard_layout_t *keymap;
 
@@ -271,15 +271,13 @@ void xkb_parser_state_init (struct xkb_parser_state_t *state, char *xkb_str, str
     *state = ZERO_INIT(struct xkb_parser_state_t);
     state->scnr.pos = xkb_str;
     state->keymap = keymap;
-
-    state->key_identifiers_to_keycodes = g_tree_new (strcmp_as_g_compare_func);
 }
 
 void xkb_parser_state_destory (struct xkb_parser_state_t *state)
 {
     str_free (&state->tok_value);
     mem_pool_destroy (&state->pool);
-    g_tree_destroy (state->key_identifiers_to_keycodes);
+    binary_tree_destroy (&state->key_identifiers_to_keycodes);
 }
 
 // Shorthand error for when the only replacement being done is the current value
@@ -310,12 +308,8 @@ bool xkb_parser_define_key_identifier (struct xkb_parser_state_t *state, char *k
 {
     bool new_identifier_defined = false;
 
-    if (!g_tree_lookup_extended (state->key_identifiers_to_keycodes, key_identifier, NULL, NULL)) {
-        // GTree only accepts pointers as values, a tree that points to integers
-        // would avoid some pointer lookups.
-        int *value_ptr = mem_pool_push_size (&state->pool, sizeof(int));
-        *value_ptr = kc;
-        g_tree_insert (state->key_identifiers_to_keycodes, key_identifier, value_ptr);
+    if (!binary_tree_lookup (&state->key_identifiers_to_keycodes, key_identifier, NULL)) {
+        binary_tree_insert (&state->key_identifiers_to_keycodes, key_identifier, kc);
         new_identifier_defined = true;
 
     } else {
@@ -331,10 +325,10 @@ bool xkb_parser_key_identifier_lookup (struct xkb_parser_state_t *state, char *k
 
     bool identifier_found = false;
 
-    void *value;
-    if (g_tree_lookup_extended (state->key_identifiers_to_keycodes, key_identifier, NULL, &value)) {
+    struct binary_tree_node_t *node;
+    if (binary_tree_lookup (&state->key_identifiers_to_keycodes, key_identifier, &node)) {
         identifier_found = true;
-        *kc = *(int*)value;
+        *kc = node->value;
     }
 
     return identifier_found;
@@ -2237,6 +2231,7 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state, string_t *vmo
                 string_t str = {0};
                 xkb_file_write_modifier_mask_reverse (reverse_modifier_name_map, &str, state->vmodmap[i].encoding);
                 str_cat_printf (vmod_map_log, "%s\n", str_data(&str));
+                str_free (&str);
             }
         }
     }

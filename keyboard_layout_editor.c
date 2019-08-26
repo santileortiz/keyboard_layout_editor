@@ -7,6 +7,7 @@
 #include "bit_operations.c"
 #include "status.c"
 #include "scanner.c"
+#include "binary_tree.c"
 
 #include "xkb_keymap_installer.c"
 #include "xkb_keymap_loader.c"

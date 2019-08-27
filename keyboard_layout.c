@@ -125,6 +125,10 @@ struct key_t {
     struct key_level_t levels[KEYBOARD_LAYOUT_MAX_LEVELS];
 };
 
+// TODO: Have a single tree API that can be instantiated for different types of
+// values. Instantiate that here, instead of doing this include.
+#include "mod_mask_binary_tree.c"
+
 struct keyboard_layout_t {
     mem_pool_t pool;
 
@@ -132,7 +136,7 @@ struct keyboard_layout_t {
     struct key_t *keys[KEY_CNT];
 
     // Map from modifier names to modifier masks
-    GTree *modifiers;
+    struct mod_mask_binary_tree_t modifiers;
 
     // Free lists of struct that can be removed
     struct key_type_t *types_fl;
@@ -152,28 +156,14 @@ key_modifier_mask_t keyboard_layout_new_modifier (struct keyboard_layout_t *keym
     key_modifier_mask_t result = 0;
     enum modifier_result_status_t status_l;
 
-    int num_modifiers = 0;
-    if (keymap->modifiers == NULL) {
-        keymap->modifiers = g_tree_new (strcasecmp_as_g_compare_func);
-    } else {
-        num_modifiers = g_tree_nnodes(keymap->modifiers);
-    }
+    int num_modifiers = keymap->modifiers.num_nodes;
 
-    if (!g_tree_lookup_extended (keymap->modifiers, name, NULL, NULL)) {
+    if (!mod_mask_binary_tree_lookup (&keymap->modifiers, name, NULL)) {
         if (num_modifiers < KEYBOARD_LAYOUT_MAX_MODIFIERS) {
-            // FIXME: Sigh, I don't like this wrapping of values inside GTree,
-            // it will make us leak memory when we add a way to delete
-            // modifiers. Not leaking memory would require us keeping a linked
-            // list of spare key_modifier_mask_t which seems overkill. What I
-            // would REALLY like is have my own tree implementation that uses
-            // macros and a pool. It should internally handle this spare node
-            // linked list, and allow us to define an implementation that stores
-            // the key_modifier_mask_t value itself, not a pointer to one.
-            key_modifier_mask_t *value_ptr = mem_pool_push_size (&keymap->pool, sizeof(key_modifier_mask_t));
-            *value_ptr = 1 << num_modifiers;
+            key_modifier_mask_t value = 1 << num_modifiers;
             char *stored_modifier_name = pom_strdup (&keymap->pool, name);
-            g_tree_insert (keymap->modifiers, stored_modifier_name, value_ptr);
-            result = *value_ptr;
+            mod_mask_binary_tree_insert (&keymap->modifiers, stored_modifier_name, value);
+            result = value;
 
             status_l = KEYBOARD_LAYOUT_MOD_SUCCESS;
 
@@ -209,11 +199,11 @@ key_modifier_mask_t keyboard_layout_get_modifier (struct keyboard_layout_t *keym
         status_l = KEYBOARD_LAYOUT_MOD_SUCCESS;
         result = 0;
 
-    } else if (keymap->modifiers != NULL) {
-        void *value;
-        if (g_tree_lookup_extended (keymap->modifiers, name, NULL, &value)) {
+    } else {
+        struct mod_mask_binary_tree_node_t *node = NULL;
+        if (mod_mask_binary_tree_lookup (&keymap->modifiers, name, &node)) {
             status_l = KEYBOARD_LAYOUT_MOD_SUCCESS;
-            result = *(key_modifier_mask_t*)value;
+            result = node->value;
         }
     }
 
@@ -365,7 +355,7 @@ void keyboard_layout_destroy (struct keyboard_layout_t *keymap)
 
     mem_pool_destroy (&keymap->pool);
     // TODO: We should add a way of adding single callbacks to a pool.
-    g_tree_destroy (keymap->modifiers);
+    mod_mask_binary_tree_destroy (&keymap->modifiers);
 }
 
 struct keyboard_layout_t* keyboard_layout_new_default (void)

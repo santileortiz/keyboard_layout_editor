@@ -12,10 +12,6 @@
 #include "keycode_names.h"
 #include "keysym_names.h"
 
-// TODO: Clean up things so that tests only depend on GLib.
-#include <gtk/gtk.h>
-#include "gtk_utils.c"
-
 #include "keyboard_layout.c"
 #include "xkb_file_backend.c"
 

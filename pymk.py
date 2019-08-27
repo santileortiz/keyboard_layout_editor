@@ -42,7 +42,7 @@ def im_gtk2 ():
     ex ('sudo /usr/lib/x86_64-linux-gnu/libgtk2.0-0/gtk-query-immodules-2.0 --update-cache')
 
 def xkb_tests ():
-    ex ('gcc {FLAGS} -o bin/xkb_tests tests/xkb_tests.c {GTK3_FLAGS} -I. -lm -lxkbcommon')
+    ex ('gcc {FLAGS} -o bin/xkb_tests tests/xkb_tests.c -I. -lm -lxkbcommon')
 
 def generate_base_layout_tests ():
     """

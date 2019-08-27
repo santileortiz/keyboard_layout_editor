@@ -1820,18 +1820,16 @@ xkb_backend_interpret_compare (struct xkb_compat_interpret_t *old, struct xkb_co
     return winner;
 }
 
-gboolean populate_vmod_map_foreach (gpointer modifier_name, gpointer mask_ptr, gpointer data)
+MOD_MASK_BINARY_TREE_FOREACH_CB(populate_vmod_map_foreach)
 {
-    key_modifier_mask_t mask = *(key_modifier_mask_t*)mask_ptr;
-    struct xkb_parser_state_t *state = (struct xkb_parser_state_t *)data;
+    key_modifier_mask_t mask = node->value;
+    struct xkb_parser_state_t *state = (struct xkb_parser_state_t *)clsr;
 
-    if (!xkb_parser_is_real_modifier (state, modifier_name)) {
+    if (!xkb_parser_is_real_modifier (state, node->key)) {
         uint32_t idx = bit_mask_perfect_hash (mask);
-        state->vmodmap[idx].name = modifier_name;
+        state->vmodmap[idx].name = node->key;
         state->vmodmap[idx].encoding = 0x0;
     }
-
-    return FALSE;
 }
 
 struct interpret_vmod_definition_t {
@@ -1869,11 +1867,11 @@ void add_interpret_vmod_definition (struct xkb_parser_state_t *state,
     (*interpret_vmod_definition_end)->vmods |= vmod_mask;
 }
 
-gboolean reverse_mapping_create_foreach (gpointer modifier_name, gpointer mask_ptr, gpointer data)
+MOD_MASK_BINARY_TREE_FOREACH_CB(reverse_mapping_create_foreach)
 {
-    char **reverse_modifier_definition = (char**)data;
+    char **reverse_modifier_definition = (char**)clsr;
 
-    key_modifier_mask_t mask = *(key_modifier_mask_t*)mask_ptr;
+    key_modifier_mask_t mask = node->value;
     if (mask != 0) {
         int pos = 0;
         while (!(mask&0x1) && pos < KEYBOARD_LAYOUT_MAX_MODIFIERS) {
@@ -1888,7 +1886,7 @@ gboolean reverse_mapping_create_foreach (gpointer modifier_name, gpointer mask_p
             printf ("Invalid modifier mask, keymap seems to be corrupted.\n");
 
         } else {
-            reverse_modifier_definition[pos] = modifier_name;
+            reverse_modifier_definition[pos] = node->key;
         }
     }
     // else {
@@ -1897,8 +1895,6 @@ gboolean reverse_mapping_create_foreach (gpointer modifier_name, gpointer mask_p
     // a special case.
     // :none_modifier
     // }
-
-    return FALSE;
 }
 
 //NOTE: This expects reverse_modifier_definition to have at least
@@ -1909,7 +1905,7 @@ void create_reverse_modifier_name_map (struct keyboard_layout_t *keymap, char **
         reverse_modifier_definition[i] = NULL;
     }
 
-    g_tree_foreach (keymap->modifiers, reverse_mapping_create_foreach, reverse_modifier_definition);
+    mod_mask_binary_tree_foreach (&keymap->modifiers, reverse_mapping_create_foreach, reverse_modifier_definition);
 }
 
 // DELETE ME {
@@ -2165,7 +2161,7 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state, string_t *vmo
     // :virtual_modifier_definition
 
     // Initialize state->vmodmap from the definitions currently in the keymap.
-    g_tree_foreach (state->keymap->modifiers, populate_vmod_map_foreach, state);
+    mod_mask_binary_tree_foreach (&state->keymap->modifiers, populate_vmod_map_foreach, state);
 
     struct interpret_vmod_definition_t *curr_interpret_vmod_definition = interpret_vmod_definition;
     for (int kc=0; kc<KEY_CNT; kc++) {
@@ -2438,10 +2434,10 @@ void xkb_file_write_modifier_mask (struct xkb_writer_state_t *state, string_t *s
     }
 }
 
-gboolean print_modifiers_foreach (gpointer modifier_name, gpointer mask_ptr, gpointer data)
+MOD_MASK_BINARY_TREE_FOREACH_CB(print_modifiers_foreach)
 {
-    struct xkb_writer_state_t *state = (struct xkb_writer_state_t*)data;
-    key_modifier_mask_t mask = *(key_modifier_mask_t*)mask_ptr;
+    struct xkb_writer_state_t *state = (struct xkb_writer_state_t*)clsr;
+    key_modifier_mask_t mask = node->value;
 
     // Print only virtual modifiers
     if (!(state->real_modifiers & mask)) {
@@ -2451,10 +2447,8 @@ gboolean print_modifiers_foreach (gpointer modifier_name, gpointer mask_ptr, gpo
             str_cat_c (state->xkb_str, ",");
         }
 
-        str_cat_c (state->xkb_str, modifier_name);
+        str_cat_c (state->xkb_str, node->key);
     }
-
-    return FALSE;
 }
 
 void xkb_file_write_modifier_action_arguments (struct xkb_writer_state_t *state, string_t *xkb_str,
@@ -2533,7 +2527,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
     // order so their ordering does not depend on the value of the mask assigned
     // to it.
     state.is_first = true;
-    g_tree_foreach (keymap->modifiers, print_modifiers_foreach, &state);
+    mod_mask_binary_tree_foreach (&keymap->modifiers, print_modifiers_foreach, &state);
     str_cat_c (xkb_str, ";\n\n");
 
     struct key_type_t *curr_type = keymap->types;

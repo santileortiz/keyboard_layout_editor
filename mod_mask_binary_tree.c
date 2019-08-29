@@ -101,7 +101,7 @@ bool mod_mask_binary_tree_lookup (struct mod_mask_binary_tree_t *tree, char *key
     bool key_found = false;
     struct mod_mask_binary_tree_node_t **curr_node = &tree->root;
     while (*curr_node != NULL) {
-        int c = strcmp (key, (*curr_node)->key);
+        int c = strcasecmp (key, (*curr_node)->key);
         if (c < 0) {
             curr_node = &(*curr_node)->left;
 

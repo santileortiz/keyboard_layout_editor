@@ -51,3 +51,18 @@ int* create_bit_pos_lookup (mem_pool_t *pool)
     init_bit_pos_lookup (res);
     return res;
 }
+
+static inline
+int bit_pos (uint32_t bit_mask)
+{
+    assert (single_bit_set(bit_mask));
+    static int *bit_lookup = NULL;
+    static int buff[32];
+    if (!bit_lookup) {
+        init_bit_pos_lookup (buff);
+        bit_lookup = buff;
+    }
+
+    uint32_t idx = bit_mask_perfect_hash (bit_mask);
+    return bit_lookup[idx];
+}

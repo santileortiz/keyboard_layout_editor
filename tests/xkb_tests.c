@@ -370,7 +370,6 @@ struct modifier_key_t* get_modifier_keys_list (mem_pool_t *pool, struct xkb_keym
 }
 
 struct compare_key_states_foreach_clsr_t {
-    int *bit_lookup;
     struct modifier_key_t *mod_keys;
     int num_mod_keys;
 
@@ -444,24 +443,71 @@ void compare_key_states_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, vo
     }
 }
 
-void str_cat_modifier_test_pressed_keys (string_t *str, uint32_t pressed_keys,
-                                         struct compare_key_states_foreach_clsr_t *clsr)
+// This function takes pressed_keys, interpret each bit as a mask where each bit
+// index refers to an element of the modifier_keys array, then it activates the
+// modifiers of the corresponding keys. Keys that set a modifier are pressed,
+// those that lock a modifier are pressed and released.
+// TODO: Keys that latch modifiers are currently ignored.
+void set_active_modifier_keys (uint32_t active_modifier_keys, struct modifier_key_t *mod_keys,
+                               struct xkb_state *s1, struct xkb_state *s2)
 {
-    if (pressed_keys == 0) {
+    while (active_modifier_keys) {
+        key_modifier_mask_t next_bit_mask = active_modifier_keys & -active_modifier_keys;
+
+        struct modifier_key_t mod_key = mod_keys[bit_pos(next_bit_mask)];
+        if (mod_key.type != KEY_ACTION_TYPE_MOD_LATCH) {
+            // We don't test latch modifiers. They need a special
+            // treatment because they are unset everytime a key is
+            // pressed. Currently we press modifier keys, then press
+            // each non modifier key compare the keysyms produced.
+            //
+            // They are considered modifier keys, though. Because we
+            // don't want to press them (as if they were non
+            // modifier keys) when comparing keysyms.
+            xkb_state_update_key (s1, mod_key.kc+8, XKB_KEY_DOWN);
+            xkb_state_update_key (s2, mod_key.kc+8, XKB_KEY_DOWN);
+
+            // If the modifier is locked, then release the key.
+            if (mod_key.type != KEY_ACTION_TYPE_MOD_LOCK) {
+                xkb_state_update_key (s1, mod_key.kc+8, XKB_KEY_UP);
+                xkb_state_update_key (s2, mod_key.kc+8, XKB_KEY_UP);
+            }
+        }
+
+        active_modifier_keys = active_modifier_keys & (active_modifier_keys-1);
+    }
+}
+
+void str_cat_active_modifier_keys (string_t *str, uint32_t active_modifier_keys,
+                                   struct modifier_key_t *mod_keys)
+{
+    if (active_modifier_keys == 0) {
         str_cat_c (str, " none");
 
     } else {
-        while (pressed_keys) {
-            key_modifier_mask_t next_bit_mask = pressed_keys & -pressed_keys;
-            uint32_t idx = bit_mask_perfect_hash (next_bit_mask);
-            struct modifier_key_t mod_key = clsr->mod_keys[clsr->bit_lookup[idx]];
+        while (active_modifier_keys) {
+            key_modifier_mask_t next_bit_mask = active_modifier_keys & -active_modifier_keys;
+            struct modifier_key_t mod_key = mod_keys[bit_pos(next_bit_mask)];
             str_cat_c (str, " ");
             str_cat_kc (str, mod_key.kc);
-            pressed_keys = pressed_keys & (pressed_keys-1);
+            active_modifier_keys = active_modifier_keys & (active_modifier_keys-1);
         }
     }
     str_cat_c (str, "\n");
-    assert (pressed_keys == 0x0);
+}
+
+void str_cat_passed_modifier_tests (string_t *str, uint32_t last_active_modifier_keys,
+                                    struct modifier_key_t *mod_keys)
+{
+    str_cat_c (str, " PASSED MODIFIER COMBINATIONS:\n");
+    for (int passed_test = 0; passed_test < last_active_modifier_keys; passed_test++) {
+        str_cat_c (str, " -");
+        str_cat_active_modifier_keys (str, passed_test, mod_keys);
+    }
+    str_cat_c (str, "\n");
+
+    str_cat_c (str, " Pressed keys:");
+    str_cat_active_modifier_keys (str, last_active_modifier_keys, mod_keys);
 }
 
 // This test is a more functional equality test of the keymaps. The idea is to
@@ -531,7 +577,6 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
     int max_mod_keys = MAX_MODIFIERS_TO_TEST;
     if (are_equal) {
         struct compare_key_states_foreach_clsr_t clsr = {0};
-        clsr.bit_lookup = create_bit_pos_lookup (&pool);
 
         // Put modifier key nodes into an array sorted by keycode. This is required
         // so we can check in a fast way if a keycode is a modifier key.
@@ -558,35 +603,7 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
                 struct xkb_state *s2 = xkb_state_new(k2);
                 assert (s2);
 
-                // Iterate bits of pressed_keys and press the correspoiding keys in
-                // the keymap states.
-                uint32_t pressed_keys_cpy = pressed_keys;
-                while (pressed_keys_cpy) {
-                    key_modifier_mask_t next_bit_mask = pressed_keys_cpy & -pressed_keys_cpy;
-
-                    uint32_t idx = bit_mask_perfect_hash (next_bit_mask);
-                    struct modifier_key_t mod_key = clsr.mod_keys[clsr.bit_lookup[idx]];
-                    if (mod_key.type != KEY_ACTION_TYPE_MOD_LATCH) {
-                        // We don't test latch modifiers. They need a special
-                        // treatment because they are unset everytime a key is
-                        // pressed. Currently we press modifier keys, then press
-                        // each non modifier key compare the keysyms produced.
-                        //
-                        // They are considered modifier keys, though. Because we
-                        // don't want to press them (as if they were non
-                        // modifier keys) when comparing keysyms.
-                        xkb_state_update_key (s1, mod_key.kc+8, XKB_KEY_DOWN);
-                        xkb_state_update_key (s2, mod_key.kc+8, XKB_KEY_DOWN);
-
-                        // If the modifier is locked, then release the key.
-                        if (mod_key.type != KEY_ACTION_TYPE_MOD_LOCK) {
-                            xkb_state_update_key (s1, mod_key.kc+8, XKB_KEY_UP);
-                            xkb_state_update_key (s2, mod_key.kc+8, XKB_KEY_UP);
-                        }
-                    }
-
-                    pressed_keys_cpy = pressed_keys_cpy & (pressed_keys_cpy-1);
-                }
+                set_active_modifier_keys (pressed_keys, clsr.mod_keys, s1, s2);
 
                 clsr.s1 = s1;
                 clsr.s2 = s2;
@@ -596,15 +613,7 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
                 if (!clsr.equal_states && msg != NULL) {
                     str_cat_printf (msg, "Modifiers produce different keysyms.\n");
 
-                    str_cat_c (msg, " PASSED MODIFIER COMBINATIONS:\n");
-                    for (int passed_test = 0; passed_test < pressed_keys; passed_test++) {
-                        str_cat_c (msg, " -");
-                        str_cat_modifier_test_pressed_keys (msg, passed_test, &clsr);
-                    }
-                    str_cat_c (msg, "\n");
-
-                    str_cat_c (msg, " Pressed keys:");
-                    str_cat_modifier_test_pressed_keys (msg, pressed_keys, &clsr);
+                    str_cat_passed_modifier_tests (msg, pressed_keys, clsr.mod_keys);
 
                     str_cat_c (msg, " kc: ");
                     str_cat_kc (msg, clsr.differing_kc);
@@ -657,12 +666,22 @@ bool led_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, string_t *
 
     assert (mod_list_k1_len == mod_list_k2_len);
 
+    int num_leds = 0;
+    {
+        int num_leds_k1 = xkb_keymap_num_leds (k1);
+        int num_leds_k2 = xkb_keymap_num_leds (k2);
+        if (num_leds_k1 != num_leds_k2) {
+            str_cat_printf (msg, "Keymaps define diferent number of leds.\n");
+            str_cat_printf (msg, " k1: %d\n k2: %d\n", num_leds_k1, num_leds_k2);
+            are_equal = false;
+        }
+        num_leds = num_leds_k1;
+    }
+
     int max_mod_keys = MAX_MODIFIERS_TO_TEST;
     if (are_equal) {
-        int *bit_lookup = create_bit_pos_lookup (&pool);
-
-        // Put modifier key nodes into an array sorted by keycode. This is required
-        // so we can check in a fast way if a keycode is a modifier key.
+        // Put modifier key nodes into an array sorted by keycode. This is used
+        // for quick lookuop of modifier keys.
         struct modifier_key_t *curr_mod_k1 = mod_list_k1;
         struct modifier_key_t *mod_keys = mem_pool_push_array (&pool, num_mod_keys, struct modifier_key_t);
         for (int i=0; i<num_mod_keys; i++) {
@@ -685,54 +704,29 @@ bool led_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, string_t *
                 struct xkb_state *s2 = xkb_state_new(k2);
                 assert (s2);
 
-                // TODO: Abstract this out into another fuction.
-                // Iterate bits of pressed_keys and press the correspoiding keys in
-                // the keymap states.
-                uint32_t pressed_keys_cpy = pressed_keys;
-                while (pressed_keys_cpy) {
-                    key_modifier_mask_t next_bit_mask = pressed_keys_cpy & -pressed_keys_cpy;
+                set_active_modifier_keys (pressed_keys, mod_keys, s1, s2);
 
-                    uint32_t idx = bit_mask_perfect_hash (next_bit_mask);
-                    struct modifier_key_t mod_key = mod_keys[bit_lookup[idx]];
-                    if (mod_key.type != KEY_ACTION_TYPE_MOD_LATCH) {
-                        // We don't test latch modifiers. They need a special
-                        // treatment because they are unset everytime a key is
-                        // pressed. Currently we press modifier keys, then press
-                        // each non modifier key compare the keysyms produced.
-                        //
-                        // They are considered modifier keys, though. Because we
-                        // don't want to press them (as if they were non
-                        // modifier keys) when comparing keysyms.
-                        xkb_state_update_key (s1, mod_key.kc+8, XKB_KEY_DOWN);
-                        xkb_state_update_key (s2, mod_key.kc+8, XKB_KEY_DOWN);
-
-                        // If the modifier is locked, then release the key.
-                        if (mod_key.type != KEY_ACTION_TYPE_MOD_LOCK) {
-                            xkb_state_update_key (s1, mod_key.kc+8, XKB_KEY_UP);
-                            xkb_state_update_key (s2, mod_key.kc+8, XKB_KEY_UP);
-                        }
+                // FIXME: This is probably broken, nothing ensures us two
+                // keymaps will have the same indices mapped to indicators. This
+                // should really be done by indicator name.
+                int ind_idx;
+                bool ind_1, ind_2;
+                for (ind_idx = 0; are_equal && ind_idx < num_leds; ind_idx++) {
+                    ind_1 = xkb_state_led_index_is_active (s1, ind_idx);
+                    ind_2 = xkb_state_led_index_is_active (s2, ind_idx);
+                    if (ind_1 != ind_2) {
+                        are_equal = false;
                     }
-
-                    pressed_keys_cpy = pressed_keys_cpy & (pressed_keys_cpy-1);
                 }
-
-                // TODO: Compare active indicators
 
                 if (!are_equal && msg != NULL) {
                     str_cat_printf (msg, "Modifiers produce different keysyms.\n");
 
-                    // TODO: Abstract this out into another function
-                    str_cat_c (msg, " PASSED MODIFIER COMBINATIONS:\n");
-                    for (int passed_test = 0; passed_test < pressed_keys; passed_test++) {
-                        str_cat_c (msg, " -");
-                        //str_cat_modifier_test_pressed_keys (msg, passed_test, &clsr);
-                    }
-                    str_cat_c (msg, "\n");
-
-                    str_cat_c (msg, " Pressed keys:");
-                    //str_cat_modifier_test_pressed_keys (msg, pressed_keys, &clsr);
-
-                    // TODO: Print differing indicators
+                    str_cat_passed_modifier_tests (msg, pressed_keys, mod_keys);
+                    str_cat_printf (msg, "Indicator 1: %s -> %d\n",
+                                    xkb_keymap_led_get_name (k1, ind_idx), ind_1?1:0);
+                    str_cat_printf (msg, "Indicator 2: %s -> %d\n",
+                                    xkb_keymap_led_get_name (k2, ind_idx), ind_2?1:0);
 
                     are_equal = false;
                 }
@@ -1092,6 +1086,18 @@ bool test_xkb_file (string_t *input_str,
                 str_cat_c (result, SUCCESS);
             }
 
+        }
+    }
+
+    if (success) {
+        str_cat_test_name (result, "LED Equality Test");
+        string_t tmp = {0};
+        if (!led_equality_test (parser_keymap, writer_keymap, &tmp)) {
+            str_cat_c (result, FAIL);
+            str_cat (result, &tmp);
+            success = false;
+        } else {
+            str_cat_c (result, SUCCESS);
         }
     }
 

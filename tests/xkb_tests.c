@@ -15,17 +15,6 @@
 #include "keyboard_layout.c"
 #include "xkb_file_backend.c"
 
-// Console color escape sequences
-// TODO: Move this to common.h, seems useful enough. Maybe add a way to detect
-// if the output is a terminal so we don't do anything in that case.
-#define ECMA_RED(str) "\033[1;31m\033[K"str"\033[m\033[K"
-#define ECMA_GREEN(str) "\033[1;32m\033[K"str"\033[m\033[K"
-#define ECMA_YELLOW(str) "\033[1;33m\033[K"str"\033[m\033[K"
-#define ECMA_BLUE(str) "\033[1;34m\033[K"str"\033[m\033[K"
-#define ECMA_MAGENTA(str) "\033[1;35m\033[K"str"\033[m\033[K"
-#define ECMA_CYAN(str) "\033[1;36m\033[K"str"\033[m\033[K"
-#define ECMA_WHITE(str) "\033[1;37m\033[K"str"\033[m\033[K"
-
 #define SUCCESS ECMA_GREEN("OK")"\n"
 #define FAIL ECMA_RED("FAILED")"\n"
 #define TEST_NAME_WIDTH 40
@@ -802,7 +791,20 @@ void print_modifier_info_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, v
         }
 
         if (changed_components & XKB_STATE_LEDS) {
-            str_cat_c (str, "LedsChange ");
+            str_cat_c (str, "LedsChange: ");
+            bool is_first = true;
+            int num_leds= xkb_keymap_num_leds (keymap);
+            for (int ind_idx = 0; ind_idx < num_leds; ind_idx++) {
+                if (!is_first) {
+                    str_cat_c (str, ", ");
+                    is_first = false;
+                }
+
+                if (xkb_state_led_index_is_active (xkb_state, ind_idx)) {
+                    str_cat_c (str, xkb_keymap_led_get_name (keymap, ind_idx));
+                    str_cat_printf (str, "(%d)", ind_idx);
+                }
+            }
         }
 
         str_cat_c (str, "\n");
@@ -1361,7 +1363,24 @@ int main (int argc, char **argv)
             xkb_str_from_file (input_file, &input_str);
         }
 
-        test_xkb_file (&input_str, &result, &info, &writer_keymap_str, &writer_keymap_str_2);
+        if (get_cli_bool_opt ("--parse", argv, argc)) {
+            struct keyboard_layout_t keymap = {0};
+            string_t log = {0};
+            if (!xkb_file_parse_verbose (str_data(&input_str), &keymap, &log)) {
+                str_cat_printf (&info, "Internal parser failed.\n");
+                str_cat (&info, &log);
+                success = false;
+
+            } else {
+                str_cat (&info, &log);
+            }
+
+            str_free (&log);
+            keyboard_layout_destroy (&keymap);
+
+        } else {
+            test_xkb_file (&input_str, &result, &info, &writer_keymap_str, &writer_keymap_str_2);
+        }
 
         if (file_output_enabled) {
             str_cat_c (&info, "\n");

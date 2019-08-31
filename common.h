@@ -59,6 +59,17 @@ typedef enum {false, true} bool;
 #define GCC_PRINTF_FORMAT(fmt_idx, arg_idx)
 #endif
 
+// Console color escape sequences
+// TODO: Maybe add a way to detect if the output is a terminal so we don't do
+// anything in that case.
+#define ECMA_RED(str) "\033[1;31m\033[K"str"\033[m\033[K"
+#define ECMA_GREEN(str) "\033[1;32m\033[K"str"\033[m\033[K"
+#define ECMA_YELLOW(str) "\033[1;33m\033[K"str"\033[m\033[K"
+#define ECMA_BLUE(str) "\033[1;34m\033[K"str"\033[m\033[K"
+#define ECMA_MAGENTA(str) "\033[1;35m\033[K"str"\033[m\033[K"
+#define ECMA_CYAN(str) "\033[1;36m\033[K"str"\033[m\033[K"
+#define ECMA_WHITE(str) "\033[1;37m\033[K"str"\033[m\033[K"
+
 ////////////
 // STRINGS
 //

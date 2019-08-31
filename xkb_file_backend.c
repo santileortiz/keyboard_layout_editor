@@ -227,6 +227,7 @@ struct xkb_parser_state_t {
     int tok_value_int;
 
     struct binary_tree_t key_identifiers_to_keycodes;
+    struct binary_tree_t indicator_definitions;
 
     struct keyboard_layout_t *keymap;
 
@@ -264,6 +265,12 @@ struct xkb_parser_state_t {
     key_modifier_mask_t modifier_map[KEY_CNT];
 
     struct vmodmap_element_t vmodmap[KEYBOARD_LAYOUT_MAX_MODIFIERS];
+
+    // Indicators can be bound to virtual modifiers, we use this intermediate
+    // array to store parsed leds. After virtual modifier resolution we replace
+    // virtual modifiers here for real ones, and those will me the ones added to
+    // the resulting keymap.
+    key_modifier_mask_t leds[KEYBOARD_LAYOUT_MAX_LEDS];
 };
 
 void xkb_parser_state_init (struct xkb_parser_state_t *state, char *xkb_str, struct keyboard_layout_t *keymap)
@@ -278,6 +285,7 @@ void xkb_parser_state_destory (struct xkb_parser_state_t *state)
     str_free (&state->tok_value);
     mem_pool_destroy (&state->pool);
     binary_tree_destroy (&state->key_identifiers_to_keycodes);
+    binary_tree_destroy (&state->indicator_definitions);
 }
 
 // Shorthand error for when the only replacement being done is the current value
@@ -348,7 +356,7 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
     // Scan out all comments
     while (scanner_str (scnr, "//")) {
         if (scnr->is_eof) {
-            scanner_set_error (scnr, "Stale '/' character");
+            xkb_parser_error (state, "Stale '/' character");
         }
         scanner_to_char (scnr, '\n');
 
@@ -405,7 +413,7 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
         tok_start = scnr->pos;
         scanner_to_char (scnr, '>');
         if (scnr->is_eof) {
-            scanner_set_error (scnr, "Key identifier without closing '>'");
+            xkb_parser_error (state, "Key identifier without closing '>'");
         } else {
             strn_set (&state->tok_value, tok_start, scnr->pos - 1 - tok_start);
         }
@@ -420,7 +428,7 @@ void xkb_parser_next (struct xkb_parser_state_t *state)
         tok_start = scnr->pos;
         scanner_to_char (scnr, '\"');
         if (scnr->is_eof) {
-            scanner_set_error (scnr, "String without matching '\"'");
+            xkb_parser_error (state, "String without matching '\"'");
         } else {
             strn_set (&state->tok_value, tok_start, scnr->pos - 1 - tok_start);
         }
@@ -568,6 +576,25 @@ void xkb_parser_skip_until_operator (struct xkb_parser_state_t *state, char *ope
     } while (!state->scnr.error && !xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, operator));
 }
 
+void xkb_parser_indicator_definition (struct xkb_parser_state_t *state)
+{
+    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_NUMBER, NULL);
+    int id = state->tok_value_int;
+
+    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+
+    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_STRING, NULL);
+    char *name = pom_strdup (&state->pool, str_data(&state->tok_value));
+
+    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+    if (!state->scnr.error) {
+        // NOTE: We don't check that these id hasn't been defined before. I
+        // tested lixkbcommon and it looks like they don't fail on this either.
+        binary_tree_insert (&state->indicator_definitions, name, id);
+    }
+}
+
 void xkb_parser_parse_keycodes (struct xkb_parser_state_t *state)
 {
     state->scnr.eof_is_error = true;
@@ -612,9 +639,20 @@ void xkb_parser_parse_keycodes (struct xkb_parser_state_t *state)
 
             str_free (&tmp_identifier);
 
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "indicator")) {
+            xkb_parser_indicator_definition (state);
+
+        } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "virtual")) {
+            // NOTE: We treat these the same as 'real' indicators. There is
+            // pretty much no information about these, the only thing I coulod
+            // find is that the first 4 ids are real and the rest are virtual,
+            // so then why does the virtual keyword exist?. I will treat all
+            // indicators the same.
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "indicator");
+            xkb_parser_indicator_definition (state);
+
         } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "minimum") ||
-                   xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "maximum") ||
-                   xkb_parser_match_tok (state, XKB_PARSER_TOKEN_KEY_IDENTIFIER, "indicator")) {
+                   xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "maximum")) {
 
             // Ignore these statements.
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
@@ -623,6 +661,8 @@ void xkb_parser_parse_keycodes (struct xkb_parser_state_t *state)
 
         } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
             break;
+        } else {
+            printf ("Something else!!!\n");
         }
 
     } while (!state->scnr.error);
@@ -643,7 +683,7 @@ void xkb_parser_virtual_modifier_definition (struct xkb_parser_state_t *state)
                 // NOTE: This is not the actual XKB limit of 16, here we reached
                 // the maximum possible of our internal representation
                 // (currently 32).
-                scanner_set_error (&state->scnr, "Too many modifier definitions.");
+                xkb_parser_error (state, "Too many modifier definitions.");
 
             } else if (status == KEYBOARD_LAYOUT_MOD_REDEFINITION) {
                 // We really don't care about this, if a modifier is defined
@@ -666,11 +706,11 @@ void xkb_parser_virtual_modifier_definition (struct xkb_parser_state_t *state)
                 break;
 
             } else if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, ",")) {
-                scanner_set_error (&state->scnr, "Expected ';' or ','");
+                xkb_parser_error (state, "Expected ';' or ','");
             }
 
         } else {
-            scanner_set_error (&state->scnr, "Expected modifier name");
+            xkb_parser_error (state, "Expected modifier name");
         }
 
     } while (!state->scnr.error);
@@ -699,7 +739,7 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
 
                 xkb_parser_next (state);
                 if (!xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{")) {
-                    scanner_set_error (&state->scnr, "Expected type block");
+                    xkb_parser_error (state, "Expected type block");
                 }
 
                 // Parse the type's modifier mask.
@@ -805,7 +845,7 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
                         break;
 
                     } else {
-                        scanner_set_error (&state->scnr, "Invalid statement in key type");
+                        xkb_parser_error (state, "Invalid statement in key type");
                     }
 
                 } while (!state->scnr.error);
@@ -829,7 +869,7 @@ void xkb_parser_parse_types (struct xkb_parser_state_t *state)
             break;
 
         } else {
-            scanner_set_error (&state->scnr, "Invalid statement in types section");
+            xkb_parser_error (state, "Invalid statement in types section");
         }
 
     } while (!state->scnr.error);
@@ -1361,11 +1401,128 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
             xkb_parser_skip_until_operator (state, ";");
 
         } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "indicator")) {
-            // Ignore
-            // TODO: Will ignoring these make leds not work at all? if we break
-            // them, then we need to be more careful about these.
-            xkb_parser_skip_until_operator (state, "}");
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_STRING, NULL);
+
+            int ind_code = 1;
+            char *ind_name = NULL;
+            {
+                struct binary_tree_node_t *node;
+                binary_tree_lookup (&state->indicator_definitions, str_data(&state->tok_value), &node);
+                ind_code = node->value;
+                ind_name = node->key;
+            }
+
+            xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{");
+
+            bool ignore_indicator_block = false;
+            key_modifier_mask_t modifiers = 0x0;
+            do {
+                xkb_parser_next (state);
+
+                if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "whichModState")) {
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+
+                    xkb_parser_next (state);
+                    if (xkb_parser_match_tok_i (state, XKB_PARSER_TOKEN_IDENTIFIER, "locked") ||
+                        xkb_parser_match_tok_i (state, XKB_PARSER_TOKEN_IDENTIFIER, "effective")) {
+                        // Do nothing.
+                        // I tried changing this value using xkbcomp and it only
+                        // worked whith these types. Using a latch modifier and
+                        // changing this to latch just disabled the indicator.
+                        // So, our IR won't have this concept, we assume that if
+                        // we parsing was successful it then it works as a
+                        // locked modifier.
+                        // TODO: Maybe in libxkbcommon they do something? I need
+                        // a way to easily load libxkbcommon keyboards for
+                        // testing. Our libxkbcommon viewer currently doesn't
+                        // show LED states.
+
+                    } else if (xkb_parser_match_tok_i (state, XKB_PARSER_TOKEN_IDENTIFIER, "base") ||
+                               xkb_parser_match_tok_i (state, XKB_PARSER_TOKEN_IDENTIFIER, "latched") ||
+                               xkb_parser_match_tok_i (state, XKB_PARSER_TOKEN_IDENTIFIER, "any") ||
+                               xkb_parser_match_tok_i (state, XKB_PARSER_TOKEN_IDENTIFIER, "none")) {
+                        // We don't support these kinds of matching... I haven't
+                        // seen any of them bieng used, nor I really understand
+                        // what they do.
+                        xkb_parser_error_tok (state, "Unsupported modifier state '%s' inside indicator block.");
+                    } else {
+                        xkb_parser_error_tok (state, "Unknown modifier state '%s' inside indicator block.");
+                    }
+
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "modifiers")) {
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "=");
+                    xkb_parser_parse_modifier_mask (state, ";", &modifiers);
+
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "!")) {
+                    // TODO: The clearLocks flag in action arguments uses ~ in a
+                    // similar way as ! is used here, are they interchageable?,
+                    // can we have a single parse_boolean_option() function?.
+                    // :unify_boolean_options
+                    xkb_parser_next (state);
+                    if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "allowExplicit") ||
+                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "drivesKbd") ||
+                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "ledDrivesKbd") ||
+                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "ledDrivesKkeyboard") ||
+                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "indicatorDrivesKbd") ||
+                        xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "indicatorDrivesKeyboard")) {
+                        // Ignore
+                    } else {
+                        xkb_parser_error_tok (state, "Invalid boolean flag '%s' inside indicator block.");
+                    }
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "allowExplicit") ||
+                           xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "drivesKbd") ||
+                           xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "ledDrivesKbd") ||
+                           xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "ledDrivesKkeyboard") ||
+                           xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "indicatorDrivesKbd") ||
+                           xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "indicatorDrivesKeyboard")) {
+                    // Ignore
+                    // :unify_boolean_options
+                    xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "controls") ||
+                           xkb_parser_match_tok (state, XKB_PARSER_TOKEN_IDENTIFIER, "groups")) {
+                    // Ignore
+                    ignore_indicator_block = true;
+                    xkb_parser_skip_until_operator (state, ";");
+
+                } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
+                    break;
+
+                } else {
+                    xkb_parser_error_tok (state, "Invalid statement '%s' inside interpret block.");
+                }
+
+            } while (!state->scnr.error);
+
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, ";");
+
+            if (!ignore_indicator_block) {
+                if (!state->scnr.error && modifiers == 0x0) {
+                    xkb_parser_error (state, "Missing modifier statement in indicator block.");
+                }
+
+                if (!state->scnr.error &&
+                    (ind_code < 1 || KEYBOARD_LAYOUT_MAX_LEDS < ind_code)) {
+                    xkb_parser_error (state, "Invalid code %d for indicator '%s', must be in range 1-%d.",
+                                      ind_code, ind_name, KEYBOARD_LAYOUT_MAX_LEDS);
+                }
+
+                if (!state->scnr.error &&
+                    state->leds[ind_code] != 0x0) {
+                    // NOTE: libxkbcommon doesn't fail when this happens,
+                    // xkbcomp does. I think it's better to fail here, other
+                    // behaviors would be confusing.
+                    xkb_parser_error (state, "Indicator code %d already assigned.", ind_code);
+                }
+
+                if (!state->scnr.error) {
+                    state->leds[ind_code] = modifiers;
+                }
+            }
 
         } else if (xkb_parser_match_tok (state, XKB_PARSER_TOKEN_OPERATOR, "}")) {
             break;
@@ -1721,7 +1878,7 @@ void xkb_parser_parse_symbols (struct xkb_parser_state_t *state)
             break;
 
         } else {
-            scanner_set_error (&state->scnr, "Invalid statement in symbols section");
+            xkb_parser_error (state, "Invalid statement in symbols section");
         }
 
     } while (!state->scnr.error);
@@ -2259,6 +2416,15 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state, string_t *vmo
         }
         curr_type = curr_type->next;
     }
+
+    for (int i=0; i<KEYBOARD_LAYOUT_MAX_LEDS; i++) {
+        key_modifier_mask_t modifiers =
+            remove_vmods (state->vmodmap, real_modifiers, state->leds[i]);
+
+        if (modifiers != 0x0) {
+            keyboard_layout_new_led (state->keymap, i, modifiers);
+        }
+    }
 }
 
 // This parses a subset of the xkb file syntax into our internal representation
@@ -2337,11 +2503,11 @@ bool xkb_file_parse_verbose (char *xkb_str, struct keyboard_layout_t *keymap, st
 
     bool success = true;
     if (state.scnr.error) {
-        str_cat_printf (log, "Error: %s\n", state.scnr.error_message);
+        str_cat_printf (log, "%d: %s %s\n", state.scnr.line_number+1, ECMA_RED("error:"), state.scnr.error_message);
         success = false;
 
     } else {
-        // Here we translate the compatibility section;s actions into actions
+        // Here we translate the compatibility section's actions into actions
         // that are stored the way symbols are stored.
         xkb_parser_simplify_layout (&state, log);
 

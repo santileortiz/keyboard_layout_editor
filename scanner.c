@@ -9,6 +9,8 @@ struct scanner_t {
 
     bool error;
     char *error_message;
+
+    int line_number;
 };
 
 // Calling scanning functions will never set the error flag, it's the
@@ -119,7 +121,10 @@ bool scanner_int (struct scanner_t *scnr, int *value)
 void scanner_consume_spaces (struct scanner_t *scnr)
 {
     while (isspace(*scnr->pos)) {
-           scnr->pos++;
+        if (*scnr->pos == '\n') {
+            scnr->line_number++;
+        }
+        scnr->pos++;
     }
 
     if (*scnr->pos == '\0') {
@@ -156,6 +161,10 @@ bool scanner_char_any (struct scanner_t *scnr, char *char_list)
         char_list++;
     }
 
+    if (*scnr->pos == '\n') {
+        scnr->line_number++;
+    }
+
     if (*char_list != '\0') {
         scnr->pos++;
         return true;
@@ -172,6 +181,9 @@ bool scanner_to_char (struct scanner_t *scnr, char c)
         return false;
 
     while (*scnr->pos != '\0' && *scnr->pos != c) {
+        if (*scnr->pos == '\n') {
+            scnr->line_number++;
+        }
         scnr->pos++;
     }
 
@@ -184,6 +196,7 @@ bool scanner_to_char (struct scanner_t *scnr, char c)
     }
 }
 
+// NOTE: A 'str' containing \n will mess up the line count
 bool scanner_str (struct scanner_t *scnr, char *str)
 {
     assert (str != NULL);
@@ -204,6 +217,7 @@ bool scanner_str (struct scanner_t *scnr, char *str)
     return false;
 }
 
+// NOTE: A 'str' containing \n will mess up the line count
 bool scanner_strcase (struct scanner_t *scnr, char *str)
 {
     assert (str != NULL);

@@ -16,6 +16,12 @@
 // kept here so we don't break layouts, we would need to add a mechanism for
 // backends to store custom data here that only they know how to write/read.
 // :platform_specific_data_in_internal_representation
+//
+// TODO: This API doesn't have error handling, if we get something invalid we
+// just assert. Add better error handling so that we can handle them, maybe show
+// them as parsing errors?.
+
+#define KEYBOARD_LAYOUT_MAX_LEDS 15
 
 // TODO: XKB seems to support an arbitrary number of levels, in practice xkbcomp
 // seems to complain if there are more than 8 levels. Maybe remove this in the
@@ -134,6 +140,7 @@ struct keyboard_layout_t {
 
     struct key_type_t *types;
     struct key_t *keys[KEY_CNT];
+    key_modifier_mask_t leds[KEYBOARD_LAYOUT_MAX_LEDS];
 
     // Map from modifier names to modifier masks
     struct mod_mask_binary_tree_t modifiers;
@@ -347,6 +354,14 @@ void keyboard_layout_key_set_level (struct key_t *key, int level, xkb_keysym_t k
     if (action != NULL) {
         lvl->action = *action;
     }
+}
+
+void keyboard_layout_new_led (struct keyboard_layout_t *keymap, int code, key_modifier_mask_t modifiers)
+{
+    assert (code > 0 && code < KEYBOARD_LAYOUT_MAX_LEDS);
+    assert (keymap->leds[code-1] == 0x0);
+
+    keymap->leds[code-1] = modifiers;
 }
 
 void keyboard_layout_destroy (struct keyboard_layout_t *keymap)

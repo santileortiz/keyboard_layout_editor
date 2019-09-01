@@ -806,14 +806,20 @@ void print_modifier_info_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, v
             bool is_first = true;
             int num_leds= xkb_keymap_num_leds (keymap);
             for (int ind_idx = 0; ind_idx < num_leds; ind_idx++) {
-                if (!is_first) {
-                    str_cat_c (str, ", ");
-                    is_first = false;
-                }
-
                 if (xkb_state_led_index_is_active (xkb_state, ind_idx)) {
-                    str_cat_c (str, xkb_keymap_led_get_name (keymap, ind_idx));
-                    str_cat_printf (str, "(%d)", ind_idx);
+                    // NOTE: Looks like undefined leds are active by default? I
+                    // would've expected the opposite. We check here that the
+                    // led is valid by looking up its name.
+                    const char *name = xkb_keymap_led_get_name (keymap, ind_idx);
+                    if (name != NULL) {
+                        if (!is_first) {
+                            str_cat_c (str, ", ");
+                        }
+                        is_first = false;
+
+                        str_cat_c (str, name);
+                        str_cat_printf (str, "(%d)", ind_idx);
+                    }
                 }
             }
         }

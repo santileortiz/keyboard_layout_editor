@@ -2624,6 +2624,26 @@ void xkb_file_write_modifier_action_arguments (struct xkb_writer_state_t *state,
     xkb_file_write_modifier_mask (state, xkb_str, action->modifiers);
 }
 
+// TODO: The index of these names represents the mapping I have seen used in
+// Linux, is there a place in the kernel where we can get these names?. If there
+// is, we should autogenerate this array, like we do with keycode_names.
+char *indicator_names[] = {
+    "Caps Lock",
+    "Num Lock",
+    "Scroll Lock",
+    "Compose",
+    "Kana",
+    "Sleep",
+    "Suspend",
+    "Mute",
+    "Misc",
+    "Mail",
+    "Charging",
+    "Shift Lock",
+    "Group 2",
+    "Mouse Keys"
+};
+
 // NOTE: If an error happens while writing, xkb_str will have the output of what
 // we could do. We do this for debugging purposes. This also means that you must
 // pass a status struct to know if the output is valid or not. Not doing so can
@@ -2662,8 +2682,6 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
     // readability we could use the kernel's macros for keycodes but then we are
     // relying on these macros never changing in the future (which I think is a
     // safe assumption to make about the kernel development team).
-    //
-
     str_cat_c (xkb_str, "xkb_keycodes \"keys_k\" {\n");
     str_cat_c (xkb_str, "    minimum = 8;\n");
     str_cat_c (xkb_str, "    maximum = 255;\n");
@@ -2681,6 +2699,14 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
             } else {
                 str_cat_c (xkb_str, ";\n");
             }
+        }
+    }
+
+    // Print led definitions
+    str_cat_c (xkb_str, "\n");
+    for (int i=0; i<KEYBOARD_LAYOUT_MAX_LEDS; i++) {
+        if (keymap->leds[i] != 0x0) {
+            str_cat_printf (xkb_str, "    indicator %d = \"%s\";\n", i+1, indicator_names[i]);
         }
     }
     str_cat_c (xkb_str, "};\n\n"); // end of keycodes section
@@ -2737,6 +2763,19 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
     str_cat_c (xkb_str, "};\n\n"); // end of types section
 
     str_cat_c (xkb_str, "xkb_compatibility \"keys_c\" {\n");
+    for (int i=0; i<KEYBOARD_LAYOUT_MAX_LEDS; i++) {
+        if (keymap->leds[i] != 0x0) {
+            str_cat_printf (xkb_str, "    indicator \"%s\" {\n", indicator_names[i]);
+
+            str_cat_c (xkb_str, "        !allowExplicit;\n");
+            str_cat_c (xkb_str, "        modifiers = ");
+            xkb_file_write_modifier_mask (&state, xkb_str, keymap->leds[i]);
+            str_cat_c (xkb_str, ";\n");
+            str_cat_c (xkb_str, "        whichModState = locked;\n");
+
+            str_cat_c (xkb_str, "    };\n");
+        }
+    }
     str_cat_c (xkb_str, "};\n\n"); // end of compatibility section
 
     str_cat_c (xkb_str, "xkb_symbols \"keys_s\" {\n");

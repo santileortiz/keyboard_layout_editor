@@ -15,6 +15,9 @@
 #include "keyboard_layout.c"
 #include "xkb_file_backend.c"
 
+#include <sys/wait.h>
+#include <sys/mman.h>
+
 #define SUCCESS ECMA_GREEN("OK")"\n"
 #define FAIL ECMA_RED("FAILED")"\n"
 #define TEST_NAME_WIDTH 40
@@ -1263,6 +1266,45 @@ ITERATE_DIR_CB(iterate_tests_dir)
     }
 }
 
+// TODO: Move this to common.h
+#define STRINGIFY(MACRO) #MACRO
+#define TO_STR(MACRO) STRINGIFY(MACRO)
+
+// Names for shared memory objects are global to the system and they will still
+// be defined if the object wasn't unlinked or the last execution of the program
+// crashed. This macro is used to create a name that will not collide.
+// TODO: Move this to common.h
+// TODO: If we had a full language at compile time like in JAI we could create a
+// much more meaningful name here. Create a version that is scoped and
+// automatically calls UNLINK_SHARED then for variables that span multiple
+// scopes get a handle that UNLINK_SHARED receives.
+#define SHARED_VARIABLE_NAME(NAME) "/" #NAME ":SHARED_VARIABLE_WM1WNTK8XM"
+#define NEW_SHARED_VARIABLE(TYPE,NAME,VALUE)                                                      \
+TYPE *(NAME);                                                                                     \
+{                                                                                                 \
+    int shared_fd = shm_open (SHARED_VARIABLE_NAME(NAME),                                         \
+                              O_CREAT | O_EXCL | O_RDWR, S_IRWXU | S_IRWXG);                      \
+    if (shared_fd == -1 && errno == EEXIST) {                                                     \
+        printf ("Shared variable name %s exists, missing call to UNLINK_SHARED.\n",               \
+                SHARED_VARIABLE_NAME(NAME));                                                      \
+        UNLINK_SHARED_VARIABLE (NAME)                                                             \
+                                                                                                  \
+        shared_fd = shm_open (SHARED_VARIABLE_NAME(NAME),                                         \
+                              O_CREAT | O_EXCL | O_RDWR, S_IRWXU | S_IRWXG);                      \
+    }                                                                                             \
+    assert (shared_fd != -1 && "Error on shm_open() while creating shared variable.");            \
+                                                                                                  \
+    int set_size_status = ftruncate (shared_fd, sizeof (TYPE));                                   \
+    assert (set_size_status == 0 && "Error on ftruncate() while creating shared variable.");      \
+                                                                                                  \
+    (NAME) = (TYPE*) mmap (NULL, sizeof(TYPE), PROT_READ | PROT_WRITE, MAP_SHARED, shared_fd, 0); \
+                                                                                                  \
+    *(NAME) = (VALUE);                                                                            \
+}
+
+#define UNLINK_SHARED_VARIABLE(NAME) \
+    if (shm_unlink (SHARED_VARIABLE_NAME(NAME)) == -1) assert (0 && "Error unlinking shared variable.");
+
 int main (int argc, char **argv)
 {
     init_keycode_names ();
@@ -1364,19 +1406,81 @@ int main (int argc, char **argv)
         }
 
         if (get_cli_bool_opt ("--parse", argv, argc)) {
-            struct keyboard_layout_t keymap = {0};
-            string_t log = {0};
-            if (!xkb_file_parse_verbose (str_data(&input_str), &keymap, &log)) {
-                str_cat_printf (&info, "Internal parser failed.\n");
-                str_cat (&info, &log);
-                success = false;
+            NEW_SHARED_VARIABLE (bool, success, true);
 
-            } else {
-                str_cat (&info, &log);
+            printf (ECMA_MAGENTA("libxkbcommon") "\n");
+            {
+
+                if (fork() == 0) {
+                    struct xkb_context *xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+                    if (!xkb_ctx) {
+                        printf ("Could not create xkb context.\n");
+                        *success = false;
+                    }
+
+                    struct xkb_keymap *libxkbcommon_keymap =
+                        xkb_keymap_new_from_string(xkb_ctx, str_data(&input_str),
+                                                   XKB_KEYMAP_FORMAT_TEXT_V1,
+                                                   XKB_KEYMAP_COMPILE_NO_FLAGS);
+                    assert_consecutive_modifiers (libxkbcommon_keymap);
+                    if (!libxkbcommon_keymap) {
+                        *success = false;
+                    }
+
+                    exit(0);
+                }
+
+                int child_status;
+                wait (&child_status);
+                if (child_status != 0) {
+                    printf ("Exited abnormally with status: %d\n", child_status);
+                    *success = false;
+                }
+
+                if (!*success) {
+                    printf (FAIL"");
+                } else {
+                    printf (SUCCESS"");
+                }
+
             }
 
-            str_free (&log);
-            keyboard_layout_destroy (&keymap);
+            printf (ECMA_MAGENTA("\nInternal parser") "\n");
+            {
+                *success = true;
+                if (fork() == 0) {
+                    struct keyboard_layout_t keymap = {0};
+                    string_t log = {0};
+                    if (!xkb_file_parse_verbose (str_data(&input_str), &keymap, &log)) {
+                        printf ("Internal parser failed.\n");
+                        printf ("%s", str_data(&log));
+                        *success = false;
+
+                    } else {
+                        printf ("%s",str_data(&log));
+                    }
+
+                    str_free (&log);
+                    keyboard_layout_destroy (&keymap);
+
+                    exit(0);
+                }
+
+                int child_status;
+                wait (&child_status);
+                if (!WIFEXITED(child_status)) {
+                    printf ("Exited abnormally with status: %d\n", child_status);
+                    *success = false;
+                }
+
+                if (!*success) {
+                    printf (FAIL"");
+                } else {
+                    printf (SUCCESS"");
+                }
+            }
+
+            UNLINK_SHARED_VARIABLE (success);
 
         } else {
             test_xkb_file (&input_str, &result, &info, &writer_keymap_str, &writer_keymap_str_2);

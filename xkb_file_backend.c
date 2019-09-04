@@ -1408,8 +1408,33 @@ void xkb_parser_parse_compat (struct xkb_parser_state_t *state)
             {
                 struct binary_tree_node_t *node;
                 binary_tree_lookup (&state->indicator_definitions, str_data(&state->tok_value), &node);
-                ind_code = node->value;
-                ind_name = node->key;
+                if (node != NULL) {
+                    ind_code = node->value;
+                    ind_name = node->key;
+
+                } else {
+                    // If the definition for the modifier is missing we find the
+                    // first unassigned indicator code and assign it there.
+                    // TODO: Looks like libxkbcommon does this but I'm not sure.
+                    // Check if this is the case.
+                    int first_empty;
+                    for (first_empty=0; first_empty<KEYBOARD_LAYOUT_MAX_LEDS; first_empty++) {
+                        if (state->keymap->leds[first_empty] == 0x0) {
+                            break;
+                        }
+                    }
+
+                    char *name = pom_strdup (&state->pool, str_data(&state->tok_value));
+                    if (first_empty < KEYBOARD_LAYOUT_MAX_LEDS) {
+                        binary_tree_insert (&state->indicator_definitions, name, first_empty);
+
+                    } else {
+                        xkb_parser_error (
+                            state,
+                            "Late definition of indicator '%s' failed, not enough indicators left.",
+                            name);
+                    }
+                }
             }
 
             xkb_parser_consume_tok (state, XKB_PARSER_TOKEN_OPERATOR, "{");

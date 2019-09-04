@@ -468,7 +468,7 @@ void set_active_modifier_keys (uint32_t active_modifier_keys, struct modifier_ke
             xkb_state_update_key (s2, mod_key.kc+8, XKB_KEY_DOWN);
 
             // If the modifier is locked, then release the key.
-            if (mod_key.type != KEY_ACTION_TYPE_MOD_LOCK) {
+            if (mod_key.type == KEY_ACTION_TYPE_MOD_LOCK) {
                 xkb_state_update_key (s1, mod_key.kc+8, XKB_KEY_UP);
                 xkb_state_update_key (s2, mod_key.kc+8, XKB_KEY_UP);
             }
@@ -476,6 +476,7 @@ void set_active_modifier_keys (uint32_t active_modifier_keys, struct modifier_ke
 
         active_modifier_keys = active_modifier_keys & (active_modifier_keys-1);
     }
+
 }
 
 void str_cat_active_modifier_keys (string_t *str, uint32_t active_modifier_keys,
@@ -506,7 +507,7 @@ void str_cat_passed_modifier_tests (string_t *str, uint32_t last_active_modifier
     }
     str_cat_c (str, "\n");
 
-    str_cat_c (str, " Pressed keys:");
+    str_cat_c (str, " FAILED MODIFIER COMBINATION:");
     str_cat_active_modifier_keys (str, last_active_modifier_keys, mod_keys);
 }
 
@@ -649,6 +650,11 @@ bool modifier_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, strin
     return are_equal;
 }
 
+// This tests that LEDs in both keymaps are equivalent, but not identical. We
+// iterate modifier key combinations like for the modifier_equality_test(), then
+// for each LED that is activated in a keymap, we expect it also to be defined
+// in the other keymap and to also be active. This doesn't check LEDs that can't
+// be activated via a modifier key combination.
 // NOTE: Assumes that modifier_equality_test() passed.
 bool led_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, string_t *msg)
 {
@@ -665,18 +671,15 @@ bool led_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, string_t *
     modifier_key_sort (&mod_list_k2, mod_list_k2_len);
 
     assert (mod_list_k1_len == mod_list_k2_len);
+    num_mod_keys = mod_list_k1_len;
 
-    int num_leds = 0;
-    {
-        int num_leds_k1 = xkb_keymap_num_leds (k1);
-        int num_leds_k2 = xkb_keymap_num_leds (k2);
-        if (num_leds_k1 != num_leds_k2) {
-            str_cat_printf (msg, "Keymaps define diferent number of leds.\n");
-            str_cat_printf (msg, " k1: %d\n k2: %d\n", num_leds_k1, num_leds_k2);
-            are_equal = false;
-        }
-        num_leds = num_leds_k1;
-    }
+    int num_leds_k1 = xkb_keymap_num_leds (k1);
+    int num_leds_k2 = xkb_keymap_num_leds (k2);
+    // We don't check num_leds_k1 == num_leds_k2 because we are removing
+    // indicators from the original xkb files. Indicators for controls are
+    // ignored, also indicators for virtual modifiers that don't get defined.
+    // Indicators for groups may be useful if we ever support groups, currently
+    // those are removed too.
 
     int max_mod_keys = MAX_MODIFIERS_TO_TEST;
     if (are_equal) {
@@ -706,16 +709,43 @@ bool led_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, string_t *
 
                 set_active_modifier_keys (pressed_keys, mod_keys, s1, s2);
 
-                // FIXME: This is probably broken, nothing ensures us two
-                // keymaps will have the same indices mapped to indicators. This
-                // should really be done by indicator name.
-                int ind_idx;
+                const char *ind_name;
                 bool ind_1, ind_2;
-                for (ind_idx = 0; are_equal && ind_idx < num_leds; ind_idx++) {
-                    ind_1 = xkb_state_led_index_is_active (s1, ind_idx);
-                    ind_2 = xkb_state_led_index_is_active (s2, ind_idx);
-                    if (ind_1 != ind_2) {
-                        are_equal = false;
+                {
+                    for (int ind_idx = 0; are_equal && ind_idx < num_leds_k1; ind_idx++) {
+                        ind_name = xkb_keymap_led_get_name (k1, ind_idx);
+                        if (ind_name != NULL && xkb_state_led_name_is_active (s1, ind_name)) {
+                            ind_1 = 1;
+                            if (xkb_keymap_led_get_index (k2, ind_name) == XKB_LED_INVALID) {
+                                are_equal = false;
+                                str_cat_printf (msg, "Indicator '%s' set in k1 but undefined in k2", ind_name);
+                            }
+
+                            if (are_equal && ind_name != NULL) {
+                                if (!xkb_state_led_name_is_active (s2, ind_name)) {
+                                    ind_2 = 0;
+                                    are_equal = false;
+                                }
+                            }
+                        }
+                    }
+
+                    for (int ind_idx = 0; are_equal && ind_idx < num_leds_k2; ind_idx++) {
+                        ind_name = xkb_keymap_led_get_name (k2, ind_idx);
+                        if (ind_name != NULL && xkb_state_led_name_is_active (s2, ind_name)) {
+                            ind_2 = 1;
+                            if (xkb_keymap_led_get_index (k1, ind_name) == XKB_LED_INVALID) {
+                                are_equal = false;
+                                str_cat_printf (msg, "Indicator '%s' defined in k2 but not in k1", ind_name);
+                            }
+
+                            if (are_equal) {
+                                if (!xkb_state_led_name_is_active (s1, ind_name)) {
+                                    ind_1 = 0;
+                                    are_equal = false;
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -723,10 +753,8 @@ bool led_equality_test (struct xkb_keymap *k1, struct xkb_keymap *k2, string_t *
                     str_cat_printf (msg, "Modifiers produce different keysyms.\n");
 
                     str_cat_passed_modifier_tests (msg, pressed_keys, mod_keys);
-                    str_cat_printf (msg, "Indicator 1: %s -> %d\n",
-                                    xkb_keymap_led_get_name (k1, ind_idx), ind_1?1:0);
-                    str_cat_printf (msg, "Indicator 2: %s -> %d\n",
-                                    xkb_keymap_led_get_name (k2, ind_idx), ind_2?1:0);
+                    str_cat_printf (msg, "  Indicator 1: %s -> %d\n", ind_name, ind_1?1:0);
+                    str_cat_printf (msg, "  Indicator 2: %s -> %d\n", ind_name, ind_2?1:0);
 
                     are_equal = false;
                 }
@@ -1018,6 +1046,132 @@ void printf_indented (char *str, int num_spaces)
     }
 }
 
+// Names for shared memory objects are global to the system and they will still
+// be defined if the object wasn't unlinked or the last execution of the program
+// crashed. This macro is used to create a name that will not collide.
+// TODO: Move this to common.h
+// TODO: If we had a full language at compile time like in JAI we could create a
+// much more meaningful name here. Create a version that is scoped and
+// automatically calls UNLINK_SHARED then for variables that span multiple
+// scopes get a handle that UNLINK_SHARED receives.
+#define SHARED_VARIABLE_NAME(NAME) "/" #NAME ":SHARED_VARIABLE_WM1WNTK8XM"
+#define NEW_SHARED_VARIABLE(TYPE,NAME,VALUE)                                                      \
+TYPE *(NAME);                                                                                     \
+{                                                                                                 \
+    int shared_fd = shm_open (SHARED_VARIABLE_NAME(NAME),                                         \
+                              O_CREAT | O_EXCL | O_RDWR, S_IRWXU | S_IRWXG);                      \
+    if (shared_fd == -1 && errno == EEXIST) {                                                     \
+        printf ("Shared variable name %s exists, missing call to UNLINK_SHARED.\n",               \
+                SHARED_VARIABLE_NAME(NAME));                                                      \
+        UNLINK_SHARED_VARIABLE (NAME)                                                             \
+                                                                                                  \
+        shared_fd = shm_open (SHARED_VARIABLE_NAME(NAME),                                         \
+                              O_CREAT | O_EXCL | O_RDWR, S_IRWXU | S_IRWXG);                      \
+    }                                                                                             \
+    assert (shared_fd != -1 && "Error on shm_open() while creating shared variable.");            \
+                                                                                                  \
+    int set_size_status = ftruncate (shared_fd, sizeof (TYPE));                                   \
+    assert (set_size_status == 0 && "Error on ftruncate() while creating shared variable.");      \
+                                                                                                  \
+    (NAME) = (TYPE*) mmap (NULL, sizeof(TYPE), PROT_READ | PROT_WRITE, MAP_SHARED, shared_fd, 0); \
+                                                                                                  \
+    *(NAME) = (VALUE);                                                                            \
+}
+
+#define UNLINK_SHARED_VARIABLE(NAME) \
+    if (shm_unlink (SHARED_VARIABLE_NAME(NAME)) == -1) assert (0 && "Error unlinking shared variable.");
+
+// TODO: Get the output of the child processes test as a string so we have a
+// nice output.
+bool test_file_parsing (string_t *input_str, string_t *result)
+{
+    bool retval = true;
+    NEW_SHARED_VARIABLE (bool, success, true);
+
+    str_cat_test_name (result, "libxkbcommon parser");
+    {
+        string_t fail_details = {0};
+
+        if (fork() == 0) {
+            struct xkb_context *xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+            if (!xkb_ctx) {
+                printf ("Could not create xkb context.\n");
+                *success = false;
+            }
+
+            struct xkb_keymap *libxkbcommon_keymap =
+                xkb_keymap_new_from_string(xkb_ctx, str_data(input_str),
+                                           XKB_KEYMAP_FORMAT_TEXT_V1,
+                                           XKB_KEYMAP_COMPILE_NO_FLAGS);
+            if (!libxkbcommon_keymap) {
+                *success = false;
+            }
+
+            if (xkb_ctx) xkb_context_unref(xkb_ctx);
+            if (libxkbcommon_keymap) xkb_keymap_unref(libxkbcommon_keymap);
+
+            exit(0);
+        }
+
+        int child_status;
+        wait (&child_status);
+        if (!WIFEXITED(child_status)) {
+            str_cat_printf (&fail_details, "Exited abnormally with status: %d\n", child_status);
+            *success = false;
+        }
+
+        if (!*success) {
+            str_cat_c (result, FAIL);
+            str_cat (result, &fail_details);
+        } else {
+            str_cat_c (result, SUCCESS);
+        }
+
+        str_free (&fail_details);
+    }
+    retval = *success;
+
+    str_cat_test_name (result, "Internal parser");
+    {
+        *success = true;
+        string_t fail_details = {0};
+
+        if (fork() == 0) {
+            struct keyboard_layout_t keymap = {0};
+            string_t log = {0};
+            if (!xkb_file_parse_verbose (str_data(input_str), &keymap, &log)) {
+                *success = false;
+            }
+
+            str_free (&log);
+            keyboard_layout_destroy (&keymap);
+
+            exit(0);
+        }
+
+        int child_status;
+        wait (&child_status);
+        if (!WIFEXITED(child_status)) {
+            str_cat_printf (&fail_details, "Exited abnormally with status: %d\n", child_status);
+            *success = false;
+        }
+
+        if (!*success) {
+            str_cat_c (result, FAIL);
+            str_cat (result, &fail_details);
+        } else {
+            str_cat_c (result, SUCCESS);
+        }
+
+        str_free (&fail_details);
+    }
+
+    retval = retval && *success;
+    UNLINK_SHARED_VARIABLE (success);
+
+    return retval;
+}
+
 bool test_xkb_file (string_t *input_str,
                     string_t *result, string_t *info,
                     string_t *writer_keymap_str, string_t *writer_keymap_str_2)
@@ -1026,14 +1180,28 @@ bool test_xkb_file (string_t *input_str,
             writer_keymap_str != NULL && writer_keymap_str_2 != NULL);
     bool success = true;
 
-    struct xkb_context *xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    if (!xkb_ctx) {
-        str_cat_c (result, "could not create xkb context.\n");
-        success = false;
+    str_cat_test_name (result, "File Parsing Test");
+    {
+        string_t log = {0};
+        if (!test_file_parsing (input_str, &log)) {
+            str_cat_c (result, FAIL);
+            str_cat_indented (result, &log, 1);
+            success = false;
+        } else {
+            str_cat_c (result, SUCCESS);
+        }
+        str_free (&log);
     }
 
+    struct xkb_context *xkb_ctx = NULL;
     struct xkb_keymap *parser_keymap = NULL, *writer_keymap = NULL;
     if (success) {
+        xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+        if (!xkb_ctx) {
+            str_cat_c (result, "could not create xkb context.\n");
+            success = false;
+        }
+
         str_cat_test_name (result, "Writeback test");
         if (!writeback_test (xkb_ctx,
                              str_data(input_str), &parser_keymap,
@@ -1280,41 +1448,6 @@ ITERATE_DIR_CB(iterate_tests_dir)
     }
 }
 
-// Names for shared memory objects are global to the system and they will still
-// be defined if the object wasn't unlinked or the last execution of the program
-// crashed. This macro is used to create a name that will not collide.
-// TODO: Move this to common.h
-// TODO: If we had a full language at compile time like in JAI we could create a
-// much more meaningful name here. Create a version that is scoped and
-// automatically calls UNLINK_SHARED then for variables that span multiple
-// scopes get a handle that UNLINK_SHARED receives.
-#define SHARED_VARIABLE_NAME(NAME) "/" #NAME ":SHARED_VARIABLE_WM1WNTK8XM"
-#define NEW_SHARED_VARIABLE(TYPE,NAME,VALUE)                                                      \
-TYPE *(NAME);                                                                                     \
-{                                                                                                 \
-    int shared_fd = shm_open (SHARED_VARIABLE_NAME(NAME),                                         \
-                              O_CREAT | O_EXCL | O_RDWR, S_IRWXU | S_IRWXG);                      \
-    if (shared_fd == -1 && errno == EEXIST) {                                                     \
-        printf ("Shared variable name %s exists, missing call to UNLINK_SHARED.\n",               \
-                SHARED_VARIABLE_NAME(NAME));                                                      \
-        UNLINK_SHARED_VARIABLE (NAME)                                                             \
-                                                                                                  \
-        shared_fd = shm_open (SHARED_VARIABLE_NAME(NAME),                                         \
-                              O_CREAT | O_EXCL | O_RDWR, S_IRWXU | S_IRWXG);                      \
-    }                                                                                             \
-    assert (shared_fd != -1 && "Error on shm_open() while creating shared variable.");            \
-                                                                                                  \
-    int set_size_status = ftruncate (shared_fd, sizeof (TYPE));                                   \
-    assert (set_size_status == 0 && "Error on ftruncate() while creating shared variable.");      \
-                                                                                                  \
-    (NAME) = (TYPE*) mmap (NULL, sizeof(TYPE), PROT_READ | PROT_WRITE, MAP_SHARED, shared_fd, 0); \
-                                                                                                  \
-    *(NAME) = (VALUE);                                                                            \
-}
-
-#define UNLINK_SHARED_VARIABLE(NAME) \
-    if (shm_unlink (SHARED_VARIABLE_NAME(NAME)) == -1) assert (0 && "Error unlinking shared variable.");
-
 int main (int argc, char **argv)
 {
     init_keycode_names ();
@@ -1415,86 +1548,7 @@ int main (int argc, char **argv)
             xkb_str_from_file (input_file, &input_str);
         }
 
-        if (get_cli_bool_opt ("--parse", argv, argc)) {
-            NEW_SHARED_VARIABLE (bool, success, true);
-
-            printf (ECMA_MAGENTA("libxkbcommon") "\n");
-            {
-
-                if (fork() == 0) {
-                    struct xkb_context *xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-                    if (!xkb_ctx) {
-                        printf ("Could not create xkb context.\n");
-                        *success = false;
-                    }
-
-                    struct xkb_keymap *libxkbcommon_keymap =
-                        xkb_keymap_new_from_string(xkb_ctx, str_data(&input_str),
-                                                   XKB_KEYMAP_FORMAT_TEXT_V1,
-                                                   XKB_KEYMAP_COMPILE_NO_FLAGS);
-                    assert_consecutive_modifiers (libxkbcommon_keymap);
-                    if (!libxkbcommon_keymap) {
-                        *success = false;
-                    }
-
-                    exit(0);
-                }
-
-                int child_status;
-                wait (&child_status);
-                if (child_status != 0) {
-                    printf ("Exited abnormally with status: %d\n", child_status);
-                    *success = false;
-                }
-
-                if (!*success) {
-                    printf (FAIL"");
-                } else {
-                    printf (SUCCESS"");
-                }
-
-            }
-
-            printf (ECMA_MAGENTA("\nInternal parser") "\n");
-            {
-                *success = true;
-                if (fork() == 0) {
-                    struct keyboard_layout_t keymap = {0};
-                    string_t log = {0};
-                    if (!xkb_file_parse_verbose (str_data(&input_str), &keymap, &log)) {
-                        printf ("Internal parser failed.\n");
-                        printf ("%s", str_data(&log));
-                        *success = false;
-
-                    } else {
-                        printf ("%s",str_data(&log));
-                    }
-
-                    str_free (&log);
-                    keyboard_layout_destroy (&keymap);
-
-                    exit(0);
-                }
-
-                int child_status;
-                wait (&child_status);
-                if (!WIFEXITED(child_status)) {
-                    printf ("Exited abnormally with status: %d\n", child_status);
-                    *success = false;
-                }
-
-                if (!*success) {
-                    printf (FAIL"");
-                } else {
-                    printf (SUCCESS"");
-                }
-            }
-
-            UNLINK_SHARED_VARIABLE (success);
-
-        } else {
-            test_xkb_file (&input_str, &result, &info, &writer_keymap_str, &writer_keymap_str_2);
-        }
+        test_xkb_file (&input_str, &result, &info, &writer_keymap_str, &writer_keymap_str_2);
 
         if (file_output_enabled) {
             str_cat_c (&info, "\n");

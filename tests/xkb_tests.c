@@ -1085,6 +1085,8 @@ TYPE *(NAME);                                                                   
 // nice output.
 bool test_file_parsing (string_t *input_str, string_t *result)
 {
+    mem_pool_t pool = {0};
+
     bool retval = true;
     NEW_SHARED_VARIABLE (bool, success, true);
 
@@ -1092,7 +1094,16 @@ bool test_file_parsing (string_t *input_str, string_t *result)
     {
         string_t fail_details = {0};
 
+        char stdout_fname[] = "libxkbcommon_stdout_XXXXXX";
+        int stdout_fd = mkstemp (stdout_fname);
+        close (stdout_fd);
+
+        //char *stderr_fname = "libxkbcommon_stderr_XXXXXX";
+        //int stderr_fd = mkstemp (stderr_fname);
+
         if (fork() == 0) {
+            freopen (stdout_fname, "w", stdout);
+
             struct xkb_context *xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
             if (!xkb_ctx) {
                 printf ("Could not create xkb context.\n");
@@ -1123,6 +1134,10 @@ bool test_file_parsing (string_t *input_str, string_t *result)
         if (!*success) {
             str_cat_c (result, FAIL);
             str_cat (result, &fail_details);
+            str_cat_c (&fail_details, ECMA_CYAN("Stdout:"));
+            str_cat_printf (&fail_details, "%s", full_file_read (&pool, stdout_fname));
+            //str_cat_c (&fail_details, ECMA_CYAN("Stderr:"));
+            //str_cat_printf (&fail_details, "%s", full_fd_read (&pool, stderr_pipe[1]));
         } else {
             str_cat_c (result, SUCCESS);
         }
@@ -1141,6 +1156,7 @@ bool test_file_parsing (string_t *input_str, string_t *result)
             string_t log = {0};
             if (!xkb_file_parse_verbose (str_data(input_str), &keymap, &log)) {
                 *success = false;
+                printf ("%s", str_data(&log));
             }
 
             str_free (&log);
@@ -1168,6 +1184,7 @@ bool test_file_parsing (string_t *input_str, string_t *result)
 
     retval = retval && *success;
     UNLINK_SHARED_VARIABLE (success);
+    mem_pool_destroy (&pool);
 
     return retval;
 }

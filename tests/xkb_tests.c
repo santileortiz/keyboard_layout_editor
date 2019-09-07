@@ -1023,6 +1023,28 @@ void str_cat_indented (string_t *str1, string_t *str2, int num_spaces)
     }
 }
 
+void str_cat_indented_c (string_t *str1, char *c_str, int num_spaces)
+{
+    if (*c_str == '\0') return;
+
+    for (int i=0; i<num_spaces; i++) {
+        strn_cat_c (str1, " ", 1);
+    }
+
+    while (c_str && *c_str) {
+        if (*c_str == '\n' && *(c_str+1) != '\n' && *(c_str+1) != '\0') {
+            strn_cat_c (str1, "\n", 1);
+            for (int i=0; i<num_spaces; i++) {
+                strn_cat_c (str1, " ", 1);
+            }
+
+        } else {
+            strn_cat_c (str1, c_str, 1);
+        }
+        c_str++;
+    }
+}
+
 void printf_indented (char *str, int num_spaces)
 {
     char *c = str;
@@ -1081,28 +1103,44 @@ TYPE *(NAME);                                                                   
 #define UNLINK_SHARED_VARIABLE(NAME) \
     if (shm_unlink (SHARED_VARIABLE_NAME(NAME)) == -1) assert (0 && "Error unlinking shared variable.");
 
+void str_cat_child_output (string_t *str, char *stdout_fname, char *stderr_fname)
+{
+    mem_pool_t pool = {0};
+
+    char *stdout_str = full_file_read (&pool, stdout_fname);
+    if (*stdout_str != '\0') {
+        str_cat_c (str, ECMA_CYAN("stdout:\n"));
+        str_cat_indented_c (str, stdout_str, 2);
+    }
+    unlink (stdout_fname);
+
+    char *stderr_str = full_file_read (&pool, stderr_fname);
+    if (*stderr_str != '\0') {
+        str_cat_c (str, ECMA_CYAN("stderr:\n"));
+        str_cat_indented_c (str, stderr_str, 2);
+    }
+    unlink (stderr_fname);
+
+    mem_pool_destroy (&pool);
+}
+
 // TODO: Get the output of the child processes test as a string so we have a
 // nice output.
 bool test_file_parsing (string_t *input_str, string_t *result)
 {
-    mem_pool_t pool = {0};
-
     bool retval = true;
+    char *stdout_fname = "tmp_stdout";
+    char *stderr_fname = "tmp_stderr";
+
     NEW_SHARED_VARIABLE (bool, success, true);
 
     str_cat_test_name (result, "libxkbcommon parser");
     {
         string_t fail_details = {0};
 
-        char stdout_fname[] = "libxkbcommon_stdout_XXXXXX";
-        int stdout_fd = mkstemp (stdout_fname);
-        close (stdout_fd);
-
-        //char *stderr_fname = "libxkbcommon_stderr_XXXXXX";
-        //int stderr_fd = mkstemp (stderr_fname);
-
         if (fork() == 0) {
             freopen (stdout_fname, "w", stdout);
+            freopen (stderr_fname, "w", stderr);
 
             struct xkb_context *xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
             if (!xkb_ctx) {
@@ -1134,10 +1172,7 @@ bool test_file_parsing (string_t *input_str, string_t *result)
         if (!*success) {
             str_cat_c (result, FAIL);
             str_cat (result, &fail_details);
-            str_cat_c (&fail_details, ECMA_CYAN("Stdout:"));
-            str_cat_printf (&fail_details, "%s", full_file_read (&pool, stdout_fname));
-            //str_cat_c (&fail_details, ECMA_CYAN("Stderr:"));
-            //str_cat_printf (&fail_details, "%s", full_fd_read (&pool, stderr_pipe[1]));
+            str_cat_child_output (result, stdout_fname, stderr_fname);
         } else {
             str_cat_c (result, SUCCESS);
         }
@@ -1152,6 +1187,9 @@ bool test_file_parsing (string_t *input_str, string_t *result)
         string_t fail_details = {0};
 
         if (fork() == 0) {
+            freopen (stdout_fname, "w", stdout);
+            freopen (stderr_fname, "w", stderr);
+
             struct keyboard_layout_t keymap = {0};
             string_t log = {0};
             if (!xkb_file_parse_verbose (str_data(input_str), &keymap, &log)) {
@@ -1175,6 +1213,7 @@ bool test_file_parsing (string_t *input_str, string_t *result)
         if (!*success) {
             str_cat_c (result, FAIL);
             str_cat (result, &fail_details);
+            str_cat_child_output (result, stdout_fname, stderr_fname);
         } else {
             str_cat_c (result, SUCCESS);
         }
@@ -1184,7 +1223,6 @@ bool test_file_parsing (string_t *input_str, string_t *result)
 
     retval = retval && *success;
     UNLINK_SHARED_VARIABLE (success);
-    mem_pool_destroy (&pool);
 
     return retval;
 }

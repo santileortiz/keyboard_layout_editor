@@ -118,7 +118,7 @@ bool get_cli_bool_opt (char *opt, char **argv, int argc)
 // source code that uses the cli option API.
 char* get_cli_no_opt_arg (char **argv, int argc)
 {
-    static char *bool_opts[] = {"--write-output", "--parse"};
+    static char *bool_opts[] = {"--write-output"};
     char *arg = NULL;
 
     for (int i=1; arg==NULL && i<argc; i++) {
@@ -900,80 +900,20 @@ void assert_consecutive_modifiers (struct xkb_keymap *keymap)
     }
 }
 
-// This takes an .xkb file as a string, then does the following:
-//   1) Parse it with our xkb parser and with libxkbcommon
-//   2) Write back the parsed internal representation with our xkb writer.
-//   3) Check the output of the writer can be parsed by libxbcommon and our parser.
-//
-// The writer_keymap argument will be set to the libxkbcommon keymap of the
-// writers output. The caller must call xkb_keymap_unref() on it.
-bool writeback_test (struct xkb_context *xkb_ctx,
-                     char *xkb_str, struct xkb_keymap **parser_keymap,
-                     string_t *writer_keymap_str, struct xkb_keymap **writer_keymap,
-                     string_t *msg)
+// TODO: Do this in a child process to guard against segmentation faults
+bool writer_test (struct keyboard_layout_t *internal_keymap,
+                  string_t *writer_keymap_str,
+                  string_t *result)
 {
-    assert (xkb_ctx && xkb_str && parser_keymap && writer_keymap_str && writer_keymap && msg);
-
     bool success = true;
 
-    *parser_keymap =
-        xkb_keymap_new_from_string(xkb_ctx, xkb_str,
-                                   XKB_KEYMAP_FORMAT_TEXT_V1,
-                                   XKB_KEYMAP_COMPILE_NO_FLAGS);
-    assert_consecutive_modifiers (*parser_keymap);
+    struct status_t status = {0};
+    xkb_file_write (internal_keymap, writer_keymap_str, &status);
 
-    // Print modifier information from a libxkbcommon keymap created from the
-    // received CLI input
-    if (!*parser_keymap) {
-        str_cat_c (msg, FAIL);
-        str_cat_c (msg, "libxkbcommon parser failed.\n");
+    if (status_is_error (&status)) {
+        str_cat_c (result, "Internal xkb writer failed.\n");
+        str_cat_status (result, &status);
         success = false;
-
-    }
-
-    // Parse the xkb string using our parser.
-    struct keyboard_layout_t keymap = {0};
-    if (success) {
-
-        string_t log = {0};
-        if (!xkb_file_parse_verbose (xkb_str, &keymap, &log)) {
-            str_cat_c (msg, FAIL);
-            str_cat_printf (msg, "Internal parser failed.\n");
-            str_cat (msg, &log);
-            success = false;
-
-        }
-        str_free (&log);
-    }
-
-    // Write the keymap back to an xkb file.
-    if (success) {
-        struct status_t status = {0};
-        xkb_file_write (&keymap, writer_keymap_str, &status);
-        keyboard_layout_destroy (&keymap);
-
-        if (status_is_error (&status)) {
-            str_cat_c (msg, FAIL);
-            str_cat_c (msg, "Internal xkb writer failed.\n");
-            str_cat_status (msg, &status);
-            success = false;
-        }
-    }
-
-    // Load the writer's output to libxkbcommon and print the information.
-    if (success) {
-        *writer_keymap =
-            xkb_keymap_new_from_string(xkb_ctx, str_data(writer_keymap_str),
-                                       XKB_KEYMAP_FORMAT_TEXT_V1,
-                                       XKB_KEYMAP_COMPILE_NO_FLAGS);
-        assert_consecutive_modifiers (*writer_keymap);
-
-        if (!*writer_keymap) {
-            str_cat_c (msg, FAIL);
-            str_cat_c (msg, "Failed to load the writer's output to libxkbcommon.\n");
-            success = false;
-
-        }
     }
 
     return success;
@@ -1103,88 +1043,86 @@ TYPE *(NAME);                                                                   
 #define UNLINK_SHARED_VARIABLE(NAME) \
     if (shm_unlink (SHARED_VARIABLE_NAME(NAME)) == -1) assert (0 && "Error unlinking shared variable.");
 
-void str_cat_child_output (string_t *str, char *stdout_fname, char *stderr_fname)
+void wait_and_cat_output (mem_pool_t *pool, bool *success,
+                          char *stdout_fname, char *stderr_fname,
+                          string_t *result)
 {
-    mem_pool_t pool = {0};
+    int child_status;
+    wait (&child_status);
 
-    char *stdout_str = full_file_read (&pool, stdout_fname);
-    if (*stdout_str != '\0') {
-        str_cat_c (str, ECMA_CYAN("stdout:\n"));
-        str_cat_indented_c (str, stdout_str, 2);
+    if (!WIFEXITED(child_status)) {
+        *success = false;
     }
-    unlink (stdout_fname);
 
-    char *stderr_str = full_file_read (&pool, stderr_fname);
-    if (*stderr_str != '\0') {
-        str_cat_c (str, ECMA_CYAN("stderr:\n"));
-        str_cat_indented_c (str, stderr_str, 2);
+    if (!*success) {
+        str_cat_c (result, FAIL);
+
+        char *stdout_str = full_file_read (pool, stdout_fname);
+        if (*stdout_str != '\0') {
+            str_cat_c (result, ECMA_CYAN("stdout:\n"));
+            str_cat_indented_c (result, stdout_str, 2);
+        }
+        unlink (stdout_fname);
+
+        char *stderr_str = full_file_read (pool, stderr_fname);
+        if (*stderr_str != '\0') {
+            str_cat_c (result, ECMA_CYAN("stderr:\n"));
+            str_cat_indented_c (result, stderr_str, 2);
+        }
+        unlink (stderr_fname);
+
+        if (!WIFEXITED(child_status)) {
+            str_cat_printf (result, "Exited abnormally with status: %d\n", child_status);
+        }
+
+    } else {
+        str_cat_c (result, SUCCESS);
     }
-    unlink (stderr_fname);
-
-    mem_pool_destroy (&pool);
 }
 
-// TODO: Get the output of the child processes test as a string so we have a
-// nice output.
-bool test_file_parsing (string_t *input_str, string_t *result)
+bool test_file_parsing (struct xkb_context *xkb_ctx,
+                        char *xkb_str,
+                        struct xkb_keymap **libxkbcommon_keymap, struct keyboard_layout_t *internal_keymap,
+                        string_t *result)
 {
     bool retval = true;
     char *stdout_fname = "tmp_stdout";
     char *stderr_fname = "tmp_stderr";
+    mem_pool_t pool = {0};
 
     NEW_SHARED_VARIABLE (bool, success, true);
 
     str_cat_test_name (result, "libxkbcommon parser");
     {
-        string_t fail_details = {0};
-
         if (fork() == 0) {
             freopen (stdout_fname, "w", stdout);
             freopen (stderr_fname, "w", stderr);
 
-            struct xkb_context *xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-            if (!xkb_ctx) {
-                printf ("Could not create xkb context.\n");
-                *success = false;
-            }
-
-            struct xkb_keymap *libxkbcommon_keymap =
-                xkb_keymap_new_from_string(xkb_ctx, str_data(input_str),
+            // Here we use the xkb_ctx created before, because this is a process
+            // and not a thread, unrefing it should cause no problems as it's a
+            // copy of the one in the parent process.
+            struct xkb_keymap *keymap =
+                xkb_keymap_new_from_string(xkb_ctx, xkb_str,
                                            XKB_KEYMAP_FORMAT_TEXT_V1,
                                            XKB_KEYMAP_COMPILE_NO_FLAGS);
-            if (!libxkbcommon_keymap) {
+            assert_consecutive_modifiers (keymap);
+            if (!keymap) {
                 *success = false;
             }
 
+            if (keymap) xkb_keymap_unref(keymap);
             if (xkb_ctx) xkb_context_unref(xkb_ctx);
-            if (libxkbcommon_keymap) xkb_keymap_unref(libxkbcommon_keymap);
 
             exit(0);
         }
 
-        int child_status;
-        wait (&child_status);
-        if (!WIFEXITED(child_status)) {
-            str_cat_printf (&fail_details, "Exited abnormally with status: %d\n", child_status);
-            *success = false;
-        }
-
-        if (!*success) {
-            str_cat_c (result, FAIL);
-            str_cat (result, &fail_details);
-            str_cat_child_output (result, stdout_fname, stderr_fname);
-        } else {
-            str_cat_c (result, SUCCESS);
-        }
-
-        str_free (&fail_details);
+        wait_and_cat_output (&pool, success, stdout_fname, stderr_fname, result);
     }
     retval = *success;
 
-    str_cat_test_name (result, "Internal parser");
+    str_cat_test_name (result, "internal parser");
     {
         *success = true;
-        string_t fail_details = {0};
 
         if (fork() == 0) {
             freopen (stdout_fname, "w", stdout);
@@ -1192,7 +1130,7 @@ bool test_file_parsing (string_t *input_str, string_t *result)
 
             struct keyboard_layout_t keymap = {0};
             string_t log = {0};
-            if (!xkb_file_parse_verbose (str_data(input_str), &keymap, &log)) {
+            if (!xkb_file_parse_verbose (xkb_str, &keymap, &log)) {
                 *success = false;
                 printf ("%s", str_data(&log));
             }
@@ -1203,26 +1141,29 @@ bool test_file_parsing (string_t *input_str, string_t *result)
             exit(0);
         }
 
-        int child_status;
-        wait (&child_status);
-        if (!WIFEXITED(child_status)) {
-            str_cat_printf (&fail_details, "Exited abnormally with status: %d\n", child_status);
-            *success = false;
-        }
-
-        if (!*success) {
-            str_cat_c (result, FAIL);
-            str_cat (result, &fail_details);
-            str_cat_child_output (result, stdout_fname, stderr_fname);
-        } else {
-            str_cat_c (result, SUCCESS);
-        }
-
-        str_free (&fail_details);
+        wait_and_cat_output (&pool, success, stdout_fname, stderr_fname, result);
     }
 
     retval = retval && *success;
     UNLINK_SHARED_VARIABLE (success);
+
+    // If none of the parsers failed, and the caller wants the paring keymaps,
+    // parse layouts again and set them.
+    if (retval) {
+        if (libxkbcommon_keymap) {
+            *libxkbcommon_keymap =
+                xkb_keymap_new_from_string(xkb_ctx, xkb_str,
+                                           XKB_KEYMAP_FORMAT_TEXT_V1,
+                                           XKB_KEYMAP_COMPILE_NO_FLAGS);
+        }
+
+        if (internal_keymap) {
+            *internal_keymap = ZERO_INIT(struct keyboard_layout_t);
+            xkb_file_parse_verbose (xkb_str, internal_keymap, NULL);
+        }
+    }
+
+    mem_pool_destroy (&pool);
 
     return retval;
 }
@@ -1235,10 +1176,20 @@ bool test_xkb_file (string_t *input_str,
             writer_keymap_str != NULL && writer_keymap_str_2 != NULL);
     bool success = true;
 
-    str_cat_test_name (result, "File Parsing Test");
-    {
+    struct xkb_context *xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    if (!xkb_ctx) {
+        str_cat_c (result, "could not create xkb context.\n");
+        success = false;
+    }
+
+    struct xkb_keymap *input_libxkbcommon_keymap = NULL;
+    struct keyboard_layout_t input_internal_keymap = {0};
+    if (success) {
+        str_cat_test_name (result, "Input parsing Test");
         string_t log = {0};
-        if (!test_file_parsing (input_str, &log)) {
+        if (!test_file_parsing (xkb_ctx, str_data(input_str),
+                                &input_libxkbcommon_keymap, &input_internal_keymap,
+                                &log)) {
             str_cat_c (result, FAIL);
             str_cat_indented (result, &log, 1);
             success = false;
@@ -1248,29 +1199,40 @@ bool test_xkb_file (string_t *input_str,
         str_free (&log);
     }
 
-    struct xkb_context *xkb_ctx = NULL;
-    struct xkb_keymap *parser_keymap = NULL, *writer_keymap = NULL;
     if (success) {
-        xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-        if (!xkb_ctx) {
-            str_cat_c (result, "could not create xkb context.\n");
-            success = false;
-        }
-
-        str_cat_test_name (result, "Writeback test");
-        if (!writeback_test (xkb_ctx,
-                             str_data(input_str), &parser_keymap,
-                             writer_keymap_str, &writer_keymap, result)) {
+        str_cat_test_name (result, "Writer test");
+        string_t log = {0};
+        if (!writer_test (&input_internal_keymap, writer_keymap_str, &log)) {
+            str_cat_c (result, FAIL);
+            str_cat_indented (result, &log, 1);
             success = false;
         } else {
             str_cat_c (result, SUCCESS);
         }
+        str_free (&log);
+    }
+
+    struct xkb_keymap *writer_output_libxkbcommon_keymap = NULL;
+    struct keyboard_layout_t writer_output_internal_keymap = {0};
+    if (success) {
+        str_cat_test_name (result, "Writer output parsing test");
+        string_t log = {0};
+        if (!test_file_parsing (xkb_ctx, str_data(writer_keymap_str),
+                                &writer_output_libxkbcommon_keymap, &writer_output_internal_keymap,
+                                &log)) {
+            str_cat_c (result, FAIL);
+            str_cat_indented (result, &log, 1);
+            success = false;
+        } else {
+            str_cat_c (result, SUCCESS);
+        }
+        str_free (&log);
     }
 
     if (success) {
         str_cat_test_name (result, "Symbol Equality Test");
         string_t tmp = {0};
-        if (!keymap_equality_test (parser_keymap, writer_keymap, &tmp)) {
+        if (!keymap_equality_test (input_libxkbcommon_keymap, writer_output_libxkbcommon_keymap, &tmp)) {
             str_cat_c (result, FAIL);
             str_cat (result, &tmp);
             success = false;
@@ -1282,7 +1244,7 @@ bool test_xkb_file (string_t *input_str,
     if (success) {
         str_cat_test_name (result, "Modifier Equality Test");
         string_t tmp = {0};
-        if (!modifier_equality_test (parser_keymap, writer_keymap, &tmp)) {
+        if (!modifier_equality_test (input_libxkbcommon_keymap, writer_output_libxkbcommon_keymap, &tmp)) {
             str_cat_c (result, FAIL);
             str_cat (result, &tmp);
             success = false;
@@ -1295,19 +1257,9 @@ bool test_xkb_file (string_t *input_str,
         struct keyboard_layout_t keymap = {0};
         str_cat_test_name (result, "Idempotency Test");
 
-        string_t log = {0};
-        if (!xkb_file_parse_verbose (str_data(writer_keymap_str), &keymap, &log)) {
-            str_cat_c (result, FAIL);
-            str_cat_c (result, "Can't parse our own output.\n");
-            str_cat (result, &log);
-            success = false;
-
-        }
-        str_free (&log);
-
         if (success) {
             struct status_t status = {0};
-            xkb_file_write (&keymap, writer_keymap_str_2, &status);
+            xkb_file_write (&writer_output_internal_keymap, writer_keymap_str_2, &status);
 
             if (status_is_error (&status)) {
                 str_cat_c (result, FAIL);
@@ -1315,7 +1267,6 @@ bool test_xkb_file (string_t *input_str,
                 str_cat_c (result, "Can't write our own output.\n");
                 success = false;
             }
-            keyboard_layout_destroy (&keymap);
         }
 
         if(success) {
@@ -1327,14 +1278,15 @@ bool test_xkb_file (string_t *input_str,
             } else {
                 str_cat_c (result, SUCCESS);
             }
-
         }
+
+        keyboard_layout_destroy (&keymap);
     }
 
     if (success) {
         str_cat_test_name (result, "LED Equality Test");
         string_t tmp = {0};
-        if (!led_equality_test (parser_keymap, writer_keymap, &tmp)) {
+        if (!led_equality_test (input_libxkbcommon_keymap, writer_output_libxkbcommon_keymap, &tmp)) {
             str_cat_c (result, FAIL);
             str_cat (result, &tmp);
             success = false;
@@ -1345,21 +1297,21 @@ bool test_xkb_file (string_t *input_str,
 
     if (info != NULL) {
         // Print parser input information
-        if (parser_keymap) {
+        if (input_libxkbcommon_keymap) {
             str_cat_c (info, ECMA_MAGENTA("\nParser input info (libxkbcommon):\n"));
 
             string_t tmp = {0};
-            str_cat_xkbcommon_modifier_info (&tmp, parser_keymap);
+            str_cat_xkbcommon_modifier_info (&tmp, input_libxkbcommon_keymap);
             str_cat_indented (info, &tmp, 1);
             str_free (&tmp);
         }
 
         // Print writer output information
-        if (writer_keymap) {
+        if (writer_output_libxkbcommon_keymap) {
             str_cat_c (info, ECMA_MAGENTA("\nWriter output info (libxkbcommon):\n"));
 
             string_t tmp = {0};
-            str_cat_xkbcommon_modifier_info (&tmp, writer_keymap);
+            str_cat_xkbcommon_modifier_info (&tmp, writer_output_libxkbcommon_keymap);
             str_cat_indented (info, &tmp, 1);
 
             // TODO: Maybe don't parse the layout again here? get this from the original
@@ -1377,9 +1329,12 @@ bool test_xkb_file (string_t *input_str,
         }
     }
 
+    keyboard_layout_destroy (&input_internal_keymap);
+    keyboard_layout_destroy (&writer_output_internal_keymap);
+
+    if (input_libxkbcommon_keymap) xkb_keymap_unref(input_libxkbcommon_keymap);
+    if (writer_output_libxkbcommon_keymap) xkb_keymap_unref(writer_output_libxkbcommon_keymap);
     if (xkb_ctx) xkb_context_unref(xkb_ctx);
-    if (parser_keymap) xkb_keymap_unref(parser_keymap);
-    if (writer_keymap) xkb_keymap_unref(writer_keymap);
 
     return success;
 }
@@ -1565,24 +1520,6 @@ int main (int argc, char **argv)
     string_t writer_keymap_str_2 = {0};
 
     if (input_type == INPUT_NONE) {
-        // TODO: Get all 'common' layouts. For some definition of 'common'.
-        //char *test_layouts[] = {"us", "ru", "br", "latam"};
-        //for (int i=0; i<ARRAY_SIZE(test_layouts); i++) {
-        //    str_set (&input_str, "");
-        //    // TODO: X11 freezes badly when calling this... we should precompute
-        //    // this and cache them somewhere.
-        //    xkb_str_from_rmlvo (NULL, NULL, test_layouts[i], NULL, NULL, &input_str);
-
-        //    str_set (&result, "");
-        //    str_set (&writer_keymap_str, "");
-        //    str_set (&writer_keymap_str_2, "");
-        //    test_xkb_file (&input_str, &result, NULL, &writer_keymap_str, &writer_keymap_str_2);
-
-        //    printf ("Layout %s:\n", test_layouts[i]);
-        //    printf_indented (str_data(&result), 4);
-        //    printf ("\n");
-        //}
-
         struct iterate_tests_dir_clsr_t clsr;
         clsr.result = &result;
         clsr.writer_keymap_str = &writer_keymap_str;

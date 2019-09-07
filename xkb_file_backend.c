@@ -2528,7 +2528,11 @@ bool xkb_file_parse_verbose (char *xkb_str, struct keyboard_layout_t *keymap, st
 
     bool success = true;
     if (state.scnr.error) {
-        str_cat_printf (log, "%d: %s %s\n", state.scnr.line_number+1, ECMA_RED("error:"), state.scnr.error_message);
+        if (log != NULL) {
+            str_cat_printf (log,
+                            "%d: %s %s\n",
+                            state.scnr.line_number+1, ECMA_RED("error:"), state.scnr.error_message);
+        }
         success = false;
 
     } else {

@@ -118,7 +118,7 @@ bool get_cli_bool_opt (char *opt, char **argv, int argc)
 // source code that uses the cli option API.
 char* get_cli_no_opt_arg (char **argv, int argc)
 {
-    static char *bool_opts[] = {"--write-output"};
+    static char *bool_opts[] = {"--write-output", "--unsafe"};
     char *arg = NULL;
 
     for (int i=1; arg==NULL && i<argc; i++) {
@@ -885,6 +885,11 @@ enum input_type_t {
     INPUT_XKB_FILE
 };
 
+enum crash_safety_mode_t {
+    CRASH_MODE_SAFE,
+    CRASH_MODE_UNSAFE
+};
+
 // Every time we iterate over the modifiers on a keymap we assume indices are
 // always consecutive. libxkbcommon's documentation does not explicitly
 // guarantees that but it looks like this is true, if this ever becomes false,
@@ -1057,30 +1062,35 @@ void wait_and_cat_output (mem_pool_t *pool, bool *success,
     if (!*success) {
         str_cat_c (result, FAIL);
 
+        string_t child_output = {0};
         char *stdout_str = full_file_read (pool, stdout_fname);
         if (*stdout_str != '\0') {
-            str_cat_c (result, ECMA_CYAN("stdout:\n"));
-            str_cat_indented_c (result, stdout_str, 2);
+            str_cat_c (&child_output, ECMA_CYAN("stdout:\n"));
+            str_cat_indented_c (&child_output, stdout_str, 2);
         }
         unlink (stdout_fname);
 
         char *stderr_str = full_file_read (pool, stderr_fname);
         if (*stderr_str != '\0') {
-            str_cat_c (result, ECMA_CYAN("stderr:\n"));
-            str_cat_indented_c (result, stderr_str, 2);
+            str_cat_c (&child_output, ECMA_CYAN("stderr:\n"));
+            str_cat_indented_c (&child_output, stderr_str, 2);
         }
         unlink (stderr_fname);
 
         if (!WIFEXITED(child_status)) {
-            str_cat_printf (result, "Exited abnormally with status: %d\n", child_status);
+            str_cat_printf (&child_output, "Exited abnormally with status: %d\n", child_status);
         }
+
+        str_cat_indented (result, &child_output, 2);
+        str_free (&child_output);
 
     } else {
         str_cat_c (result, SUCCESS);
     }
 }
 
-bool test_file_parsing (struct xkb_context *xkb_ctx,
+bool test_file_parsing (enum crash_safety_mode_t crash_safety,
+                        struct xkb_context *xkb_ctx,
                         char *xkb_str,
                         struct xkb_keymap **libxkbcommon_keymap, struct keyboard_layout_t *internal_keymap,
                         string_t *result)
@@ -1096,7 +1106,10 @@ bool test_file_parsing (struct xkb_context *xkb_ctx,
     {
         if (fork() == 0) {
             freopen (stdout_fname, "w", stdout);
+            setvbuf (stdout, NULL, _IONBF, 0);
+
             freopen (stderr_fname, "w", stderr);
+            setvbuf (stderr, NULL, _IONBF, 0);
 
             // Here we use the xkb_ctx created before, because this is a process
             // and not a thread, unrefing it should cause no problems as it's a
@@ -1105,9 +1118,10 @@ bool test_file_parsing (struct xkb_context *xkb_ctx,
                 xkb_keymap_new_from_string(xkb_ctx, xkb_str,
                                            XKB_KEYMAP_FORMAT_TEXT_V1,
                                            XKB_KEYMAP_COMPILE_NO_FLAGS);
-            assert_consecutive_modifiers (keymap);
             if (!keymap) {
                 *success = false;
+            } else {
+                assert_consecutive_modifiers (keymap);
             }
 
             if (keymap) xkb_keymap_unref(keymap);
@@ -1126,7 +1140,10 @@ bool test_file_parsing (struct xkb_context *xkb_ctx,
 
         if (fork() == 0) {
             freopen (stdout_fname, "w", stdout);
+            setvbuf (stdout, NULL, _IONBF, 0);
+
             freopen (stderr_fname, "w", stderr);
+            setvbuf (stderr, NULL, _IONBF, 0);
 
             struct keyboard_layout_t keymap = {0};
             string_t log = {0};
@@ -1149,17 +1166,17 @@ bool test_file_parsing (struct xkb_context *xkb_ctx,
 
     // If none of the parsers failed, and the caller wants the paring keymaps,
     // parse layouts again and set them.
-    if (retval) {
+    if (retval || crash_safety == CRASH_MODE_UNSAFE) {
+        if (internal_keymap) {
+            *internal_keymap = ZERO_INIT(struct keyboard_layout_t);
+            xkb_file_parse_verbose (xkb_str, internal_keymap, NULL);
+        }
+
         if (libxkbcommon_keymap) {
             *libxkbcommon_keymap =
                 xkb_keymap_new_from_string(xkb_ctx, xkb_str,
                                            XKB_KEYMAP_FORMAT_TEXT_V1,
                                            XKB_KEYMAP_COMPILE_NO_FLAGS);
-        }
-
-        if (internal_keymap) {
-            *internal_keymap = ZERO_INIT(struct keyboard_layout_t);
-            xkb_file_parse_verbose (xkb_str, internal_keymap, NULL);
         }
     }
 
@@ -1168,7 +1185,8 @@ bool test_file_parsing (struct xkb_context *xkb_ctx,
     return retval;
 }
 
-bool test_xkb_file (string_t *input_str,
+bool test_xkb_file (enum crash_safety_mode_t crash_safety,
+                    string_t *input_str,
                     string_t *result, string_t *info,
                     string_t *writer_keymap_str, string_t *writer_keymap_str_2)
 {
@@ -1187,7 +1205,8 @@ bool test_xkb_file (string_t *input_str,
     if (success) {
         str_cat_test_name (result, "Input parsing Test");
         string_t log = {0};
-        if (!test_file_parsing (xkb_ctx, str_data(input_str),
+        if (!test_file_parsing (crash_safety,
+                                xkb_ctx, str_data(input_str),
                                 &input_libxkbcommon_keymap, &input_internal_keymap,
                                 &log)) {
             str_cat_c (result, FAIL);
@@ -1217,7 +1236,8 @@ bool test_xkb_file (string_t *input_str,
     if (success) {
         str_cat_test_name (result, "Writer output parsing test");
         string_t log = {0};
-        if (!test_file_parsing (xkb_ctx, str_data(writer_keymap_str),
+        if (!test_file_parsing (crash_safety,
+                                xkb_ctx, str_data(writer_keymap_str),
                                 &writer_output_libxkbcommon_keymap, &writer_output_internal_keymap,
                                 &log)) {
             str_cat_c (result, FAIL);
@@ -1437,7 +1457,8 @@ ITERATE_DIR_CB(iterate_tests_dir)
             str_set (clsr->writer_keymap_str, "");
             str_set (clsr->writer_keymap_str_2, "");
             bool success =
-                test_xkb_file (&input_str, clsr->result, NULL,
+                test_xkb_file (CRASH_MODE_SAFE,
+                               &input_str, clsr->result, NULL,
                                clsr->writer_keymap_str, clsr->writer_keymap_str_2);
 
             if (success) {
@@ -1540,7 +1561,11 @@ int main (int argc, char **argv)
             xkb_str_from_file (input_file, &input_str);
         }
 
-        test_xkb_file (&input_str, &result, &info, &writer_keymap_str, &writer_keymap_str_2);
+        enum crash_safety_mode_t crash_safety = CRASH_MODE_SAFE;
+        if (get_cli_bool_opt ("--unsafe", argv, argc)) {
+            crash_safety = CRASH_MODE_UNSAFE;
+        }
+        test_xkb_file (crash_safety, &input_str, &result, &info, &writer_keymap_str, &writer_keymap_str_2);
 
         if (file_output_enabled) {
             str_cat_c (&info, "\n");

@@ -1068,14 +1068,12 @@ void wait_and_cat_output (mem_pool_t *pool, bool *success,
             str_cat_c (&child_output, ECMA_CYAN("stdout:\n"));
             str_cat_indented_c (&child_output, stdout_str, 2);
         }
-        unlink (stdout_fname);
 
         char *stderr_str = full_file_read (pool, stderr_fname);
         if (*stderr_str != '\0') {
             str_cat_c (&child_output, ECMA_CYAN("stderr:\n"));
             str_cat_indented_c (&child_output, stderr_str, 2);
         }
-        unlink (stderr_fname);
 
         if (!WIFEXITED(child_status)) {
             str_cat_printf (&child_output, "Exited abnormally with status: %d\n", child_status);
@@ -1087,6 +1085,9 @@ void wait_and_cat_output (mem_pool_t *pool, bool *success,
     } else {
         str_cat_c (result, SUCCESS);
     }
+
+    unlink (stdout_fname);
+    unlink (stderr_fname);
 }
 
 bool test_file_parsing (enum crash_safety_mode_t crash_safety,

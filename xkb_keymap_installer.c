@@ -31,11 +31,11 @@
 //   metadata. It would be simpler to use the .xkb filename as name, but I don't
 //   want to impose restrictions on the name of files that can be loaded, nor
 //   say the name is the filename but changing - for _ or something like that. 
-bool xkb_keymap_install (const char *keymap_path);
+bool xkb_keymap_install (char *keymap_path);
 
 // Uninstalls the keymap named layout_name from the system, if it was installed
 // with xkb_keymap_install().
-bool xkb_keymap_uninstall (const char *layout_name);
+bool xkb_keymap_uninstall (char *layout_name);
 
 // Reverts all changes done to the system while installing keymaps. Which
 // includes uninstalling all custom keymaps installed with xkb_keymap_install().
@@ -64,7 +64,7 @@ void xkb_keymap_list_default (mem_pool_t *pool, char ***res, int *res_len);
 // IMPLEMENTATION
 //
 static inline
-bool is_blank (const char *c) {
+bool is_blank (char *c) {
     return *c == ' ' ||  (*c >= '\t' && *c <= '\r');
 }
 
@@ -283,7 +283,7 @@ char* parse_xkb_block (char *s,
 #define C_STR(str) str,((str)!=NULL?strlen(str):0)
 
 static inline
-bool strneq (const char *str1, uint32_t str1_size, const char* str2, uint32_t str2_size)
+bool strneq (char *str1, uint32_t str1_size, char* str2, uint32_t str2_size)
 {
     if (str1_size != str2_size) {
         return false;
@@ -292,7 +292,7 @@ bool strneq (const char *str1, uint32_t str1_size, const char* str2, uint32_t st
     }
 }
 
-bool xkb_keymap_xkb_install (char *xkb_file_content, const char *dest_dir, const char *layout_name)
+bool xkb_keymap_xkb_install (char *xkb_file_content, char *dest_dir, char *layout_name)
 {
     bool success = true;
     mem_pool_t pool = {0};
@@ -379,7 +379,7 @@ struct keymap_t {
     int num_languages;
 };
 
-xmlNodePtr xml_get_child (xmlNodePtr node, const char *child_name)
+xmlNodePtr xml_get_child (xmlNodePtr node, char *child_name)
 {
     xmlNodePtr curr_node = node->children;
     while (curr_node != NULL && xmlStrcmp(curr_node->name, (const xmlChar *)child_name) != 0) {
@@ -388,7 +388,7 @@ xmlNodePtr xml_get_child (xmlNodePtr node, const char *child_name)
     return curr_node;
 }
 
-xmlNodePtr xml_get_sibling (xmlNodePtr node, const char *sibling_name)
+xmlNodePtr xml_get_sibling (xmlNodePtr node, char *sibling_name)
 {
     while (node != NULL && xmlStrcmp(node->name, (const xmlChar *)sibling_name) != 0) {
         node = node->next;
@@ -411,8 +411,8 @@ void xml_print_subtree (xmlNodePtr node)
 // where data is inserted before the line where substr was found.
 //
 // NOTE: If substr is not found returns NULL.
-char* insert_string_before_line (mem_pool_t *pool, const char *str, const char *substr,
-                                 const char *data, size_t *len)
+char* insert_string_before_line (mem_pool_t *pool, char *str, char *substr,
+                                 char *data, size_t *len)
 {
     char *s = strstr (str, substr);
 
@@ -434,8 +434,8 @@ char* insert_string_before_line (mem_pool_t *pool, const char *str, const char *
     return retval;
 }
 
-char* insert_string_after_line (mem_pool_t *pool, const char *str, const char *substr,
-                                const char *data, size_t *len)
+char* insert_string_after_line (mem_pool_t *pool, char *str, char *substr,
+                                char *data, size_t *len)
 {
     char *s = strstr (str, substr);
 
@@ -665,7 +665,7 @@ void str_right_pad (string_t *str, int n)
     }
 }
 
-bool xkb_keymap_rules_install (const char *keymap_name)
+bool xkb_keymap_rules_install (char *keymap_name)
 {
     // Build the rule that will be installed
     string_t new_rule = {0};
@@ -927,7 +927,7 @@ bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keyma
 //
 //                                                  Santiago (April 20, 2018)
 //
-bool xkb_keymap_install (const char *keymap_path)
+bool xkb_keymap_install (char *keymap_path)
 {
     bool success = true;
     struct keymap_t keymap = {0};
@@ -964,8 +964,8 @@ bool xkb_keymap_install (const char *keymap_path)
 //
 // NOTE: Substring start is looked up first, then end is searched for after the
 // first occurrence of start.
-char* delete_lines (mem_pool_t *pool, const char *str,
-                   const char *start, const char *end, size_t *res_len)
+char* delete_lines (mem_pool_t *pool, char *str,
+                   char *start, char *end, size_t *res_len)
 {
     char *s = strstr (str, start);
     if (s == NULL) {
@@ -1103,7 +1103,7 @@ void xkb_keymap_list (mem_pool_t *pool, char ***res, int *res_len)
     mem_pool_destroy (&local_pool);
 }
 
-bool xkb_keymap_components_remove (const char *layout_name)
+bool xkb_keymap_components_remove (char *layout_name)
 {
     bool success = true;
     string_t xkb_file = str_new ("/usr/share/X11/xkb/");
@@ -1151,7 +1151,7 @@ bool xkb_keymap_components_remove (const char *layout_name)
     return success;
 }
 
-bool xkb_keymap_uninstall (const char *layout_name)
+bool xkb_keymap_uninstall (char *layout_name)
 {
     bool success = true;
     mem_pool_t pool = {0};

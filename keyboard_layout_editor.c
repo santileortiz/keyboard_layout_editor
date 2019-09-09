@@ -80,7 +80,7 @@ bool unprivileged_xkb_keymap_install (char *keymap_path)
 }
 
 // @Polkit_wrapper
-bool unprivileged_xkb_keymap_uninstall (const char *layout_name)
+bool unprivileged_xkb_keymap_uninstall (char *layout_name)
 {
     bool success = true;
     if (!xkb_keymap_uninstall (layout_name)) {
@@ -264,7 +264,7 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
 {
     GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX(app.custom_layout_list));
     GtkWidget *label = gtk_bin_get_child (GTK_BIN(row));
-    const gchar *curr_layout = gtk_label_get_text (GTK_LABEL (label));
+    gchar *curr_layout = (gchar*)gtk_label_get_text (GTK_LABEL (label));
 
     if (unprivileged_xkb_keymap_uninstall (curr_layout)) {
 

@@ -9,8 +9,6 @@
 #include "scanner.c"
 #include "binary_tree.c"
 
-#include "xkb_keymap_installer.c"
-#include "xkb_keymap_loader.c"
 #include <xkbcommon/xkbcommon.h>
 #include <linux/input-event-codes.h>
 #include "keycode_names.h"
@@ -35,6 +33,8 @@ struct kle_app_t app;
 
 #include "keyboard_layout.c"
 #include "xkb_file_backend.c"
+#include "xkb_keymap_installer.c"
+#include "xkb_keymap_loader.c"
 
 static inline
 void str_cat_full_path (string_t *str, char *path)

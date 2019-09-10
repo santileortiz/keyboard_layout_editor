@@ -54,6 +54,14 @@
 // backend has a maximum of 16 modifiers.
 #define KEYBOARD_LAYOUT_MAX_MODIFIERS 32
 
+struct keyboard_layout_info_t {
+    char *name;
+    char *short_description;
+    char *description;
+    char **languages;
+    int num_languages;
+};
+
 typedef uint32_t key_modifier_mask_t;
 
 // TODO: We should not allow uncontiguous level mappings, unfortunateley the XKB
@@ -137,6 +145,8 @@ struct key_t {
 
 struct keyboard_layout_t {
     mem_pool_t pool;
+
+    struct keyboard_layout_info_t info;
 
     struct key_type_t *types;
     struct key_t *keys[KEY_CNT];

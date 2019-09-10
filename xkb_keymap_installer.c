@@ -371,14 +371,6 @@ bool xkb_keymap_xkb_install (char *xkb_file_content, char *dest_dir, char *layou
     return success;
 }
 
-struct keymap_t {
-    char *name;
-    char *short_description;
-    char *description;
-    char **languages;
-    int num_languages;
-};
-
 xmlNodePtr xml_get_child (xmlNodePtr node, char *child_name)
 {
     xmlNodePtr curr_node = node->children;
@@ -454,7 +446,7 @@ char* insert_string_after_line (mem_pool_t *pool, char *str, char *substr,
     return retval;
 }
 
-bool xkb_keymap_info_install (struct keymap_t *keymap, bool *new_layout)
+bool xkb_keymap_info_install (struct keyboard_layout_info_t *keymap, bool *new_layout)
 {
     // Currently, as far as I know, systems don't look for keymap metadata
     // anywhere else other than /usr/share/X11/xkb/rules/evdev.xml. This
@@ -780,13 +772,13 @@ bool ptrarr_free (struct ptrarr_t *arr)
     return true;
 }
 
-bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keymap_t *res)
+bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keyboard_layout_info_t *res)
 {
     if (res == NULL) {
         return false;
     }
 
-    *res = (struct keymap_t){0};
+    *res = (struct keyboard_layout_info_t){0};
     bool success = true;
     char *s = xkb_file_content;
     while (s && *s) {
@@ -929,8 +921,9 @@ bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keyma
 //
 bool xkb_keymap_install (char *keymap_path)
 {
+
     bool success = true;
-    struct keymap_t keymap = {0};
+    struct keyboard_layout_info_t keymap = {0};
 
     mem_pool_t pool = {0};
     char *xkb_file_content = full_file_read (&pool, keymap_path);

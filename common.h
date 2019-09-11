@@ -439,6 +439,25 @@ char str_last (string_t *str)
     return str_data(str)[str_len(str)-1];
 }
 
+GCC_PRINTF_FORMAT(3, 4)
+void str_put_printf (string_t *str, size_t pos, const char *format, ...)
+{
+    va_list args1, args2;
+    va_start (args1, format);
+    va_copy (args2, args1);
+
+    size_t size = vsnprintf (NULL, 0, format, args1) + 1;
+    va_end (args1);
+
+    char *tmp_str = malloc (size);
+    vsnprintf (tmp_str, size, format, args2);
+    va_end (args2);
+
+    strn_put_c (str, pos, tmp_str, size - 1);
+
+    free (tmp_str);
+}
+
 // These string functions use the printf syntax, this lets code be more concise.
 #define _define_str_printf_func(FUNC_NAME,STRN_FUNC_NAME)       \
 GCC_PRINTF_FORMAT(2, 3)                                         \

@@ -63,19 +63,6 @@ void xkb_keymap_list_default (mem_pool_t *pool, char ***res, int *res_len);
 //////////////////
 // IMPLEMENTATION
 //
-static inline
-bool is_blank (char *c) {
-    return *c == ' ' ||  (*c >= '\t' && *c <= '\r');
-}
-
-static inline
-char *consume_blanks (char *c)
-{
-    while (is_blank(c)) {
-        c++;
-    }
-    return c;
-}
 
 static inline
 char* consume_line (char *c)
@@ -138,24 +125,6 @@ bool consume_char (char *s, char c, char **after)
 }
 
 static inline
-bool consume_until_str (char *s, char *c_str, char **start, char **end)
-{
-    char *found = strstr (s, c_str);
-    if (found) {
-        if (start != NULL) {
-            *start = found;
-        }
-
-        if (end != NULL) {
-            *end = found + strlen(c_str);
-        }
-        return true;
-    } else {
-        return false;
-    }
-}
-
-static inline
 bool consume_spaces (char *s, char **after)
 {
     if (is_space (s)) {
@@ -170,113 +139,6 @@ bool consume_spaces (char *s, char **after)
         return true;
     } else {
         return false;
-    }
-}
-
-// Parses a block of the form
-// <block_id> ["<block_name>"] {<block_content>};
-//
-// NULL can be passed to arguments if we are not interested in a specific part
-// of the block.
-//
-// Returns a pointer to the first character of the line after the block, or NULL
-// if an error occured.
-//
-// NOTE: This functon does not allocate anything. Resulting pointers point into
-// the given string s.
-char* parse_xkb_block (char *s,
-                       char **block_id, size_t *block_id_size,
-                       char **block_name, size_t *block_name_size,
-                       char **block_content, size_t *block_content_size)
-{
-    bool success = true;
-    s = consume_blanks (s);
-    char *id = s;
-    int id_size = 0;
-    while (*s && !is_blank (s)) {
-        s++;
-        id_size++;
-    }
-
-    s = consume_blanks (s);
-    char *name = NULL;
-    int name_size = 0;
-    if (*s == '\"') {
-        s++;
-        name = s;
-        while (*s && *s != '\"') {
-            s++;
-            name_size++;
-        }
-        s++;
-    }
-
-    s = consume_blanks (s);
-    char *content = NULL;
-    int content_size = 0;
-    if (*s == '{') {
-        int brace_cnt = 1;
-        s++;
-        content = s;
-        while (*s) {
-            if (*s == '{') {
-                brace_cnt++;
-            } else if (*s == '}') {
-                brace_cnt--;
-            }
-            
-
-            if (brace_cnt == 0) {
-                s++; // consume '}'
-                break;
-            } else {
-                s++;
-                content_size++;
-            }
-        }
-    } else {
-        success = false;
-        printf ("Block with invalid content.\n");
-    }
-
-    s = consume_blanks (s);
-    if (*s != ';') {
-        success = false;
-        printf ("Missing ; at the end of block.\n");
-    }
-
-    if (*s == '\0') {
-        success = false;
-        printf ("Unexpected end of file.\n");
-    }
-
-    s++; // consume ';'
-
-    if (block_id != NULL) {
-        *block_id = id;
-    }
-    if (block_id_size != NULL) {
-        *block_id_size = id_size;
-    }
-
-    if (block_name != NULL) {
-        *block_name = name;
-    }
-    if (block_name_size != NULL) {
-        *block_name_size = name_size;
-    }
-
-    if (block_content != NULL) {
-        *block_content = content;
-    }
-    if (block_content_size != NULL) {
-        *block_content_size = content_size;
-    }
-
-    if (!success) {
-        return NULL;
-    } else {
-        return consume_line(s);
     }
 }
 
@@ -295,79 +157,52 @@ bool strneq (char *str1, uint32_t str1_size, char* str2, uint32_t str2_size)
 bool xkb_keymap_xkb_install (char *xkb_file_content, char *dest_dir, char *layout_name)
 {
     bool success = true;
-    mem_pool_t pool = {0};
-    char *s = xkb_file_content;
-    if (s != NULL) {
 
-        string_t dest_file = str_new (dest_dir);
-        if (str_last (&dest_file) != '/') {
-            str_cat_c (&dest_file, "/");
-        }
-        int dest_dir_end = str_len (&dest_file);
-
-        // TODO: Correctly ignore comments anywhere. Switch to a proper scanner
-        // API to parse .xkb files.
-        while (consume_str (s, "//", &s)) {
-            s = consume_line (s);
-        }
-
-        char *keymap_id;
-        size_t keymap_id_size, sections_size;
-        parse_xkb_block (s, &keymap_id, &keymap_id_size, NULL, NULL, &s, &sections_size);
-        if (!strneq (keymap_id, keymap_id_size, C_STR("xkb_keymap"))) {
-            success = false;
-        }
-        char* sections_end = s+sections_size-1;
-
-        while (*s && s != sections_end && success) {
-            char *block_name;
-            size_t block_name_size;
-            s = parse_xkb_block (s, &block_name, &block_name_size, NULL, NULL, NULL, NULL);
-            if (s == NULL) {
-                success = false;
-                break;
-            }
-
-            if (strneq (block_name, block_name_size, C_STR("xkb_keycodes"))) {
-                str_put_c (&dest_file, dest_dir_end, "keycodes/");
-                str_cat_c (&dest_file, layout_name);
-                str_cat_c (&dest_file, "_k");
-
-            } else if (strneq (block_name, block_name_size, C_STR("xkb_types"))) {
-                str_put_c (&dest_file, dest_dir_end, "types/");
-                str_cat_c (&dest_file, layout_name);
-                str_cat_c (&dest_file, "_t");
-
-            } else if (strneq (block_name, block_name_size, C_STR("xkb_compatibility"))) {
-                str_put_c (&dest_file, dest_dir_end, "compat/");
-                str_cat_c (&dest_file, layout_name);
-                str_cat_c (&dest_file, "_c");
-
-            } else if (strneq (block_name, block_name_size, C_STR("xkb_symbols"))) {
-                str_put_c (&dest_file, dest_dir_end, "symbols/");
-                str_cat_c (&dest_file, layout_name);
-            } else if (strneq (block_name, block_name_size, C_STR("xkb_geometry"))) {
-                // Ignore
-                continue;
-            } else {
-                success = false;
-                break;
-            }
-
-            if (ensure_path_exists (str_data (&dest_file))) {
-                // s -> pointer to end of parsed block.
-                // block_name -> pointer to the beginning of the parsed block.
-                if (full_file_write (block_name, s - block_name, str_data (&dest_file))) {
-                    success = false;
-                }
-            } else {
-                success = false;
-            }
-        }
-        str_free (&dest_file);
+    struct keyboard_layout_t keymap = {0};
+    if (!xkb_file_parse_verbose (xkb_file_content, &keymap, NULL)) {
+        success = false;
     }
 
-    mem_pool_destroy (&pool);
+    struct xkb_writer_state_t state = {0};
+    state.real_modifiers = xkb_get_real_modifiers_mask (&keymap);
+    // Create a reverse mapping of the modifier mapping in the internal
+    // representation.
+    create_reverse_modifier_name_map (&keymap, state.reverse_modifier_definition);
+
+    string_t dest_file = str_new (dest_dir);
+    if (str_last (&dest_file) != '/') {
+        str_cat_c (&dest_file, "/");
+    }
+    int dest_dir_end = str_len (&dest_file);
+
+    string_t section_buffer = {0};
+    if (success) {
+        str_set (&section_buffer, "");
+        str_put_printf (&dest_file, dest_dir_end, "keycodes/%s_k", layout_name);
+        xkb_file_write_keycodes (&state, &keymap, &section_buffer);
+        ensure_path_exists (str_data (&dest_file));
+        full_file_write (&section_buffer, str_len(&section_buffer), str_data(&dest_file));
+
+        str_set (&section_buffer, "");
+        str_put_printf (&dest_file, dest_dir_end, "types/%s_t", layout_name);
+        xkb_file_write_types (&state, &keymap, &section_buffer);
+        ensure_path_exists (str_data (&dest_file));
+        full_file_write (&section_buffer, str_len(&section_buffer), str_data(&dest_file));
+
+        str_set (&section_buffer, "");
+        str_put_printf (&dest_file, dest_dir_end, "compat/%s_c", layout_name);
+        xkb_file_write_compat (&state, &keymap, &section_buffer);
+        ensure_path_exists (str_data (&dest_file));
+        full_file_write (&section_buffer, str_len(&section_buffer), str_data(&dest_file));
+
+        str_set (&section_buffer, "");
+        str_put_printf (&dest_file, dest_dir_end, "symbols/%s", layout_name);
+        xkb_file_write_symbols (&state, &keymap, &section_buffer);
+        ensure_path_exists (str_data (&dest_file));
+        full_file_write (&section_buffer, str_len(&section_buffer), str_data(&dest_file));
+    }
+
+    str_free (&dest_file);
     return success;
 }
 

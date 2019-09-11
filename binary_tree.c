@@ -125,10 +125,10 @@ bool binary_tree_lookup (struct binary_tree_t *tree, char *key, struct binary_tr
     return key_found;
 }
 
-#define BINARY_TREE_FOREACH_CB(name) void name(struct binary_tree_node_t *node, void *clsr)
+#define BINARY_TREE_FOREACH_CB(name) void name(struct binary_tree_node_t *node, void *data)
 typedef BINARY_TREE_FOREACH_CB(binary_tree_foreach_cb_t);
 
-void binary_tree_foreach (struct binary_tree_t *tree, binary_tree_foreach_cb_t *cb, void *clsr)
+void binary_tree_foreach (struct binary_tree_t *tree, binary_tree_foreach_cb_t *cb, void *data)
 {
     if (tree->num_nodes < 1) return;
 
@@ -151,7 +151,7 @@ void binary_tree_foreach (struct binary_tree_t *tree, binary_tree_foreach_cb_t *
             if (stack_idx == 0) break;
 
             curr_node = stack[--stack_idx];
-            cb (curr_node, clsr);
+            cb (curr_node, data);
 
             curr_node = curr_node->right;
         }

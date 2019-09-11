@@ -125,10 +125,10 @@ bool mod_mask_binary_tree_lookup (struct mod_mask_binary_tree_t *tree, char *key
     return key_found;
 }
 
-#define MOD_MASK_BINARY_TREE_FOREACH_CB(name) void name(struct mod_mask_binary_tree_node_t *node, void *clsr)
+#define MOD_MASK_BINARY_TREE_FOREACH_CB(name) void name(struct mod_mask_binary_tree_node_t *node, void *data)
 typedef MOD_MASK_BINARY_TREE_FOREACH_CB(mod_mask_binary_tree_foreach_cb_t);
 
-void mod_mask_binary_tree_foreach (struct mod_mask_binary_tree_t *tree, mod_mask_binary_tree_foreach_cb_t *cb, void *clsr)
+void mod_mask_binary_tree_foreach (struct mod_mask_binary_tree_t *tree, mod_mask_binary_tree_foreach_cb_t *cb, void *data)
 {
     if (tree->num_nodes < 1) return;
 
@@ -151,7 +151,7 @@ void mod_mask_binary_tree_foreach (struct mod_mask_binary_tree_t *tree, mod_mask
             if (stack_idx == 0) break;
 
             curr_node = stack[--stack_idx];
-            cb (curr_node, clsr);
+            cb (curr_node, data);
 
             curr_node = curr_node->right;
         }

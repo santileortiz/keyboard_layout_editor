@@ -570,43 +570,6 @@ bool xkb_keymap_rules_install (char *keymap_name)
     return success;
 }
 
-// This seems useful, maybe move it into common.h?
-// NOTE: This must be zero initialized
-struct ptrarr_t {
-    void **data;
-    size_t len;
-    size_t size;
-};
-
-bool ptrarr_push (struct ptrarr_t *arr, void *ptr)
-{
-    if (arr->len == arr->size) {
-        if (arr->size == 0) {
-            arr->size = 10;
-        }
-
-        // For a new array this is equivalent to malloc.
-        void *tmp = realloc (arr->data, arr->size*2);
-        if (tmp == NULL) {
-            printf ("Realloc failed\n");
-            return false;
-        } else {
-            arr->data = tmp;
-            arr->size *= 2;
-        }
-    }
-
-    arr->data[arr->len] = ptr;
-    arr->len++;
-    return true;
-}
-
-bool ptrarr_free (struct ptrarr_t *arr)
-{
-    free (arr->data);
-    return true;
-}
-
 bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keyboard_layout_info_t *res)
 {
     if (res == NULL) {

@@ -38,6 +38,7 @@ bool sym_is_keypad (xkb_keysym_t sym)
     return sym >= XKB_KEY_KP_Space && sym <= XKB_KEY_KP_Equal;
 }
 
+
 bool parse_unicode_str (const char *str, uint32_t *cp)
 {
     assert (str != NULL && cp != NULL);
@@ -272,13 +273,6 @@ struct xkb_parser_state_t {
     // the resulting keymap.
     key_modifier_mask_t leds[KEYBOARD_LAYOUT_MAX_LEDS];
 };
-
-void xkb_parser_state_init (struct xkb_parser_state_t *state, char *xkb_str, struct keyboard_layout_t *keymap)
-{
-    *state = ZERO_INIT(struct xkb_parser_state_t);
-    state->scnr.pos = xkb_str;
-    state->keymap = keymap;
-}
 
 void xkb_parser_state_destory (struct xkb_parser_state_t *state)
 {
@@ -2452,6 +2446,57 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state, string_t *vmo
     }
 }
 
+// TODO: At some point this seemed useful to be put into commpon.h, I'm not sure
+// anymore. Isn't it better in these cases to create a linked list and after
+// we're done adding stuff create the static array?.
+// NOTE: This must be zero initialized
+struct ptrarr_t {
+    void **data;
+    size_t len;
+    size_t size;
+};
+
+bool ptrarr_push (struct ptrarr_t *arr, void *ptr)
+{
+    if (arr->size == 0) {
+        arr->size = 10;
+        arr->data = malloc (sizeof(void*)*arr->size);
+
+    } else if (arr->len == arr->size-1) {
+        void *tmp = realloc (arr->data, sizeof(void*)*arr->size*2);
+        if (tmp == NULL) {
+            printf ("Realloc failed\n");
+            return false;
+        } else {
+            arr->data = tmp;
+            arr->size *= 2;
+        }
+    }
+
+    arr->data[arr->len] = ptr;
+    arr->len++;
+    return true;
+}
+
+bool ptrarr_free (struct ptrarr_t *arr)
+{
+    free (arr->data);
+    return true;
+}
+
+void scan_metadata_value (mem_pool_t *pool, struct scanner_t *scnr, char **val)
+{
+    assert (val != NULL);
+
+    scanner_consume_spaces(scnr);
+    if (scanner_char(scnr, ':')) {
+        scanner_consume_spaces (scnr);
+        char *start = scnr->pos;
+        scanner_to_char (scnr, '\n');
+        *val = pom_strndup (pool, start, scnr->pos - start - 1);
+    }
+}
+
 // This parses a subset of the xkb file syntax into our internal representation
 // keyboard_layout_t. We only care about parsing resolved layouts as returned by
 // xkbcomp. Notable differences from a full xkb compiler are the lack of include
@@ -2459,29 +2504,83 @@ void xkb_parser_simplify_layout (struct xkb_parser_state_t *state, string_t *vmo
 // TODO: Use status_t here.
 bool xkb_file_parse_verbose (char *xkb_str, struct keyboard_layout_t *keymap, string_t *log)
 {
-    struct xkb_parser_state_t state;
-    xkb_parser_state_init (&state, xkb_str, keymap);
+    struct xkb_parser_state_t state = {0};
+    {
+        state.scnr.pos = xkb_str;
+        state.keymap = keymap;
 
-    char *real_modifiers[] = XKB_FILE_BACKEND_REAL_MODIFIER_NAMES_LIST;
-    state.real_modifiers = real_modifiers;
-    state.real_modifiers_len = ARRAY_SIZE(real_modifiers);
+        char *real_modifiers[] = XKB_FILE_BACKEND_REAL_MODIFIER_NAMES_LIST;
+        state.real_modifiers = real_modifiers;
+        state.real_modifiers_len = ARRAY_SIZE(real_modifiers);
 
-    // Here we predefine all 8 real modifiers so that our parser always assigns
-    // them the same modifier mask. This is useful because all our layouts will
-    // only have real modifiers, then doing this ensures that things get printed
-    // in the same order every time. Also, we don't need to check if a real
-    // modifier is defined, it will always be. The only reason not to do this
-    // was because of the modifier limit of 16 in XKB, it was possible that the
-    // layout got to this limit by defining lots of virtual modifiers. This
-    // doesn't happen now because our IR supports 32 modifiers and none of the
-    // base layouts tries to define this many. In fact, layouts created by out
-    // writer will have at most 8 modifiers because we only support real
-    // modifiers.
-    // :predefined_real_modifiers
-    for (int i=0; i<ARRAY_SIZE(real_modifiers); i++) {
-        enum modifier_result_status_t status = 0;
-        keyboard_layout_new_modifier (keymap, real_modifiers[i], &status);
-        assert (status == KEYBOARD_LAYOUT_MOD_SUCCESS);
+        // Here we predefine all 8 real modifiers so that our parser always assigns
+        // them the same modifier mask. This is useful because all our layouts will
+        // only have real modifiers, then doing this ensures that things get printed
+        // in the same order every time. Also, we don't need to check if a real
+        // modifier is defined, it will always be. The only reason not to do this
+        // was because of the modifier limit of 16 in XKB, it was possible that the
+        // layout got to this limit by defining lots of virtual modifiers. This
+        // doesn't happen now because our IR supports 32 modifiers and none of the
+        // base layouts tries to define this many. In fact, layouts created by out
+        // writer will have at most 8 modifiers because we only support real
+        // modifiers.
+        // :predefined_real_modifiers
+        for (int i=0; i<ARRAY_SIZE(real_modifiers); i++) {
+            enum modifier_result_status_t status = 0;
+            keyboard_layout_new_modifier (keymap, real_modifiers[i], &status);
+            assert (status == KEYBOARD_LAYOUT_MOD_SUCCESS);
+        }
+    }
+
+
+    // Parse metadata comments
+    // NOTE: In general we will ignore all the comments in the tokenizer
+    // xkb_parser_next() here we use th scanner directly a little bit to get the
+    // information not stored in xkb.
+    {
+        struct scanner_t *scnr = &state.scnr;
+        struct keyboard_layout_info_t *info = &keymap->info;
+        scnr->eof_is_error = true;
+        while (scanner_str (scnr, "//")) {
+            scanner_consume_spaces (scnr);
+
+            if (scanner_strcase (scnr, "name")) {
+                scan_metadata_value (&keymap->pool,scnr, &info->name);
+
+            } else if (scanner_strcase (scnr, "description")) {
+                scan_metadata_value (&keymap->pool,scnr, &info->description);
+
+            } else if (scanner_strcase (scnr, "short description")) {
+                scan_metadata_value (&keymap->pool,scnr, &info->short_description);
+
+            } else if (scanner_strcase (scnr, "languages")) {
+                // TODO: Check we actually get iso639 codes. Debian has them in
+                // /usr/share/iso-codes/json/ or /usr/share/xml/iso-codes/, the
+                // XML verison seems to be deprecated.
+                scanner_consume_spaces(scnr);
+                if (scanner_char(scnr, ':')) {
+                    struct ptrarr_t languages = {0};
+                    while (*scnr->pos != '\n') {
+                        scanner_consume_spaces (scnr);
+                        char *start = scnr->pos;
+                        scanner_to_any_char (scnr, ",\n");
+
+                        info->num_languages++;
+                        char* lang = pom_strndup (&keymap->pool, start, scnr->pos - start - 1);
+                        ptrarr_push (&languages, lang);
+                    }
+
+                    info->languages = pom_push_size (&keymap->pool, sizeof(char*)*info->num_languages);
+                    int i;
+                    for (i=0; i<info->num_languages; i++) {
+                        info->languages[i] = languages.data[i];
+                    }
+                    ptrarr_free (&languages);
+                }
+            }
+
+        }
+        scnr->eof_is_error = false;
     }
 
     xkb_parser_consume_tok (&state, XKB_PARSER_TOKEN_IDENTIFIER, "xkb_keymap");

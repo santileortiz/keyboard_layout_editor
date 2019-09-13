@@ -222,21 +222,10 @@ bool scanner_to_any_char (struct scanner_t *scnr, char *char_list)
     if (scnr->error)
         return false;
 
-    bool found = false;
-    while (*scnr->pos != '\0' && !found) {
-        char *c = char_list;
-        while (*c != '\0') {
-            if (*scnr->pos == *c) {
-                found = true;
-                break;
-            }
-            c++;
-        }
-
+    while (*scnr->pos != '\0' && *scnr->pos != c) {
         if (*scnr->pos == '\n') {
             scnr->line_number++;
         }
-
         scnr->pos++;
     }
 
@@ -244,6 +233,7 @@ bool scanner_to_any_char (struct scanner_t *scnr, char *char_list)
         scanner_eof_set (scnr);
         return false;
     } else {
+        scnr->pos++;
         return true;
     }
 }

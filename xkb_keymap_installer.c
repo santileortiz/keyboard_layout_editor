@@ -94,12 +94,54 @@ bool strneq (char *str1, uint32_t str1_size, char* str2, uint32_t str2_size)
     }
 }
 
-bool xkb_keymap_xkb_install (struct keyboard_layout_t *keymap, char *dest_dir, char *layout_name)
+#define XKB_CMPNT_TABLE \
+    XKB_PARSER_COMPAT_ROW(XKB_CMPNT_KEYCODES, "keycodes", "_k") \
+    XKB_PARSER_COMPAT_ROW(XKB_CMPNT_TYPES,    "types",    "_t") \
+    XKB_PARSER_COMPAT_ROW(XKB_CMPNT_COMPAT,   "compat",   "_c") \
+    XKB_PARSER_COMPAT_ROW(XKB_CMPNT_SYMBOLS,  "symbols",  "")
+
+enum xkb_cmpnt_symbols_t {
+#define XKB_PARSER_COMPAT_ROW(symbol, name, suffix) symbol,
+    XKB_CMPNT_TABLE
+#undef XKB_PARSER_COMPAT_ROW
+    XKB_CMPNT_NUM_SYMBOLS
+};
+
+char *xkb_cmpnt_names[] = {
+#define XKB_PARSER_COMPAT_ROW(symbol, name, suffix) name,
+    XKB_CMPNT_TABLE
+#undef XKB_PARSER_COMPAT_ROW
+};
+
+char *xkb_cmpnt_suffixes[] = {
+#define XKB_PARSER_COMPAT_ROW(symbol, name, suffix) suffix,
+    XKB_CMPNT_TABLE
+#undef XKB_PARSER_COMPAT_ROW
+};
+
+#undef XKB_CMPNT_TABLE
+
+#define XKB_CMPNT_FILE_PREFIX "cstm_"
+void str_put_xkb_component_fname (string_t *str, size_t pos, char *layout_name, enum xkb_cmpnt_symbols_t cmpnt)
+{
+    str_put_printf (str, pos,
+                    XKB_CMPNT_FILE_PREFIX"%s%s",
+                    layout_name, xkb_cmpnt_suffixes[cmpnt]);
+}
+
+void str_put_xkb_component_path (string_t *str, size_t pos, char *layout_name, enum xkb_cmpnt_symbols_t cmpnt)
+{
+    str_put_printf (str, pos,
+                    "%s/"XKB_CMPNT_FILE_PREFIX"%s%s",
+                    xkb_cmpnt_names[cmpnt], layout_name, xkb_cmpnt_suffixes[cmpnt]);
+}
+
+bool xkb_keymap_xkb_install (struct keyboard_layout_t *keymap, char *dest_dir)
 {
     bool success = true;
     // TODO: Do we want to check that this layout name is available? or we will
     // just overwrite it. Probably better to overwrite it at this level, at a
-    // hicher lever we can warn that an overwrite will happen.
+    // higher lever we can warn that an overwrite will happen.
 
     struct xkb_writer_state_t state = {0};
     state.real_modifiers = xkb_get_real_modifiers_mask (keymap);
@@ -116,30 +158,31 @@ bool xkb_keymap_xkb_install (struct keyboard_layout_t *keymap, char *dest_dir, c
     string_t section_buffer = {0};
     if (success) {
         str_set (&section_buffer, "");
-        str_put_printf (&dest_file, dest_dir_end, "keycodes/%s_k", layout_name);
+        str_put_xkb_component_path (&dest_file, dest_dir_end, keymap->info.name, XKB_CMPNT_KEYCODES);
         xkb_file_write_keycodes (&state, keymap, &section_buffer);
         ensure_path_exists (str_data (&dest_file));
-        full_file_write (&section_buffer, str_len(&section_buffer), str_data(&dest_file));
+        full_file_write (str_data(&section_buffer), str_len(&section_buffer), str_data(&dest_file));
 
         str_set (&section_buffer, "");
-        str_put_printf (&dest_file, dest_dir_end, "types/%s_t", layout_name);
+        str_put_xkb_component_path (&dest_file, dest_dir_end, keymap->info.name, XKB_CMPNT_TYPES);
         xkb_file_write_types (&state, keymap, &section_buffer);
         ensure_path_exists (str_data (&dest_file));
-        full_file_write (&section_buffer, str_len(&section_buffer), str_data(&dest_file));
+        full_file_write (str_data(&section_buffer), str_len(&section_buffer), str_data(&dest_file));
 
         str_set (&section_buffer, "");
-        str_put_printf (&dest_file, dest_dir_end, "compat/%s_c", layout_name);
+        str_put_xkb_component_path (&dest_file, dest_dir_end, keymap->info.name, XKB_CMPNT_COMPAT);
         xkb_file_write_compat (&state, keymap, &section_buffer);
         ensure_path_exists (str_data (&dest_file));
-        full_file_write (&section_buffer, str_len(&section_buffer), str_data(&dest_file));
+        full_file_write (str_data(&section_buffer), str_len(&section_buffer), str_data(&dest_file));
 
         str_set (&section_buffer, "");
-        str_put_printf (&dest_file, dest_dir_end, "symbols/%s", layout_name);
+        str_put_xkb_component_path (&dest_file, dest_dir_end, keymap->info.name, XKB_CMPNT_SYMBOLS);
         xkb_file_write_symbols (&state, keymap, &section_buffer);
         ensure_path_exists (str_data (&dest_file));
-        full_file_write (&section_buffer, str_len(&section_buffer), str_data(&dest_file));
+        full_file_write (str_data(&section_buffer), str_len(&section_buffer), str_data(&dest_file));
     }
 
+    str_free (&section_buffer);
     str_free (&dest_file);
     return success;
 }
@@ -437,37 +480,24 @@ bool xkb_keymap_rules_install (char *keymap_name)
     {
         int col_size = MAX (2 + strlen (keymap_name), strlen("! layout")) + 1;
 
+        // TODO: It would be nice to have padding in a printf like syntax
         string_t decl = str_new ("! layout");
         str_right_pad (&decl, col_size);
         str_cat_c (&decl, "= ");
         size_t decl_len = str_len (&decl);
 
-        string_t value = str_new ("  ");
-        str_cat_c (&value, keymap_name);
-        str_right_pad (&value, col_size);
-        str_cat_c (&value, "= ");
-        str_cat_c (&value, keymap_name);
+        string_t value = {0};
+        str_set_printf (&value, "  %s = "XKB_CMPNT_FILE_PREFIX"%s", keymap_name, keymap_name);
         size_t value_len = str_len (&value);
 
-        str_put_c (&decl, decl_len, "types\n");
-        str_put_c (&value, value_len, "_t\n");
-        str_cat (&new_rule, &decl);
-        str_cat (&new_rule, &value);
+        for (enum xkb_cmpnt_symbols_t cmpnt = 0; cmpnt < XKB_CMPNT_NUM_SYMBOLS; cmpnt++) {
+            str_put_c (&decl, decl_len, xkb_cmpnt_names[cmpnt]);
+            str_put_c (&value, value_len, xkb_cmpnt_suffixes[cmpnt]);
 
-        str_put_c (&decl, decl_len, "keycodes\n");
-        str_put_c (&value, value_len, "_k\n");
-        str_cat (&new_rule, &decl);
-        str_cat (&new_rule, &value);
+            str_cat (&new_rule, &decl);
+            str_cat (&new_rule, &value);
+        }
 
-        str_put_c (&decl, decl_len, "compat\n");
-        str_put_c (&value, value_len, "_c\n");
-        str_cat (&new_rule, &decl);
-        str_cat (&new_rule, &value);
-
-        str_put_c (&decl, decl_len, "symbols\n");
-        str_put_c (&value, value_len, "\n\n");
-        str_cat (&new_rule, &decl);
-        str_cat (&new_rule, &value);
         str_free (&decl);
         str_free (&value);
     }
@@ -592,7 +622,7 @@ bool xkb_keymap_install (char *keymap_path)
     }
 
     if (success) {
-        success = xkb_keymap_xkb_install (&keymap, "/usr/share/X11/xkb", keymap.info.name);
+        success = xkb_keymap_xkb_install (&keymap, "/usr/share/X11/xkb");
     }
 
     keyboard_layout_destroy (&keymap);
@@ -753,44 +783,16 @@ bool xkb_keymap_components_remove (char *layout_name)
     string_t xkb_file = str_new ("/usr/share/X11/xkb/");
     size_t xkb_root_end = str_len (&xkb_file);
 
-    str_put_c (&xkb_file, xkb_root_end, "types/");
-    str_cat_c (&xkb_file, layout_name);
-    str_cat_c (&xkb_file, "_t");
-    if (unlink (str_data(&xkb_file)) == -1) {
-        success = false;
-        if (errno != EACCES) {
-            printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
+    for (enum xkb_cmpnt_symbols_t cmpnt = 0; cmpnt < XKB_CMPNT_NUM_SYMBOLS; cmpnt++) {
+        str_put_xkb_component_path (&xkb_file, xkb_root_end, layout_name, cmpnt);
+        if (unlink (str_data(&xkb_file)) == -1) {
+            success = false;
+            if (errno != EACCES) {
+                printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
+            }
         }
     }
 
-    str_put_c (&xkb_file, xkb_root_end, "keycodes/");
-    str_cat_c (&xkb_file, layout_name);
-    str_cat_c (&xkb_file, "_k");
-    if (unlink (str_data(&xkb_file)) == -1) {
-        success = false;
-        if (errno != EACCES) {
-            printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
-        }
-    }
-
-    str_put_c (&xkb_file, xkb_root_end, "compat/");
-    str_cat_c (&xkb_file, layout_name);
-    str_cat_c (&xkb_file, "_c");
-    if (unlink (str_data(&xkb_file)) == -1) {
-        success = false;
-        if (errno != EACCES) {
-            printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
-        }
-    }
-
-    str_put_c (&xkb_file, xkb_root_end, "symbols/");
-    str_cat_c (&xkb_file, layout_name);
-    if (unlink (str_data(&xkb_file)) == -1) {
-        success = false;
-        if (errno != EACCES) {
-            printf ("Error deleting %s: %s\n", str_data (&xkb_file), strerror (errno));
-        }
-    }
     str_free (&xkb_file);
     return success;
 }

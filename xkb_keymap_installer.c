@@ -64,6 +64,10 @@ void xkb_keymap_list_default (mem_pool_t *pool, char ***res, int *res_len);
 // IMPLEMENTATION
 //
 
+// TODO: Maybe move back to common.c? It looks like there is a place for these
+// one use functions that don't require keeping any state for parsing anywhere.
+// Maybe we can keep the more generig consume_to_any_char() and implement
+// consume_line() as a call to it.
 static inline
 char* consume_line (char *c)
 {
@@ -78,70 +82,6 @@ char* consume_line (char *c)
     return c;
 }
 
-// Compares the beginning of s with the null terminated c_str, returns true if
-// it matches and false otherwise. If after!=NULL and there is a match after is
-// set to point to the character after the match. If the string does not match
-// we leafe after unchanged.
-static inline
-bool consume_str (char *s, char *c_str, char **after)
-{
-    size_t len = strlen(c_str);
-    if (memcmp (s, c_str, len) == 0) {
-        if (after != NULL) {
-            *after = s+len;
-        }
-        return true;
-    } else {
-        return false;
-    }
-}
-
-// Same as consume_str() but ignores the case of the strings.
-static inline
-bool consume_case_str (char *s, char *c_str, char **after)
-{
-    size_t len = strlen(c_str);
-    if (strncasecmp (s, c_str, len) == 0) {
-        if (after != NULL) {
-            *after = s+len;
-        }
-        return true;
-    } else {
-        return false;
-    }
-}
-
-static inline
-bool consume_char (char *s, char c, char **after)
-{
-    if (*s == c) {
-        if (after != NULL) {
-            *after = s+1;
-        }
-        return true;
-    } else {
-        return false;
-    }
-}
-
-static inline
-bool consume_spaces (char *s, char **after)
-{
-    if (is_space (s)) {
-        while (is_space(s)) {
-            s++;
-        }
-
-        if (after != NULL) {
-            *after = s;
-        }
-
-        return true;
-    } else {
-        return false;
-    }
-}
-
 #define C_STR(str) str,((str)!=NULL?strlen(str):0)
 
 static inline
@@ -154,20 +94,18 @@ bool strneq (char *str1, uint32_t str1_size, char* str2, uint32_t str2_size)
     }
 }
 
-bool xkb_keymap_xkb_install (char *xkb_file_content, char *dest_dir, char *layout_name)
+bool xkb_keymap_xkb_install (struct keyboard_layout_t *keymap, char *dest_dir, char *layout_name)
 {
     bool success = true;
-
-    struct keyboard_layout_t keymap = {0};
-    if (!xkb_file_parse_verbose (xkb_file_content, &keymap, NULL)) {
-        success = false;
-    }
+    // TODO: Do we want to check that this layout name is available? or we will
+    // just overwrite it. Probably better to overwrite it at this level, at a
+    // hicher lever we can warn that an overwrite will happen.
 
     struct xkb_writer_state_t state = {0};
-    state.real_modifiers = xkb_get_real_modifiers_mask (&keymap);
+    state.real_modifiers = xkb_get_real_modifiers_mask (keymap);
     // Create a reverse mapping of the modifier mapping in the internal
     // representation.
-    create_reverse_modifier_name_map (&keymap, state.reverse_modifier_definition);
+    create_reverse_modifier_name_map (keymap, state.reverse_modifier_definition);
 
     string_t dest_file = str_new (dest_dir);
     if (str_last (&dest_file) != '/') {
@@ -179,25 +117,25 @@ bool xkb_keymap_xkb_install (char *xkb_file_content, char *dest_dir, char *layou
     if (success) {
         str_set (&section_buffer, "");
         str_put_printf (&dest_file, dest_dir_end, "keycodes/%s_k", layout_name);
-        xkb_file_write_keycodes (&state, &keymap, &section_buffer);
+        xkb_file_write_keycodes (&state, keymap, &section_buffer);
         ensure_path_exists (str_data (&dest_file));
         full_file_write (&section_buffer, str_len(&section_buffer), str_data(&dest_file));
 
         str_set (&section_buffer, "");
         str_put_printf (&dest_file, dest_dir_end, "types/%s_t", layout_name);
-        xkb_file_write_types (&state, &keymap, &section_buffer);
+        xkb_file_write_types (&state, keymap, &section_buffer);
         ensure_path_exists (str_data (&dest_file));
         full_file_write (&section_buffer, str_len(&section_buffer), str_data(&dest_file));
 
         str_set (&section_buffer, "");
         str_put_printf (&dest_file, dest_dir_end, "compat/%s_c", layout_name);
-        xkb_file_write_compat (&state, &keymap, &section_buffer);
+        xkb_file_write_compat (&state, keymap, &section_buffer);
         ensure_path_exists (str_data (&dest_file));
         full_file_write (&section_buffer, str_len(&section_buffer), str_data(&dest_file));
 
         str_set (&section_buffer, "");
         str_put_printf (&dest_file, dest_dir_end, "symbols/%s", layout_name);
-        xkb_file_write_symbols (&state, &keymap, &section_buffer);
+        xkb_file_write_symbols (&state, keymap, &section_buffer);
         ensure_path_exists (str_data (&dest_file));
         full_file_write (&section_buffer, str_len(&section_buffer), str_data(&dest_file));
     }
@@ -570,91 +508,6 @@ bool xkb_keymap_rules_install (char *keymap_name)
     return success;
 }
 
-bool extract_keymap_info (mem_pool_t *pool, char *xkb_file_content, struct keyboard_layout_info_t *res)
-{
-    if (res == NULL) {
-        return false;
-    }
-
-    *res = (struct keyboard_layout_info_t){0};
-    bool success = true;
-    char *s = xkb_file_content;
-    while (s && *s) {
-        if (consume_str (s, "//", &s)) {
-            consume_spaces (s, &s);
-            if (consume_case_str (s, "name", &s)) {
-                consume_spaces(s, &s);
-                if (consume_char(s, ':', &s)) {
-                    consume_spaces (s, &s);
-                    char *end = consume_line (s);
-                    res->name = pom_strndup (pool, s, end - s - 1);
-                }
-
-            } else if (consume_case_str (s, "description", &s)) {
-                consume_spaces(s, &s);
-                if (consume_char(s, ':', &s)) {
-                    consume_spaces (s, &s);
-                    char *end = consume_line (s);
-                    res->description = pom_strndup (pool, s, end - s - 1);
-                }
-
-            } else if (consume_case_str (s, "short description", &s)) {
-                consume_spaces(s, &s);
-                if (consume_char(s, ':', &s)) {
-                    consume_spaces (s, &s);
-                    char *end = consume_line (s);
-                    res->short_description = pom_strndup (pool, s, end - s - 1);
-                }
-
-            } else if (consume_case_str (s, "languages", &s)) {
-                // TODO: Check we actually get iso639 codes. Debian has them in
-                // /usr/share/iso-codes/json/ or /usr/share/xml/iso-codes/, the
-                // XML verison seems to be deprecated.
-                consume_spaces(s, &s);
-                if (consume_char(s, ':', &s)) {
-                    struct ptrarr_t languages = {0};
-                    while (*s && *s != '\n') {
-                        char *start = s;
-                        consume_spaces (s, &start);
-                        char *end = start;
-                        while (*end != ',' && *end != '\n') {
-                            end++;
-                        }
-                        s = end + 1;
-
-                        end--;
-                        while (is_space(end)) {
-                            end--;
-                        }
-                        end++;
-
-                        res->num_languages++;
-                        char* lang = pom_strndup (pool, start, end - start);
-                        ptrarr_push (&languages, lang);
-                    }
-
-                    res->languages = pom_push_size (pool, sizeof(char*)*res->num_languages);
-                    int i;
-                    for (i=0; i<res->num_languages; i++) {
-                        res->languages[i] = languages.data[i];
-                    }
-                    ptrarr_free (&languages);
-                }
-            }
-        } 
-
-        s = consume_line (s);
-    }
-
-    // TODO: Make some fields optional.
-    if (res->name == NULL || res->description == NULL ||
-        res->short_description == NULL || res->languages == NULL) {
-        success = false;
-    }
-
-    return success;
-}
-
 // Ideally, the installation of a new keymap should be as simple as copying a
 // file to some local configuration directory. A bit less idealy we could copy
 // the keymap as a .xkb file, then add metadata somewhere else like evdev.xml.
@@ -721,28 +574,28 @@ bool xkb_keymap_install (char *keymap_path)
 {
 
     bool success = true;
-    struct keyboard_layout_info_t keymap = {0};
 
     mem_pool_t pool = {0};
     char *xkb_file_content = full_file_read (&pool, keymap_path);
-    success = extract_keymap_info (&pool, xkb_file_content, &keymap);
-    if (!success) {
-        printf ("Error parsing %s.\n", keymap_path);
+    struct keyboard_layout_t keymap = {0};
+    if (!xkb_file_parse_verbose (xkb_file_content, &keymap, NULL)) {
+        success = false;
     }
 
     bool new_layout;
     if (success) {
-        success = xkb_keymap_info_install (&keymap, &new_layout);
+        success = xkb_keymap_info_install (&keymap.info, &new_layout);
     }
 
     if (success && new_layout) {
-        success = xkb_keymap_rules_install (keymap.name);
+        success = xkb_keymap_rules_install (keymap.info.name);
     }
 
     if (success) {
-        success = xkb_keymap_xkb_install (xkb_file_content, "/usr/share/X11/xkb", keymap.name);
+        success = xkb_keymap_xkb_install (&keymap, "/usr/share/X11/xkb", keymap.info.name);
     }
 
+    keyboard_layout_destroy (&keymap);
     mem_pool_destroy (&pool);
     return success;
 }

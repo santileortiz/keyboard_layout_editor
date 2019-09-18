@@ -491,8 +491,8 @@ bool xkb_keymap_rules_install (char *keymap_name)
         size_t value_len = str_len (&value);
 
         for (enum xkb_cmpnt_symbols_t cmpnt = 0; cmpnt < XKB_CMPNT_NUM_SYMBOLS; cmpnt++) {
-            str_put_c (&decl, decl_len, xkb_cmpnt_names[cmpnt]);
-            str_put_c (&value, value_len, xkb_cmpnt_suffixes[cmpnt]);
+            str_put_printf (&decl, decl_len, "%s\n", xkb_cmpnt_names[cmpnt]);
+            str_put_printf (&value, value_len, "%s\n", xkb_cmpnt_suffixes[cmpnt]);
 
             str_cat (&new_rule, &decl);
             str_cat (&new_rule, &value);

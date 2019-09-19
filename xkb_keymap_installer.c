@@ -268,9 +268,9 @@ bool xkb_keymap_info_install (struct keyboard_layout_info_t *keymap, bool *new_l
     // anywhere else other than /usr/share/X11/xkb/rules/evdev.xml. This
     // function installs the metadata in keymap into this system file.
     //
-    // The function fails if the system by default has a keymap with the same
-    // name as keymap->name. But, if there is a custom keymap with the same
-    // name, then we update the metadata.
+    // We avoid name conflicts with existing layouts by prefixing our installed
+    // files. If there is a custom keymap with the same name, then we update the
+    // metadata.
     //
     // Custom keyboard metadata is added as children to the 'layoutList' xml
     // node. To separate custom from default layouts, custom keymap info is
@@ -294,6 +294,10 @@ bool xkb_keymap_info_install (struct keyboard_layout_info_t *keymap, bool *new_l
     const char *db_path = "/usr/share/X11/xkb/rules/evdev.xml";
     mem_pool_t pool = {0};
 
+
+    string_t installed_name = {0};
+    str_put_xkb_component_fname (&installed_name, 0, keymap->name, XKB_CMPNT_SYMBOLS);
+
     // Build a new <layout> node from keymap
     string_t new_layout_str = {0};
     {
@@ -304,7 +308,7 @@ bool xkb_keymap_info_install (struct keyboard_layout_info_t *keymap, bool *new_l
         xmlTextWriterStartElement (wrtr, (const xmlChar *)"layout");
         xmlTextWriterStartElement (wrtr, (const xmlChar *)"configItem");
         xmlTextWriterWriteElement (wrtr, (const xmlChar *)"name",
-                                   (const xmlChar *)keymap->name);
+                                   (const xmlChar *)(str_data(&installed_name)));
         xmlTextWriterWriteElement (wrtr, (const xmlChar *)"shortDescription",
                                    (const xmlChar *)keymap->short_description);
         xmlTextWriterWriteElement (wrtr, (const xmlChar *)"description",
@@ -367,7 +371,7 @@ bool xkb_keymap_info_install (struct keyboard_layout_info_t *keymap, bool *new_l
                 if (configItem != NULL) {
                     xmlNodePtr name_node = xml_get_child (configItem, "name");
                     xmlChar *name = xmlNodeGetContent(name_node);
-                    if (xmlStrcmp (name, (const xmlChar *)keymap->name) == 0) {
+                    if (xmlStrcmp (name, (const xmlChar *)(str_data(&installed_name))) == 0) {
                         success = false;
                     }
                     xmlFree (name);
@@ -378,9 +382,10 @@ bool xkb_keymap_info_install (struct keyboard_layout_info_t *keymap, bool *new_l
 
             // If keymap is already a custom layout update it.
             //
-            // Look for a <layout> node with <name> == keymap->name in the full XML
-            // database, if we find it, update it. It's guearanteed to be a  custom
-            // layout because these were the only ones ignored.
+            // Look for a <layout> node with <name> == str_data(&installed_name)
+            // in the full XML database, if we find it, update it. It's
+            // guearanteed to be a  custom layout because these were the only
+            // ones ignored.
             xmlDocPtr out_xml = xmlParseFile (db_path);
             {
                 xmlDocPtr new_node_doc = xmlParseMemory (str_data(&new_layout_str),
@@ -394,7 +399,7 @@ bool xkb_keymap_info_install (struct keyboard_layout_info_t *keymap, bool *new_l
                     if (configItem != NULL) {
                         xmlNodePtr name_node = xml_get_child (configItem, "name");
                         xmlChar *name = xmlNodeGetContent(name_node);
-                        if (xmlStrcmp (name, (const xmlChar *)keymap->name) == 0) {
+                        if (xmlStrcmp (name, (const xmlChar *)(str_data(&installed_name))) == 0) {
                             xmlAddPrevSibling (curr_layout, new_node);
                             xmlUnlinkNode (curr_layout);
                             xmlFreeNode (curr_layout);

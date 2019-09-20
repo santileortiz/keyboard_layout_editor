@@ -2538,7 +2538,10 @@ bool xkb_file_parse_verbose (char *xkb_str, struct keyboard_layout_t *keymap, st
     // xkb_parser_next() here we use th scanner directly a little bit to get the
     // information not stored in xkb.
     {
-        struct scanner_t *scnr = &state.scnr;
+        struct scanner_t metadata_scaner = {0};
+        metadata_scaner.pos = xkb_str;
+
+        struct scanner_t *scnr = &metadata_scaner;
         struct keyboard_layout_info_t *info = &keymap->info;
         scnr->eof_is_error = true;
         while (scanner_str (scnr, "//")) {
@@ -2578,7 +2581,6 @@ bool xkb_file_parse_verbose (char *xkb_str, struct keyboard_layout_t *keymap, st
                     ptrarr_free (&languages);
                 }
             }
-
         }
         scnr->eof_is_error = false;
     }

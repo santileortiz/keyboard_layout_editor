@@ -2756,7 +2756,7 @@ void xkb_file_write_modifier_action_arguments (struct xkb_writer_state_t *state,
 
 // TODO: The index of these names represents the mapping I have seen used in
 // Linux, is there a place in the kernel where we can get these names?. If there
-// is, we should autogenerate this array, like we do with keycode_names.
+// is, we should autogenerate this array, like we do with kernel_keycode_names.
 char *indicator_names[] = {
     "Caps Lock",
     "Num Lock",
@@ -2774,21 +2774,43 @@ char *indicator_names[] = {
     "Mouse Keys"
 };
 
+char* get_writer_keycode_name (int kc)
+{
+    char *res = "";
+
+    if (xkb_keycode_names[kc] != NULL) {
+        res = xkb_keycode_names[kc];
+
+    } else if (kernel_keycode_names[kc]) {
+        res = kernel_keycode_names[kc];
+    }
+
+    return res;
+}
+
 // As far as I've been able to understand, the keycode section is basically
 // useless. It's only purpose is to assign more semantically meaningful names to
 // keycodes. There is no list of specific key identifiers, instead the keymap
-// database is the one that attempts to provide meaning to them.  As far as I
+// database is the one that attempts to provide meaning to them. As far as I
 // can tell any 0 to 4 sequence of alphanumeric characters can be a key
-// identifier. What we do with this section is to name keycodes by their kernel
-// keycode (keycode KEY_ESC will be <1>). At the moment the kernel expects to
-// have maximum 768 keycode macros, I don't think they will go beyond the 4
-// character limit.
+// identifier. We define keycode names in our output by the name used in the
+// default keycode section of an xkb file, see xkb_keycode_names.h. As a
+// fallback if there is no name in this list, we use the kernel symbol name but
+// this may cause problems because they are longer thatn 4 characters. Hopefully
+// this doesn't happen?...
 //
-// In the future I think the xkb file format could even drop the <> but we would
-// have to check that this isn't semantically ambiguous. To improve human
-// readability we could use the kernel's macros for keycodes but then we are
-// relying on these macros never changing in the future (which I think is a safe
-// assumption to make about the kernel development team).
+// I previously tried to name keycodes by their kernel keycode (keycode KEY_ESC
+// will be <1>). This worked fine with the 4 character limit because the kernel
+// currently expects a maximum of 768 keycode macros, and I don't think they
+// will go beyond 999. The problem with this approach is that debugging the
+// output of the writer and comparing it to the original xkb file becomes
+// cumbersome. Also, I'm not sure this section is actually taken into account by
+// all the code in the operating system's stack that handles layouts.
+//
+// In general it would be better if the xkb file format would use the kernel
+// symbol names. We would be relying on these macros never changing in the
+// future (which I think is a safe assumption to make about the kernel
+// development team).
 void xkb_file_write_keycodes (struct xkb_writer_state_t *state,
                               struct keyboard_layout_t *keymap,
                               string_t *xkb_str)
@@ -2802,10 +2824,10 @@ void xkb_file_write_keycodes (struct xkb_writer_state_t *state,
     int i=0;
     for (i=0; i<KEY_CNT; i++) {
         if (keymap->keys[i] != NULL) {
-            str_cat_printf (xkb_str, "    <%d> = %d", i, i+8);
+            str_cat_printf (xkb_str, "    <%s> = %d", get_writer_keycode_name(i), i+8);
 
-            if (keycode_names[i] != NULL) {
-                str_cat_printf (xkb_str, "; // %s\n", keycode_names[i]);
+            if (kernel_keycode_names[i] != NULL) {
+                str_cat_printf (xkb_str, "; // %s\n", kernel_keycode_names[i]);
 
             } else {
                 str_cat_c (xkb_str, ";\n");
@@ -2913,7 +2935,7 @@ void xkb_file_write_symbols (struct xkb_writer_state_t *state,
         if (curr_key != NULL) {
             int num_levels = keyboard_layout_type_get_num_levels (curr_key->type);
 
-            str_cat_printf (xkb_str, "    key <%d> {\n", i);
+            str_cat_printf (xkb_str, "    key <%s> {\n", get_writer_keycode_name(i));
 
             str_cat_printf (xkb_str, "        type= \"%s\",\n", str_data(&curr_key->type->name));
 

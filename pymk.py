@@ -97,12 +97,12 @@ def generate_keycode_names ():
         except:
             pass
 
-    keycode_names = open ("keycode_names.h", "w")
+    keycode_names = open ("kernel_keycode_names.h", "w")
     keycode_names.write ("// File automatically generated using './pymk generate_keycode_names'\n")
-    keycode_names.write ("char *keycode_names[KEY_CNT] = {0};\n\n")
-    keycode_names.write ("void init_keycode_names () {\n")
+    keycode_names.write ("char *kernel_keycode_names[KEY_CNT] = {0};\n\n")
+    keycode_names.write ("void init_kernel_keycode_names () {\n")
     for kc, name in sorted(kc_names.items()):
-        keycode_names.write ('    keycode_names[{}] = "{}";\n'.format(kc, name))
+        keycode_names.write ('    kernel_keycode_names[{}] = "{}";\n'.format(kc, name))
     keycode_names.write ("}\n")
 
 def generate_keysym_names ():

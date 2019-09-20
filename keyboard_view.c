@@ -2017,7 +2017,7 @@ void keycode_lookup_set (struct keyboard_view_t *kv)
         // TODO: Don't iterate the array? @performance
         uint16_t i;
         for (i=1; i<KEY_CNT; i++) {
-            if (keycode_names[i] != NULL && strcmp (keycode_name, keycode_names[i]) == 0) {
+            if (kernel_keycode_names[i] != NULL && strcmp (keycode_name, kernel_keycode_names[i]) == 0) {
                 break;
             }
         }
@@ -3721,7 +3721,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                                          &search_entry, &list);
                 // NOTE: Keycode 0 (KEY_RESERVED) is currently used for unassigned keys.
                 // @KEY_RESERVED_is_unassigned
-                fk_populate_list (&kv->keycode_lookup_ui, (keycode_names+1)[i], KEY_CNT-1);
+                fk_populate_list (&kv->keycode_lookup_ui, (kernel_keycode_names+1)[i], KEY_CNT-1);
 
                 GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
                 gtk_container_add (GTK_CONTAINER(box), search_entry);
@@ -4501,7 +4501,7 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
         // changing across different keys (although the text inside would change
         // appropiately).
         if (app.keyboard_view->label_mode == KV_KEYCODE_LABELS) {
-            gtk_tooltip_set_text (tooltip, keycode_names[key->kc]);
+            gtk_tooltip_set_text (tooltip, kernel_keycode_names[key->kc]);
 
         } else { // KV_KEYSYM_LABELS
             char buff[64];

@@ -11,7 +11,8 @@
 
 #include <xkbcommon/xkbcommon.h>
 #include <linux/input-event-codes.h>
-#include "keycode_names.h"
+#include "xkb_keycode_names.h"
+#include "kernel_keycode_names.h"
 #include "keysym_names.h"
 
 #include <locale.h>
@@ -381,7 +382,7 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
 
     GtkWidget *grid = gtk_grid_new ();
     gtk_widget_set_size_request (grid, app->sidebar_min_width, 0);
-    char *keycode_str = pprintf (&pool_l, "%d (%s)", kc, keycode_names[kc]);
+    char *keycode_str = pprintf (&pool_l, "%d (%s)", kc, kernel_keycode_names[kc]);
     labeled_text_new_in_grid (GTK_GRID(grid), "Keycode:", keycode_str, 0, 0);
 
     GtkWidget *types_combobox;
@@ -890,7 +891,8 @@ int main (int argc, char *argv[])
         }
 
     } else {
-        init_keycode_names ();
+        init_kernel_keycode_names ();
+        init_xkb_keycode_names ();
         gtk_init(&argc, &argv);
 
         app.gresource = gresource_get_resource ();

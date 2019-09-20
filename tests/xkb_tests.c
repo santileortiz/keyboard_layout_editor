@@ -9,7 +9,8 @@
 
 #include <xkbcommon/xkbcommon.h>
 #include <linux/input-event-codes.h>
-#include "keycode_names.h"
+#include "kernel_keycode_names.h"
+#include "xkb_keycode_names.h"
 #include "keysym_names.h"
 
 #include "keyboard_layout.c"
@@ -27,8 +28,8 @@
 
 void str_cat_kc (string_t *str, xkb_keycode_t kc)
 {
-    if (keycode_names[kc] != NULL) {
-        str_cat_printf (str, "%d(%s)", kc, keycode_names[kc]);
+    if (kernel_keycode_names[kc] != NULL) {
+        str_cat_printf (str, "%d(%s)", kc, kernel_keycode_names[kc]);
     } else {
         str_cat_printf (str, "%d", kc);
     }
@@ -795,7 +796,7 @@ void print_modifier_info_foreach (struct xkb_keymap *keymap, xkb_keycode_t kc, v
 
     enum xkb_state_component changed_components = xkb_state_update_key (xkb_state, kc+8, XKB_KEY_DOWN);
     if (changed_components) {
-        str_cat_printf (str, " %s (%d): ", keycode_names[kc], kc);
+        str_cat_printf (str, " %s (%d): ", kernel_keycode_names[kc], kc);
         if (changed_components & XKB_STATE_MODS_DEPRESSED) {
             str_cat_c (str, "Sets(");
             str_cat_mod_state (str, xkb_state, keymap, xkb_num_mods, XKB_STATE_MODS_DEPRESSED);
@@ -1482,7 +1483,9 @@ ITERATE_DIR_CB(iterate_tests_dir)
 
 int main (int argc, char **argv)
 {
-    init_keycode_names ();
+    init_kernel_keycode_names ();
+    init_xkb_keycode_names ();
+
     bool success = true;
 
     enum input_type_t input_type;

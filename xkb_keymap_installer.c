@@ -143,6 +143,25 @@ bool xkb_keymap_xkb_install (struct keyboard_layout_t *keymap, char *dest_dir)
     // just overwrite it. Probably better to overwrite it at this level, at a
     // higher lever we can warn that an overwrite will happen.
 
+    // FIXME: Using our internal writer here broke things, for some reason the
+    // system doesn't like our layout. I did some testing by reverting the
+    // components to the original copy and paste of the keymap blocks. The
+    // compat section works fine. The problem is either the keycodes or the
+    // sybols section.
+    //   
+    //      1. Test if the problem is in the keycodes section or in the symbols
+    //      section. I currently can't test them separately because I renamed
+    //      keycodes. Go back to the original keycode names, I wanted to do this
+    //      anyway because they are easier to read.
+    //
+    //      2. The problem could be this keycode renaming, but maybe it isn't.
+    //      In this case the problem is in the symbols section, here we will
+    //      need to see what is causing the problem. It could be either one of
+    //      these:
+    //         - Action statements embedded per symbol.
+    //         - Internally the system doesn't read our compat section and
+    //         instead has a hardcoded "complete" compat, in which case stuff
+    //         may be conflicting with out symbols section. This would be BAD.
     struct xkb_writer_state_t state = {0};
     state.real_modifiers = xkb_get_real_modifiers_mask (keymap);
     // Create a reverse mapping of the modifier mapping in the internal

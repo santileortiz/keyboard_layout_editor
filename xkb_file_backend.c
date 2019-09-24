@@ -2939,7 +2939,7 @@ void xkb_file_write_symbols (struct xkb_writer_state_t *state,
 
             str_cat_printf (xkb_str, "    key <%s> {\n", get_writer_keycode_name(i));
 
-            str_cat_printf (xkb_str, "        type= \"%s\",\n", str_data(&curr_key->type->name));
+            str_cat_printf (xkb_str, "        type[Group1]= \"%s\",\n", str_data(&curr_key->type->name));
 
             str_cat_c (xkb_str, "        symbols[Group1]= [ ");
             for (int j=0; j<num_levels; j++) {

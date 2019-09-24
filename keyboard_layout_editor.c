@@ -851,6 +851,9 @@ int main (int argc, char *argv[])
 {
     app = ZERO_INIT(struct kle_app_t);
 
+    init_kernel_keycode_names ();
+    init_xkb_keycode_names ();
+
     bool success = true;
     app.argv_0 = argv[0];
     if (argc > 1) {
@@ -891,8 +894,6 @@ int main (int argc, char *argv[])
         }
 
     } else {
-        init_kernel_keycode_names ();
-        init_xkb_keycode_names ();
         gtk_init(&argc, &argv);
 
         app.gresource = gresource_get_resource ();

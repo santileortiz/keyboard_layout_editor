@@ -124,16 +124,24 @@ char *xkb_cmpnt_suffixes[] = {
 #define XKB_CMPNT_FILE_PREFIX "cstm_"
 void str_put_xkb_component_fname (string_t *str, size_t pos, char *layout_name, enum xkb_cmpnt_symbols_t cmpnt)
 {
-    str_put_printf (str, pos,
-                    XKB_CMPNT_FILE_PREFIX"%s%s",
-                    layout_name, xkb_cmpnt_suffixes[cmpnt]);
+    // We use the prefix when storing the name of the layout in exdev.xml.
+    // Currently xkb_keymap_components_remove() uses this name to delete the
+    // components so we get called with an already prefixed layout_name.
+    if (strncmp (XKB_CMPNT_FILE_PREFIX, layout_name, strlen(XKB_CMPNT_FILE_PREFIX)) == 0) {
+        str_put_printf (str, pos,
+                        "%s%s",
+                        layout_name, xkb_cmpnt_suffixes[cmpnt]);
+    } else {
+        str_put_printf (str, pos,
+                        XKB_CMPNT_FILE_PREFIX"%s%s",
+                        layout_name, xkb_cmpnt_suffixes[cmpnt]);
+    }
 }
 
 void str_put_xkb_component_path (string_t *str, size_t pos, char *layout_name, enum xkb_cmpnt_symbols_t cmpnt)
 {
-    str_put_printf (str, pos,
-                    "%s/"XKB_CMPNT_FILE_PREFIX"%s%s",
-                    xkb_cmpnt_names[cmpnt], layout_name, xkb_cmpnt_suffixes[cmpnt]);
+    str_put_printf (str, pos, "%s/", xkb_cmpnt_names[cmpnt]);
+    str_put_xkb_component_fname (str, str_len(str), layout_name, cmpnt);
 }
 
 bool xkb_keymap_xkb_install (struct keyboard_layout_t *keymap, char *dest_dir)

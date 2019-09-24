@@ -2951,39 +2951,58 @@ void xkb_file_write_symbols (struct xkb_writer_state_t *state,
                     str_cat_c (xkb_str, ", ");
                 }
             }
-            str_cat_c (xkb_str, " ],\n");
+            str_cat_c (xkb_str, " ]");
 
-            // TODO: We could not print an action statement if all of them are
-            // NoAction(). On the other hand, probably we want to always be very
-            // explicit about this?
-            str_cat_c (xkb_str, "        actions[Group1]= [ ");
-            for (int j=0; j<num_levels; j++) {
+            // NOTE: Looks like in elementary at least, installin a symbols
+            // component where a key has all actions as NoAction() makes it not
+            // produce any symbol. I don't think this is the expected behavior
+            // of the XKB file format. Anyway, just for that reason if all
+            // actions are NoAction() we don't print an action statement for the
+            // symbol.
+            bool all_actions_are_no_action = true;
+            for (int j=0; j<num_levels && all_actions_are_no_action; j++) {
                 struct key_action_t *action = &curr_key->levels[j].action;
-
-                if (action->type == KEY_ACTION_TYPE_MOD_SET) {
-                    str_cat_printf (xkb_str, "SetMods(");
-                    xkb_file_write_modifier_action_arguments (state, xkb_str, action);
-
-                } else if (action->type == KEY_ACTION_TYPE_MOD_LATCH) {
-                    str_cat_printf (xkb_str, "LatchMods(");
-                    xkb_file_write_modifier_action_arguments (state, xkb_str, action);
-
-                } else if (action->type == KEY_ACTION_TYPE_MOD_LOCK) {
-                    str_cat_printf (xkb_str, "LockMods(");
-                    xkb_file_write_modifier_action_arguments (state, xkb_str, action);
-
-                } else {
-                    str_cat_printf (xkb_str, "NoAction(");
-                }
-
-                str_cat_printf (xkb_str, ")");
-
-                if (j < num_levels-1) {
-                    str_cat_c (xkb_str, ", ");
+                if (action->type != KEY_ACTION_TYPE_NONE) {
+                    all_actions_are_no_action = false;
                 }
             }
-            str_cat_c (xkb_str, " ]\n");
 
+            if (!all_actions_are_no_action) {
+                str_cat_c (xkb_str, ",\n");
+                str_cat_c (xkb_str, "        actions[Group1]= [ ");
+                for (int j=0; j<num_levels; j++) {
+                    struct key_action_t *action = &curr_key->levels[j].action;
+
+                    if (action->type == KEY_ACTION_TYPE_MOD_SET) {
+                        str_cat_printf (xkb_str, "SetMods(");
+                        xkb_file_write_modifier_action_arguments (state, xkb_str, action);
+
+                    } else if (action->type == KEY_ACTION_TYPE_MOD_LATCH) {
+                        str_cat_printf (xkb_str, "LatchMods(");
+                        xkb_file_write_modifier_action_arguments (state, xkb_str, action);
+
+                    } else if (action->type == KEY_ACTION_TYPE_MOD_LOCK) {
+                        str_cat_printf (xkb_str, "LockMods(");
+                        xkb_file_write_modifier_action_arguments (state, xkb_str, action);
+
+                    } else if (action->type == KEY_ACTION_TYPE_NONE) {
+                        str_cat_printf (xkb_str, "NoAction(");
+
+                    } else {
+                        invalid_code_path;
+                    }
+
+                    str_cat_printf (xkb_str, ")");
+
+                    if (j < num_levels-1) {
+                        str_cat_c (xkb_str, ", ");
+                    }
+                }
+                str_cat_c (xkb_str, " ]\n");
+
+            } else {
+                str_cat_c (xkb_str, "\n");
+            }
 
             str_cat_c (xkb_str, "    };\n");
         }

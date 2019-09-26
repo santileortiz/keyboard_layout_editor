@@ -87,6 +87,7 @@ void init_xkb_keycode_names () {
      xkb_keycode_names[ 81 ] = "KP3";
      xkb_keycode_names[ 82 ] = "KP0";
      xkb_keycode_names[ 83 ] = "KPDL";
+     xkb_keycode_names[ 84 ] = "LVL3";
      xkb_keycode_names[ 86 ] = "LSGT";
      xkb_keycode_names[ 87 ] = "FK11";
      xkb_keycode_names[ 88 ] = "FK12";

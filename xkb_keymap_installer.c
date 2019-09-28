@@ -202,9 +202,43 @@ bool xkb_keymap_xkb_install (struct keyboard_layout_t *keymap, char *dest_dir)
         ensure_path_exists (str_data (&dest_file));
         full_file_write (str_data(&section_buffer), str_len(&section_buffer), str_data(&dest_file));
 
+        // TODO: CRITICAL!!!! My fear about systems not loading every component
+        // or at least having some hardcoded components seems to be true. In
+        // elementary OS having actions in the symbols section breaks things.
+        // Removing action statements from the symbols section fixes things
+        // which wouldn't be that bad if it weren't for the fact that modifiers
+        // STILL WORK, even with our almost empty compatibility section. If they
+        // were just using the compatibility section we provide, there is no way
+        // the system could know where modifiers are mapped, and it was able to
+        // detect I have caps and ctrl flipped (note that I don't use the option
+        // for this, I just reassign the key definition of the keycode).
+        //
+        // This could mean several things and we really need to
+        // investigate what's going on here because it will affect how we
+        // actually redefine modifier keys (which is the only purpose of the
+        // compat section).
+        //
+        // 1) The system is hardcoding a 'complete' compatibility section. There
+        // are two alternatives here:
+        //
+        //    a) They overwrite whatever compatibility we set inthe evdev rules
+        //    and use theirs.
+        //    b) They somehow merge their compatibility section with ours.
+        //
+        // 2) Modifier mapping is handled by a completely different layer of
+        // code, maybe in GNOME?.
+        //
+        // Alternatives related to 1 are cumbersome because now we need to know
+        // when things will conflict with the existing compatibility section,
+        // there is a chance we won't be able to do some stuff. If the reality
+        // is the situation in 2, then I doubt we will be able to provide any
+        // modifier remapping at all, besides changing keycodes already
+        // associated to a modifier key.
+        //
+        // :actions_in_symbols_cause_problems
         str_set (&section_buffer, "");
         str_put_xkb_component_path (&dest_file, dest_dir_end, keymap->info.name, XKB_CMPNT_SYMBOLS);
-        xkb_file_write_symbols (&state, keymap, &section_buffer);
+        xkb_file_write_symbols (&state, keymap, &section_buffer, false);
         ensure_path_exists (str_data (&dest_file));
         full_file_write (str_data(&section_buffer), str_len(&section_buffer), str_data(&dest_file));
     }
@@ -640,7 +674,7 @@ bool xkb_keymap_install (char *keymap_path)
     mem_pool_t pool = {0};
     char *xkb_file_content = full_file_read (&pool, keymap_path);
     struct keyboard_layout_t keymap = {0};
-    if (!xkb_file_parse_verbose (xkb_file_content, &keymap, NULL)) {
+    if (!xkb_file_parse (xkb_file_content, &keymap)) {
         success = false;
     }
 

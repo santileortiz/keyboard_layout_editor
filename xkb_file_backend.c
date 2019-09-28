@@ -2929,7 +2929,8 @@ void xkb_file_write_compat (struct xkb_writer_state_t *state,
 
 void xkb_file_write_symbols (struct xkb_writer_state_t *state,
                              struct keyboard_layout_t *keymap,
-                             string_t *xkb_str)
+                             string_t *xkb_str,
+                             bool use_action_statements)
 {
     str_cat_c (xkb_str, "xkb_symbols \"keys_s\" {\n");
     for (int i=0; i<KEY_CNT; i++) {
@@ -2953,21 +2954,15 @@ void xkb_file_write_symbols (struct xkb_writer_state_t *state,
             }
             str_cat_c (xkb_str, " ]");
 
-            // NOTE: Looks like in elementary at least, installin a symbols
+            // NOTE: Looks like in elementary at least, installing a symbols
             // component where a key has all actions as NoAction() makes it not
             // produce any symbol. I don't think this is the expected behavior
-            // of the XKB file format. Anyway, just for that reason if all
-            // actions are NoAction() we don't print an action statement for the
-            // symbol.
-            bool all_actions_are_no_action = true;
-            for (int j=0; j<num_levels && all_actions_are_no_action; j++) {
-                struct key_action_t *action = &curr_key->levels[j].action;
-                if (action->type != KEY_ACTION_TYPE_NONE) {
-                    all_actions_are_no_action = false;
-                }
-            }
-
-            if (!all_actions_are_no_action) {
+            // of the XKB file format. Also, just having any actions statement
+            // in the symbols section causes VERY weird behaviors (for example
+            // pressing space opens the applications menu). Which is why we now
+            // let the caller decide if they want actions here or not.
+            // :actions_in_symbols_cause_problems
+            if (use_action_statements) {
                 str_cat_c (xkb_str, ",\n");
                 str_cat_c (xkb_str, "        actions[Group1]= [ ");
                 for (int j=0; j<num_levels; j++) {
@@ -3042,7 +3037,7 @@ void xkb_file_write (struct keyboard_layout_t *keymap, string_t *xkb_str, struct
     xkb_file_write_compat (&state, keymap, xkb_str);
     str_cat_c (xkb_str, "\n");
 
-    xkb_file_write_symbols (&state, keymap, xkb_str);
+    xkb_file_write_symbols (&state, keymap, xkb_str, true);
     str_cat_c (xkb_str, "\n");
 
 

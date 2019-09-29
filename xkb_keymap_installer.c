@@ -234,6 +234,30 @@ bool xkb_keymap_xkb_install (struct keyboard_layout_t *keymap, char *dest_dir)
         // is the situation in 2, then I doubt we will be able to provide any
         // modifier remapping at all, besides changing keycodes already
         // associated to a modifier key.
+        //                                         - Santiago Sept 27, 2019
+        //
+        //
+        // I did some more research and found out that the compatibility section
+        // we install seems pretty much useless in elementary OS. I don't now
+        // how or where the OS is messing up but I tried flipping keys just by
+        // using a custom compatibility section and it didin't work. This limits
+        // a lot how we can let the user work with modifiers. It means we can't
+        // really expose the full flexibility of modifier remappings to the
+        // user.
+        //
+        // Effectively we must assume there is a fixed mapping between modifiers
+        // and certain keysyms like Caps_Lock and Control_L. Where is this
+        // mapping being set? and what is the actual mapping? are things I will
+        // need to track down so we only let users change things in a way that
+        // will work in the system.
+        //
+        // This may also mean that indicator (led) configuration is also fixed
+        // and bound to specific keysyms.
+        //
+        // The next step is to look at the system code. The best thing for us
+        // would be this to be a bug in Gala, but it can also be g-s-d, Mutter
+        // or Clutter...
+        //                                         - Santiago Sept 29, 2019
         //
         // :actions_in_symbols_cause_problems
         str_set (&section_buffer, "");

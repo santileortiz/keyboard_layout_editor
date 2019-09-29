@@ -17,6 +17,7 @@
 #include <math.h>
 #include <stdarg.h>
 #include <dirent.h>
+#include <locale.h>
 
 #ifdef __cplusplus
 #define ZERO_INIT(type) (type){}
@@ -572,6 +573,27 @@ bool is_end_of_line (const char *c)
            c++;
     }
     return *c == '\n';
+}
+
+// Set POSIX locale while storing the previous one. Useful while calling strtod
+// and you know the decimal separator will always be '.', and you don't want it
+// to break if the user changes locale.
+// NOTE: Must be followed by a call to end_posix_locale() to avoid memory leaks
+char* begin_posix_locale ()
+{
+    char *old_locale = NULL;
+    old_locale = strdup (setlocale (LC_ALL, NULL));
+    assert (old_locale != NULL);
+    setlocale (LC_ALL, "POSIX");
+
+    return old_locale;
+}
+
+// Restore the previous locale returned by begin_posix_locale
+void end_posix_locale (char *old_locale)
+{
+    setlocale (LC_ALL, old_locale);
+    free (old_locale);
 }
 
 #define VECT_X 0

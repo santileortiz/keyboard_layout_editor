@@ -12,8 +12,6 @@
 #include "kernel_keycode_names.h"
 #include "keysym_names.h"
 
-#include <locale.h>
-
 #include <gtk/gtk.h>
 #include "gresource.c"
 #include "gtk_utils.c"

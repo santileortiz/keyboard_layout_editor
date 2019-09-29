@@ -4530,38 +4530,57 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
     return show_tooltip;
 }
 
+// TODO: Report errors to the caller
 bool keyboard_view_set_keymap (struct keyboard_view_t *kv, const char *keymap_name, const char *xkb_str)
 {
-    bool success = true;
-    struct xkb_state *new_xkb_state;
-    struct xkb_keymap *new_xkb_keymap;
+    // TODO: I noticed libxkbcommon's scanner breaks when parsing floating point
+    // numbers in locales that use ',' as decimal separator. For now I fixed it
+    // by setting the posix locale and restoring it after we are done. We need
+    // this because GTK will change the locale.
+    //
+    // I don't know if this should be fixed upstream. Several considerations to
+    // make are:
+    //   - The xkb file format only uses floating point numbers in the geometry
+    //     section that is mostly deprecated. So if libxkbcommon is intended to
+    //     not have support for geometry section then it's not worth it to be
+    //     fixed upstream.
+    //
+    //   - It can be fixed by making libxkbcommon's scanner skip the geometry
+    //     section and never expect floating point numbers.
+    char *old_locale = begin_posix_locale ();
 
-    struct xkb_context *new_xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    if (new_xkb_ctx) {
+    bool success = true;
+    struct xkb_state *new_xkb_state = NULL;
+    struct xkb_keymap *new_xkb_keymap = NULL;
+    struct xkb_context *new_xkb_ctx =  NULL;
+
+    new_xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    if (!new_xkb_ctx) {
+        printf ("Error creating xkb_context.\n");
+        success = false;
+    }
+
+    if (success) {
         new_xkb_keymap = xkb_keymap_new_from_string (new_xkb_ctx, xkb_str,
                                                      XKB_KEYMAP_FORMAT_TEXT_V1,
                                                      XKB_KEYMAP_COMPILE_NO_FLAGS);
 
-        if (new_xkb_keymap) {
-            new_xkb_state = xkb_state_new(new_xkb_keymap);
-            if (!new_xkb_state) {
-                // TODO: Better error message
-                printf ("Error creating xkb_state.\n");
-                success = false;
-            }
-
-        } else {
-            // TODO: Better error message
+        if (!new_xkb_keymap) {
             printf ("Error creating xkb_keymap.\n");
             success = false;
         }
+    }
 
+    if (success) {
+        new_xkb_state = xkb_state_new(new_xkb_keymap);
+        if (!new_xkb_state) {
+            printf ("Error creating xkb_state.\n");
+            success = false;
+        }
+    }
+
+    if (new_xkb_ctx != NULL) {
         xkb_context_unref (new_xkb_ctx);
-
-    } else {
-        // TODO: Better error message
-        printf ("Error creating xkb_context.\n");
-        success = false;
     }
 
     if (success) {
@@ -4578,6 +4597,8 @@ bool keyboard_view_set_keymap (struct keyboard_view_t *kv, const char *keymap_na
 
         gtk_widget_queue_draw (kv->widget);
     }
+
+    end_posix_locale (old_locale);
 
     return success;
 }

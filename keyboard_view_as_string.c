@@ -5,10 +5,7 @@
 char* kv_to_string_full (mem_pool_t *pool, struct keyboard_view_t *kv, bool full)
 {
     // Set posix locale so the decimal separator is always .
-    char *old_locale;
-    old_locale = strdup (setlocale (LC_ALL, NULL));
-    assert (old_locale != NULL);
-    setlocale (LC_ALL, "POSIX");
+    char *old_locale = begin_posix_locale ();
 
     string_t str = {0};
 
@@ -181,10 +178,8 @@ char* kv_to_string_full (mem_pool_t *pool, struct keyboard_view_t *kv, bool full
         row = row->next_row;
     }
 
-
     // Restore the original locale
-    setlocale (LC_ALL, old_locale);
-    free (old_locale);
+    end_posix_locale (old_locale);
 
     return pom_strdup (pool, str_data(&str));
 }
@@ -279,10 +274,7 @@ void kv_set_from_string (struct keyboard_view_t *kv, char *str)
     kv_geometry_ctx_init_append (kv, &ctx);
 
     // Set posix locale so the decimal separator is always .
-    char *old_locale;
-    old_locale = strdup (setlocale (LC_ALL, NULL));
-    assert (old_locale != NULL);
-    setlocale (LC_ALL, "POSIX");
+    char *old_locale = begin_posix_locale ();
 
     struct scanner_t scnr = ZERO_INIT(struct scanner_t);
     scnr.pos = str;
@@ -379,8 +371,7 @@ void kv_set_from_string (struct keyboard_view_t *kv, char *str)
     }
 
     // Restore the original locale
-    setlocale (LC_ALL, old_locale);
-    free (old_locale);
+    end_posix_locale (old_locale);
 }
 
 bool kv_test_parser (struct keyboard_view_t *kv)

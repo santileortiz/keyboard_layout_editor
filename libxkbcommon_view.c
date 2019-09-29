@@ -8,7 +8,8 @@
 
 #include <xkbcommon/xkbcommon.h>
 #include <linux/input-event-codes.h>
-#include "keycode_names.h"
+#include "xkb_keycode_names.h"
+#include "kernel_keycode_names.h"
 #include "keysym_names.h"
 
 #include <locale.h>
@@ -68,6 +69,9 @@ int main (int argc, char *argv[])
 
     app = ZERO_INIT(struct kle_app_t);
 
+    init_kernel_keycode_names ();
+    init_xkb_keycode_names ();
+
     gtk_init(&argc, &argv);
 
     app.gresource = gresource_get_resource ();
@@ -98,11 +102,11 @@ int main (int argc, char *argv[])
     path_split (&tmp, argv[1], NULL, &name);
     file_content = full_file_read (&tmp, argv[1]);
 
-    keyboard_view_set_keymap (app.keyboard_view, name, file_content);
+    if (keyboard_view_set_keymap (app.keyboard_view, name, file_content)) {
+        gtk_widget_show_all (window);
 
-    gtk_widget_show_all (window);
-
-    gtk_main();
+        gtk_main();
+    }
 
     mem_pool_destroy (&tmp);
     keyboard_view_destroy (app.keyboard_view);

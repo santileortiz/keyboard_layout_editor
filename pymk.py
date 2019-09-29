@@ -64,8 +64,25 @@ def generate_base_layout_tests ():
         if name in blacklist:
             continue
 
-        ex ('./tests/get_xkb_str.sh ' + name + ' > ./tests/XKeyboardConfig/' + name + '.xkb')
+        target_fname = './tests/XKeyboardConfig/' + name + '.xkb'
 
+        # Getting this information makes everything O(n^2) because the
+        # implementation of --show-info looks up the information of all layouts
+        # and from that list it linearly searches for the passed layout name.
+        # We could implement this whole test layout generation in C the 'right
+        # way' if we ever implement support for include statements in our
+        # parser. Then we wouldn't need to use the get_xkb_str.sh script. For
+        # now I don't care that much because this stuff won't be called at
+        # runtime.
+        info_lines = ex ("./bin/keyboard-layout-editor --show-info " + name, ret_stdout=True).split('\n')
+        for idx, line in enumerate(info_lines):
+            if idx == 0:
+                ex ("echo '// " + line + "' > " + target_fname)
+            else:
+                ex ("echo '// " + line + "' >> " + target_fname)
+
+        ex ("echo" + " >> " + target_fname)
+        ex ('./tests/get_xkb_str.sh ' + name + ' >> ' + target_fname)
 
 def generate_keycode_names ():
     global g_dry_run

@@ -166,7 +166,7 @@ void on_custom_layout_selected (GtkListBox *box, GtkListBoxRow *row, gpointer us
     }
 }
 
-GtkWidget* new_custom_layout_list (char **custom_layouts, int num_custom_layouts)
+GtkWidget* new_custom_layout_list (struct keyboard_layout_info_t *custom_layouts, int num_custom_layouts)
 {
     GtkWidget *custom_layout_list = gtk_list_box_new ();
     gtk_widget_set_vexpand (custom_layout_list, TRUE);
@@ -175,7 +175,7 @@ GtkWidget* new_custom_layout_list (char **custom_layouts, int num_custom_layouts
     // Create rows
     int i;
     for (i=0; i < num_custom_layouts; i++) {
-        GtkWidget *row = gtk_label_new (custom_layouts[i]);
+        GtkWidget *row = gtk_label_new (custom_layouts[i].name);
         gtk_container_add (GTK_CONTAINER(custom_layout_list), row);
         gtk_widget_set_halign (row, GTK_ALIGN_START);
 
@@ -208,14 +208,14 @@ GtkWidget* new_custom_layout_list (char **custom_layouts, int num_custom_layouts
 // This is done from a callback queued by the button handler to let the main
 // loop destroy the GtkFileChooserDialog before asking for authentication. If
 // authentication was not required then this should not be necessary.
-GtkWidget* new_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_layouts);
+GtkWidget* new_welcome_screen_custom_layouts (struct keyboard_layout_info_t *custom_layouts, int num_custom_layouts);
 gboolean install_layout_callback (gpointer layout_path)
 {
     bool success = unprivileged_xkb_keymap_install (layout_path);
 
     if (success) {
         mem_pool_t tmp = {0};
-        char **custom_layouts;
+        struct keyboard_layout_info_t *custom_layouts;
         int num_custom_layouts;
         xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
 
@@ -268,7 +268,7 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
     if (unprivileged_xkb_keymap_uninstall (curr_layout)) {
 
         mem_pool_t tmp = {0};
-        char **custom_layouts;
+        struct keyboard_layout_info_t *custom_layouts;
         int num_custom_layouts;
         xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
         if (num_custom_layouts > 0) {
@@ -479,13 +479,13 @@ GtkWidget *new_keymap_stop_test_button ()
     return new_icon_button ("media-playback-stop", "Stop testing layout", G_CALLBACK(ungrab_input));
 }
 
-GtkWidget* new_welcome_sidebar (char **custom_layouts, int num_custom_layouts);
+GtkWidget* new_welcome_sidebar (struct keyboard_layout_info_t *custom_layouts, int num_custom_layouts);
 void return_to_welcome_handler (GtkButton *button, gpointer   user_data)
 {
     app.is_edit_mode = false;
 
     mem_pool_t tmp = {0};
-    char **custom_layouts;
+    struct keyboard_layout_info_t *custom_layouts;
     int num_custom_layouts = 0;
     xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
 
@@ -726,7 +726,7 @@ void on_sidebar_allocated (GtkWidget *widget, GdkRectangle *allocation, gpointer
     app.sidebar_min_width = allocation->width;
 }
 
-GtkWidget* new_welcome_sidebar (char **custom_layouts, int num_custom_layouts)
+GtkWidget* new_welcome_sidebar (struct keyboard_layout_info_t *custom_layouts, int num_custom_layouts)
 {
     GtkWidget *layout_list = gtk_frame_new (NULL);
     {
@@ -786,7 +786,7 @@ GtkWidget* new_welcome_sidebar (char **custom_layouts, int num_custom_layouts)
 
 // Build a welcome screen that shows installed layouts and a preview when
 // selected from a list.
-GtkWidget* new_welcome_screen_custom_layouts (char **custom_layouts, int num_custom_layouts)
+GtkWidget* new_welcome_screen_custom_layouts (struct keyboard_layout_info_t *custom_layouts, int num_custom_layouts)
 {
     gtk_window_resize (GTK_WINDOW(app.window), 1430, 570);
 
@@ -845,6 +845,32 @@ string_t app_get_repr_path (struct kle_app_t *app)
     return path;
 }
 
+bool print_layout_info (struct keyboard_layout_info_t *info_list, int num_layouts, char *name)
+{
+    bool found = false;
+
+    for (int i=0; i<num_layouts && !found; i++) {
+        if (strcmp (info_list[i].name, name) == 0) {
+            printf ("Name: %s\n", info_list[i].name);
+            printf ("Description: %s\n", info_list[i].description);
+            printf ("Short description: %s\n", info_list[i].short_description);
+
+            printf ("Languages: ");
+            for (int j=0; j<info_list[i].num_languages; j++) {
+                if (j > 0) {
+                    printf (", ");
+                }
+                printf ("%s", info_list[i].languages[j]);
+            }
+            printf ("\n");
+
+            found = true;
+        }
+    }
+
+    return found;
+}
+
 int main (int argc, char *argv[])
 {
     app = ZERO_INIT(struct kle_app_t);
@@ -861,34 +887,60 @@ int main (int argc, char *argv[])
             } else {
                 success = unprivileged_xkb_keymap_install (argv[2]);
             }
+
         } else if (strcmp (argv[1], "--uninstall") == 0) {
             if (argc == 2) {
                 printf ("Expected a keymap name to uninstall.\n");
             } else {
                 success = unprivileged_xkb_keymap_uninstall (argv[2]);
             }
+
         } else if (strcmp (argv[1], "--uninstall-everything") == 0) {
             success = unprivileged_xkb_keymap_uninstall_everything ();
 
         } else if (strcmp (argv[1], "--list-custom") == 0) {
             mem_pool_t pool = {0};
-            char **names = NULL;
-            int num_names = 0;
-            xkb_keymap_list (&pool, &names, &num_names);
-            for (int i=0; i<num_names; i++) {
-                printf ("%s\n", names[i]);
+            struct keyboard_layout_info_t *info_list = NULL;
+            int num_layouts = 0;
+            xkb_keymap_list (&pool, &info_list, &num_layouts);
+            for (int i=0; i<num_layouts; i++) {
+                printf ("%s\n", info_list[i].name);
             }
             mem_pool_destroy (&pool);
 
         } else if (strcmp (argv[1], "--list-default") == 0) {
             mem_pool_t pool = {0};
-            char **names = NULL;
-            int num_names = 0;
-            xkb_keymap_list_default (&pool, &names, &num_names);
-            for (int i=0; i<num_names; i++) {
-                printf ("%s\n", names[i]);
+            struct keyboard_layout_info_t *info_list = NULL;
+            int num_layouts = 0;
+            xkb_keymap_list_default (&pool, &info_list, &num_layouts);
+            for (int i=0; i<num_layouts; i++) {
+                printf ("%s\n", info_list[i].name);
             }
             mem_pool_destroy (&pool);
+
+        } else if (strcmp (argv[1], "--show-info") == 0) {
+            if (argc == 2) {
+                printf ("Expected a keymap name of which to show information.\n");
+            } else {
+                bool found = false;
+                mem_pool_t pool = {0};
+                struct keyboard_layout_info_t *info_list = NULL;
+                int num_layouts = 0;
+
+                xkb_keymap_list (&pool, &info_list, &num_layouts);
+                found = print_layout_info (info_list, num_layouts, argv[2]);
+
+                if (!found) {
+                    xkb_keymap_list_default (&pool, &info_list, &num_layouts);
+                    found = print_layout_info (info_list, num_layouts, argv[2]);
+                }
+
+                if (!found) {
+                    printf ("No layout named '%s' found.\n", argv[2]);
+                }
+
+                mem_pool_destroy (&pool);
+            }
         }
 
     } else {
@@ -927,7 +979,7 @@ int main (int argc, char *argv[])
         str_free (&settings_file_path);
 
         mem_pool_t tmp = {0};
-        char **custom_layouts;
+        struct keyboard_layout_info_t *custom_layouts;
         int num_custom_layouts = 0;
         xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
 

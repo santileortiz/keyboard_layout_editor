@@ -50,15 +50,15 @@ bool xkb_keymap_uninstall (char *layout_name);
 //   implementation could just remove a directory under home.
 bool xkb_keymap_uninstall_everything ();
 
-// Returns the names of custom layouts installed in the system. Sets res to a
-// pointer to a string list and res_len to the number of layouts available. The
-// pointer array and the strings are allocated inside pool, if pool==NULL then
-// they are allocated with malloc, and should be freed individually.
-void xkb_keymap_list (mem_pool_t *pool, char ***res, int *res_len);
+// Returns the information of custom layouts installed in the system. Sets res
+// to a point to a list of layout information structs and res_len to the length
+// of such list. The array and the strings are allocated inside pool. The pool
+// argument is mandatory.
+void xkb_keymap_list (mem_pool_t *pool, struct keyboard_layout_info_t **res, int *res_len);
 
-// Same as xkb_keymap_list() but the resulting list contains names of layouts
-// installed in the system by default from the XKeyboardConfig database.
-void xkb_keymap_list_default (mem_pool_t *pool, char ***res, int *res_len);
+// Same as xkb_keymap_list() but the resulting list contains information of
+// layouts installed in the system by default from the XKeyboardConfig database.
+void xkb_keymap_list_default (mem_pool_t *pool, struct keyboard_layout_info_t **res, int *res_len);
 
 //////////////////
 // IMPLEMENTATION
@@ -763,26 +763,76 @@ char* delete_lines (mem_pool_t *pool, char *str,
 }
 
 void get_info_from_layoutList (string_t *layoutList_xml,
-                               mem_pool_t *pool, char ***res, int *res_len)
+                               mem_pool_t *pool, struct keyboard_layout_info_t **res, int *res_len)
 {
+    assert (pool != NULL && res != NULL && res_len != NULL);
+
     int num_layouts = 0;
-    char **layouts = NULL;
+    struct keyboard_layout_info_t *layouts = NULL;
 
     xmlDocPtr default_xml = xmlParseMemory(str_data(layoutList_xml),
                                            str_len(layoutList_xml));
     xmlNodePtr curr_layout = xmlDocGetRootElement (default_xml); // layoutList node
     num_layouts = xmlChildElementCount (curr_layout);
-    layouts = pom_push_size (pool, sizeof (char *)*num_layouts);
+    layouts = pom_push_size (pool, sizeof (struct keyboard_layout_info_t)*num_layouts);
     int layout_count = 0;
     curr_layout = xml_get_sibling (curr_layout->children, "layout");
     while (curr_layout != NULL) {
         xmlNodePtr configItem = xml_get_child (curr_layout, "configItem");
         if (configItem != NULL) {
-            xmlNodePtr name_node = xml_get_child (configItem, "name");
-            xmlChar *name = xmlNodeGetContent(name_node);
-            layouts[layout_count] = pom_strndup (pool, (const char*)name, strlen((char*)name));
+            {
+                xmlNodePtr content_node = xml_get_child (configItem, "name");
+                xmlChar *content = xmlNodeGetContent(content_node);
+                layouts[layout_count].name =
+                    pom_strndup (pool, (const char*)content, strlen((char*)content));
+                xmlFree (content);
+            }
+
+            {
+                xmlNodePtr content_node = xml_get_child (configItem, "description");
+                xmlChar *content = xmlNodeGetContent(content_node);
+                layouts[layout_count].description =
+                    pom_strndup (pool, (const char*)content, strlen((char*)content));
+                xmlFree (content);
+            }
+
+            {
+                xmlNodePtr content_node = xml_get_child (configItem, "shortDescription");
+                xmlChar *content = xmlNodeGetContent(content_node);
+                layouts[layout_count].short_description =
+                    pom_strndup (pool, (const char*)content, strlen((char*)content));
+                xmlFree (content);
+            }
+
+            {
+                xmlNodePtr languages_list_node = xml_get_child (configItem, "languageList");
+
+                if (languages_list_node != NULL) {
+                    xmlNodePtr lang = xml_get_child (languages_list_node, "iso639Id");
+                    struct ptrarr_t languages = {0};
+                    layouts[layout_count].num_languages = 0;
+                    do {
+                        xmlChar *content = xmlNodeGetContent(lang);
+                        char* lang_str = pom_strdup (pool, (const char*)content);
+                        ptrarr_push (&languages, lang_str);
+                        xmlFree (content);
+
+                        layouts[layout_count].num_languages++;
+                        lang = xml_get_sibling (lang->next, "iso639Id");
+                        if (lang == NULL) break;
+                    } while (1);
+
+                    layouts[layout_count].languages =
+                        pom_push_size (pool, sizeof(char*)*layouts[layout_count].num_languages);
+                    int i;
+                    for (i=0; i<layouts[layout_count].num_languages; i++) {
+                        layouts[layout_count].languages[i] = languages.data[i];
+                    }
+                    ptrarr_free (&languages);
+                }
+            }
+
             layout_count++;
-            xmlFree (name);
         }
         curr_layout = xml_get_sibling (curr_layout->next, "layout");
     }
@@ -792,7 +842,7 @@ void get_info_from_layoutList (string_t *layoutList_xml,
     *res_len = num_layouts;
 }
 
-void xkb_keymap_list_default (mem_pool_t *pool, char ***res, int *res_len)
+void xkb_keymap_list_default (mem_pool_t *pool, struct keyboard_layout_info_t **res, int *res_len)
 {
     if (res == NULL || res_len == NULL) {
         return;
@@ -836,7 +886,7 @@ void xkb_keymap_list_default (mem_pool_t *pool, char ***res, int *res_len)
     mem_pool_destroy (&local_pool);
 }
 
-void xkb_keymap_list (mem_pool_t *pool, char ***res, int *res_len)
+void xkb_keymap_list (mem_pool_t *pool, struct keyboard_layout_info_t **res, int *res_len)
 {
     if (res == NULL || res_len == NULL) {
         return;
@@ -891,13 +941,13 @@ bool xkb_keymap_uninstall (char *layout_name)
 {
     bool success = true;
     mem_pool_t pool = {0};
-    char **custom_layouts;
+    struct keyboard_layout_info_t *custom_layouts;
     int num_custom_layouts;
     xkb_keymap_list (&pool, &custom_layouts, &num_custom_layouts);
     bool found = false;
     int i;
     for (i=0; i<num_custom_layouts; i++) {
-        if (strcmp (layout_name, custom_layouts[i]) == 0) {
+        if (strcmp (layout_name, custom_layouts[i].name) == 0) {
             found = true;
             break;
         }
@@ -985,12 +1035,12 @@ bool xkb_keymap_uninstall_everything ()
 {
     bool success = true;
     mem_pool_t pool = {0};
-    char **custom_layouts;
+    struct keyboard_layout_info_t *custom_layouts;
     int num_custom_layouts;
     xkb_keymap_list (&pool, &custom_layouts, &num_custom_layouts);
     int i;
     for (i=0; i<num_custom_layouts; i++) {
-        xkb_keymap_components_remove (custom_layouts[i]);
+        xkb_keymap_components_remove (custom_layouts[i].name);
     }
 
     // Remove installed xkb rules

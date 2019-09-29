@@ -1,3 +1,8 @@
+// Name: tg
+// Description: French (Togo)
+// Short description: fr-tg
+// Languages: fra, ajg, blo, kpo, ewe, fon, fue, gej, ife, kbp, las, dop, mfg, nmz, bud, gng, kdh, soy
+
 xkb_keymap {
 xkb_keycodes "evdev+aliases(qwerty)" {
     minimum = 8;
@@ -246,6 +251,8 @@ xkb_keycodes "evdev+aliases(qwerty)" {
     <I251> = 251;
     <I252> = 252;
     <I253> = 253;
+    <I254> = 254;
+    <I255> = 255;
     indicator 1 = "Caps Lock";
     indicator 2 = "Num Lock";
     indicator 3 = "Scroll Lock";
@@ -1592,6 +1599,8 @@ xkb_symbols "pc+tg+inet(evdev)" {
     key <I244> {         [     XF86Battery ] };
     key <I245> {         [   XF86Bluetooth ] };
     key <I246> {         [        XF86WLAN ] };
+    key <I254> {         [        XF86WWAN ] };
+    key <I255> {         [      XF86RFKill ] };
     modifier_map Control { <LCTL> };
     modifier_map Shift { <LFSH> };
     modifier_map Shift { <RTSH> };

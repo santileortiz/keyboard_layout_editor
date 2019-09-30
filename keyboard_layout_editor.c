@@ -7,6 +7,7 @@
 #include "bit_operations.c"
 #include "status.c"
 #include "scanner.c"
+#include "cli_parser.c"
 #include "binary_tree.c"
 
 #include <xkbcommon/xkbcommon.h>
@@ -35,6 +36,10 @@ struct kle_app_t app;
 #include "xkb_keymap_installer.c"
 #include "xkb_keymap_loader.c"
 
+// It seems like when calling pkexec we must always use absolute paths. We use
+// this function to get full paths from whatever the user passes in the CLI.
+// Maybe this is a configuration settiong in the policy file for pkexec, related
+// to the place the binary will be executed in.
 static inline
 void str_cat_full_path (string_t *str, char *path)
 {
@@ -56,15 +61,27 @@ void str_cat_full_path (string_t *str, char *path)
 // TODO: Internationalization of the authentication dialog has to be done
 // through a .policy file (see man pkexec). There is not a lot of control over
 // the buttons or message in the dialog.
-bool unprivileged_xkb_keymap_install (char *keymap_path)
+bool unprivileged_xkb_keymap_install (char *keymap_path, struct keyboard_layout_info_t *info)
 {
     bool success = true;
-    if (!xkb_keymap_install (keymap_path)) {
+    if (!xkb_keymap_install (keymap_path, info)) {
         if (errno == EACCES) {
             string_t command = str_new ("pkexec ");
-            str_cat_full_path (&command, app.argv_0);
+            str_cat_full_path (&command, app.argv[0]);
             str_cat_c (&command, " --install ");
             str_cat_full_path (&command, keymap_path);
+
+            // Some option arguments must be quoted to support spaces in them,
+            // like the description field for example. This code assumes all
+            // following options have arguments and automatically quote the
+            // arguments.
+            for (int i=3; i<app.argc; i+=2) {
+                str_cat_printf (&command, " %s", app.argv[i]);
+
+                if (i+1 < app.argc) {
+                    str_cat_printf (&command, " \"%s\"", app.argv[i+1]);
+                }
+            }
 
             int retval = system (str_data (&command));
             if (!WIFEXITED (retval)) {
@@ -85,7 +102,7 @@ bool unprivileged_xkb_keymap_uninstall (char *layout_name)
     if (!xkb_keymap_uninstall (layout_name)) {
         if (errno == EACCES) {
             string_t command = str_new ("pkexec ");
-            str_cat_full_path (&command, app.argv_0);
+            str_cat_full_path (&command, app.argv[0]);
             str_cat_c (&command, " --uninstall ");
             str_cat_c (&command, layout_name);
 
@@ -108,7 +125,7 @@ bool unprivileged_xkb_keymap_uninstall_everything ()
     if (!xkb_keymap_uninstall_everything ()) {
         if (errno == EACCES) {
             string_t command = str_new ("pkexec ");
-            str_cat_full_path (&command, app.argv_0);
+            str_cat_full_path (&command, app.argv[0]);
             str_cat_c (&command, " --uninstall-everything");
 
             int retval = system (str_data (&command));
@@ -211,7 +228,11 @@ GtkWidget* new_custom_layout_list (struct keyboard_layout_info_t *custom_layouts
 GtkWidget* new_welcome_screen_custom_layouts (struct keyboard_layout_info_t *custom_layouts, int num_custom_layouts);
 gboolean install_layout_callback (gpointer layout_path)
 {
-    bool success = unprivileged_xkb_keymap_install (layout_path);
+    // TODO: If the file to be installed doesn't have layout information as a
+    // comment at the start we should open a dialog so the user can pass this
+    // data. Really, what needs to happen is that we install directly from our
+    // IR and not from a file path.
+    bool success = unprivileged_xkb_keymap_install (layout_path, NULL);
 
     if (success) {
         mem_pool_t tmp = {0};
@@ -879,13 +900,24 @@ int main (int argc, char *argv[])
     init_xkb_keycode_names ();
 
     bool success = true;
+    app.argv = argv;
+    app.argc = argc;
+
     app.argv_0 = argv[0];
     if (argc > 1) {
         if (strcmp (argv[1], "--install") == 0) {
             if (argc == 2) {
                 printf ("Expected a keymap file to install.\n");
             } else {
-                success = unprivileged_xkb_keymap_install (argv[2]);
+                struct keyboard_layout_info_t info = {0};
+                info.name = get_cli_arg_opt ( "--name", argv, argc);
+                info.description = get_cli_arg_opt ( "--description", argv, argc);
+                info.short_description = get_cli_arg_opt ( "--short_description", argv, argc);
+                // TODO: Implement --languages flag. We should improve the API
+                // around keyboard_layout_info_t. Make languages a linked list
+                // and allow pushing and setting the by a comma separated
+                // string.
+                success = unprivileged_xkb_keymap_install (argv[2], &info);
             }
 
         } else if (strcmp (argv[1], "--uninstall") == 0) {

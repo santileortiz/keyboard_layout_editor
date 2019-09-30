@@ -4,6 +4,9 @@
 
 struct kle_app_t {
     char* argv_0;
+    char** argv;
+    int argc;
+
     GtkWidget *window;
     struct keyboard_view_t *keyboard_view;
     GdkSeat *gdk_seat;

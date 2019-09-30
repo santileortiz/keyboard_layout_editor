@@ -21,7 +21,9 @@
 // Installs the .xkb file specified by keymap_path. It must be a file containing
 // all keymap components except maybe geometry which will be ignored. Metadata
 // for the keymap (name, description, etc.) is gathered from the initial
-// comments in the file. Check custom_keyboard.xkb to see an example.
+// comments in the file. Check custom_keyboard.xkb to see an example. If info is
+// passed each non null component will override the information in the file's
+// initial comment.
 //
 // Discussion:
 //
@@ -31,7 +33,7 @@
 //   metadata. It would be simpler to use the .xkb filename as name, but I don't
 //   want to impose restrictions on the name of files that can be loaded, nor
 //   say the name is the filename but changing - for _ or something like that. 
-bool xkb_keymap_install (char *keymap_path);
+bool xkb_keymap_install (char *keymap_path, struct keyboard_layout_info_t *info);
 
 // Uninstalls the keymap named layout_name from the system, if it was installed
 // with xkb_keymap_install().
@@ -690,7 +692,7 @@ bool xkb_keymap_rules_install (char *keymap_name)
 //
 //                                                  Santiago (April 20, 2018)
 //
-bool xkb_keymap_install (char *keymap_path)
+bool xkb_keymap_install (char *keymap_path, struct keyboard_layout_info_t *info)
 {
 
     bool success = true;
@@ -700,6 +702,30 @@ bool xkb_keymap_install (char *keymap_path)
     struct keyboard_layout_t keymap = {0};
     if (!xkb_file_parse (xkb_file_content, &keymap)) {
         success = false;
+    }
+
+    if (info) {
+        if (info->name) {
+            keymap.info.name = pom_strdup (&keymap.pool, info->name);
+        }
+
+        if (info->description) {
+            keymap.info.description = pom_strdup (&keymap.pool, info->description);
+        }
+
+        if (info->short_description) {
+            keymap.info.short_description = pom_strdup (&keymap.pool, info->short_description);
+        }
+
+        if (info->languages && info->num_languages > 0) {
+            keymap.info.num_languages = info->num_languages;
+            keymap.info.languages =
+                mem_pool_push_array (&keymap.pool, info->num_languages, char*);
+
+            for (int i=0; i<info->num_languages; i++) {
+                keymap.info.languages[i] = pom_strdup (&keymap.pool, info->languages[i]);
+            }
+        }
     }
 
     bool new_layout;

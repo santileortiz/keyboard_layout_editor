@@ -91,11 +91,13 @@ void init_xkb_keycode_names () {
      xkb_keycode_names[ 86 ] = "LSGT";
      xkb_keycode_names[ 87 ] = "FK11";
      xkb_keycode_names[ 88 ] = "FK12";
+     xkb_keycode_names[ 89 ] = "AB11";
      xkb_keycode_names[ 90 ] = "KATA";
      xkb_keycode_names[ 91 ] = "HIRA";
      xkb_keycode_names[ 92 ] = "HENK";
      xkb_keycode_names[ 93 ] = "HKTG";
      xkb_keycode_names[ 94 ] = "MUHE";
+     xkb_keycode_names[ 95 ] = "JPCM";
      xkb_keycode_names[ 96 ] = "KPEN";
      xkb_keycode_names[ 97 ] = "RCTL";
      xkb_keycode_names[ 98 ] = "KPDV";
@@ -112,6 +114,7 @@ void init_xkb_keycode_names () {
      xkb_keycode_names[ 109 ] = "PGDN";
      xkb_keycode_names[ 110 ] = "INS";
      xkb_keycode_names[ 111 ] = "DELE";
+     xkb_keycode_names[ 112 ] = "I120";
      xkb_keycode_names[ 113 ] = "MUTE";
      xkb_keycode_names[ 114 ] = "VOL-";
      xkb_keycode_names[ 115 ] = "VOL+";
@@ -123,6 +126,7 @@ void init_xkb_keycode_names () {
      xkb_keycode_names[ 121 ] = "I129";
      xkb_keycode_names[ 122 ] = "HNGL";
      xkb_keycode_names[ 123 ] = "HJCV";
+     xkb_keycode_names[ 124 ] = "AE13";
      xkb_keycode_names[ 125 ] = "LWIN";
      xkb_keycode_names[ 126 ] = "RWIN";
      xkb_keycode_names[ 127 ] = "COMP";
@@ -139,10 +143,12 @@ void init_xkb_keycode_names () {
      xkb_keycode_names[ 138 ] = "HELP";
      xkb_keycode_names[ 139 ] = "I147";
      xkb_keycode_names[ 140 ] = "I148";
+     xkb_keycode_names[ 141 ] = "I149";
      xkb_keycode_names[ 142 ] = "I150";
      xkb_keycode_names[ 143 ] = "I151";
      xkb_keycode_names[ 144 ] = "I152";
      xkb_keycode_names[ 145 ] = "I153";
+     xkb_keycode_names[ 146 ] = "I154";
      xkb_keycode_names[ 147 ] = "I155";
      xkb_keycode_names[ 148 ] = "I156";
      xkb_keycode_names[ 149 ] = "I157";
@@ -156,6 +162,7 @@ void init_xkb_keycode_names () {
      xkb_keycode_names[ 157 ] = "I165";
      xkb_keycode_names[ 158 ] = "I166";
      xkb_keycode_names[ 159 ] = "I167";
+     xkb_keycode_names[ 160 ] = "I168";
      xkb_keycode_names[ 161 ] = "I169";
      xkb_keycode_names[ 162 ] = "I170";
      xkb_keycode_names[ 163 ] = "I171";
@@ -165,10 +172,13 @@ void init_xkb_keycode_names () {
      xkb_keycode_names[ 167 ] = "I175";
      xkb_keycode_names[ 168 ] = "I176";
      xkb_keycode_names[ 169 ] = "I177";
+     xkb_keycode_names[ 170 ] = "I178";
      xkb_keycode_names[ 171 ] = "I179";
      xkb_keycode_names[ 172 ] = "I180";
      xkb_keycode_names[ 173 ] = "I181";
      xkb_keycode_names[ 174 ] = "I182";
+     xkb_keycode_names[ 175 ] = "I183";
+     xkb_keycode_names[ 176 ] = "I184";
      xkb_keycode_names[ 177 ] = "I185";
      xkb_keycode_names[ 178 ] = "I186";
      xkb_keycode_names[ 179 ] = "I187";
@@ -181,10 +191,12 @@ void init_xkb_keycode_names () {
      xkb_keycode_names[ 186 ] = "FK16";
      xkb_keycode_names[ 187 ] = "FK17";
      xkb_keycode_names[ 188 ] = "FK18";
+     xkb_keycode_names[ 189 ] = "FK19";
      xkb_keycode_names[ 190 ] = "FK20";
      xkb_keycode_names[ 191 ] = "FK21";
      xkb_keycode_names[ 192 ] = "FK22";
      xkb_keycode_names[ 193 ] = "FK23";
+     xkb_keycode_names[ 194 ] = "FK24";
      xkb_keycode_names[ 195 ] = "MDSW";
      xkb_keycode_names[ 196 ] = "ALT";
      xkb_keycode_names[ 197 ] = "META";
@@ -199,8 +211,12 @@ void init_xkb_keycode_names () {
      xkb_keycode_names[ 206 ] = "I214";
      xkb_keycode_names[ 207 ] = "I215";
      xkb_keycode_names[ 208 ] = "I216";
+     xkb_keycode_names[ 209 ] = "I217";
      xkb_keycode_names[ 210 ] = "I218";
+     xkb_keycode_names[ 211 ] = "I219";
      xkb_keycode_names[ 212 ] = "I220";
+     xkb_keycode_names[ 213 ] = "I221";
+     xkb_keycode_names[ 214 ] = "I222";
      xkb_keycode_names[ 215 ] = "I223";
      xkb_keycode_names[ 216 ] = "I224";
      xkb_keycode_names[ 217 ] = "I225";
@@ -208,6 +224,7 @@ void init_xkb_keycode_names () {
      xkb_keycode_names[ 219 ] = "I227";
      xkb_keycode_names[ 220 ] = "I228";
      xkb_keycode_names[ 221 ] = "I229";
+     xkb_keycode_names[ 222 ] = "I230";
      xkb_keycode_names[ 223 ] = "I231";
      xkb_keycode_names[ 224 ] = "I232";
      xkb_keycode_names[ 225 ] = "I233";
@@ -224,4 +241,13 @@ void init_xkb_keycode_names () {
      xkb_keycode_names[ 236 ] = "I244";
      xkb_keycode_names[ 237 ] = "I245";
      xkb_keycode_names[ 238 ] = "I246";
+     xkb_keycode_names[ 239 ] = "I247";
+     xkb_keycode_names[ 240 ] = "I248";
+     xkb_keycode_names[ 241 ] = "I249";
+     xkb_keycode_names[ 242 ] = "I250";
+     xkb_keycode_names[ 243 ] = "I251";
+     xkb_keycode_names[ 244 ] = "I252";
+     xkb_keycode_names[ 245 ] = "I253";
+     xkb_keycode_names[ 246 ] = "I254";
+     xkb_keycode_names[ 247 ] = "I255";
 }

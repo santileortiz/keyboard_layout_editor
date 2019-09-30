@@ -728,6 +728,19 @@ bool xkb_keymap_install (char *keymap_path, struct keyboard_layout_info_t *info)
         }
     }
 
+    // Check we are not overwriting a layout from the default database.
+    if (success) {
+        struct keyboard_layout_info_t *info_list = NULL;
+        int num_layouts = 0;
+        xkb_keymap_list_default (&pool, &info_list, &num_layouts);
+        for (int i=0; i<num_layouts && success; i++) {
+            if (strcmp (keymap.info.name, info_list[i].name) == 0) {
+                printf ("The XKeyboardConfig database also contains a layout named '%s'. Use the --name option to install it with a different name.\n", keymap.info.name);
+                success = false;
+            }
+        }
+    }
+
     bool new_layout;
     if (success) {
         success = xkb_keymap_info_install (&keymap.info, &new_layout);

@@ -123,21 +123,9 @@ char *xkb_cmpnt_suffixes[] = {
 
 #undef XKB_CMPNT_TABLE
 
-#define XKB_CMPNT_FILE_PREFIX "cstm_"
 void str_put_xkb_component_fname (string_t *str, size_t pos, char *layout_name, enum xkb_cmpnt_symbols_t cmpnt)
 {
-    // We use the prefix when storing the name of the layout in exdev.xml.
-    // Currently xkb_keymap_components_remove() uses this name to delete the
-    // components so we get called with an already prefixed layout_name.
-    if (strncmp (XKB_CMPNT_FILE_PREFIX, layout_name, strlen(XKB_CMPNT_FILE_PREFIX)) == 0) {
-        str_put_printf (str, pos,
-                        "%s%s",
-                        layout_name, xkb_cmpnt_suffixes[cmpnt]);
-    } else {
-        str_put_printf (str, pos,
-                        XKB_CMPNT_FILE_PREFIX"%s%s",
-                        layout_name, xkb_cmpnt_suffixes[cmpnt]);
-    }
+    str_put_printf (str, pos, "%s%s", layout_name, xkb_cmpnt_suffixes[cmpnt]);
 }
 
 void str_put_xkb_component_path (string_t *str, size_t pos, char *layout_name, enum xkb_cmpnt_symbols_t cmpnt)
@@ -579,7 +567,7 @@ bool xkb_keymap_rules_install (char *keymap_name)
         size_t decl_len = str_len (&decl);
 
         string_t value = {0};
-        str_set_printf (&value, "  %s = "XKB_CMPNT_FILE_PREFIX"%s", keymap_name, keymap_name);
+        str_set_printf (&value, "  %s = %s", keymap_name, keymap_name);
         size_t value_len = str_len (&value);
 
         for (enum xkb_cmpnt_symbols_t cmpnt = 0; cmpnt < XKB_CMPNT_NUM_SYMBOLS; cmpnt++) {

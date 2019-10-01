@@ -556,7 +556,7 @@ void str_right_pad (string_t *str, int n)
 bool xkb_keymap_rules_install (char *keymap_name)
 {
     // Build the rule that will be installed
-    string_t new_rule = {0};
+    string_t new_rule = str_new("\n");
     {
         int col_size = MAX (2 + strlen (keymap_name), strlen("! layout")) + 1;
 
@@ -599,7 +599,7 @@ bool xkb_keymap_rules_install (char *keymap_name)
                                              &res_len);
         } else {
             string_t new_install = str_new ("// CUSTOM LAYOUTS START\n");
-            str_cat_c (&new_install, "// These rules were added by keyboard_layout_editor.\n\n");
+            str_cat_c (&new_install, "// These rules were added by keyboard_layout_editor.\n");
             str_cat (&new_install, &new_rule);
             str_cat_c (&new_install, "// CUSTOM LAYOUTS END\n\n");
             res = insert_string_before_line (&pool, db, "// PC models",
@@ -1076,7 +1076,7 @@ bool xkb_keymap_uninstall_everything ()
         char *rules = full_file_read (&pool, rules_path);
         size_t new_file_len;
         char *new_file = delete_lines (&pool, rules,
-                                       "CUSTOM LAYOUTS START", "CUSTOM LAYOUTS END\n", &new_file_len);
+                                       "\n\n// CUSTOM LAYOUTS START", "CUSTOM LAYOUTS END", &new_file_len);
         if (new_file == NULL) {
             success = false;
         }

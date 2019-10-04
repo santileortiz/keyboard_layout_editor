@@ -676,7 +676,6 @@ void grab_input (GtkButton *button, gpointer user_data)
 {
 #ifndef DISABLE_GRABS
     GdkDisplay *disp = gdk_display_get_default ();
-    app.gdk_seat = gdk_display_get_default_seat (disp);
     GdkWindow *gdk_window = gtk_widget_get_window (app.window);
 
     // If the grab is made for GDK_SEAT_CAPABILITY_KEYBOARD, then the user can
@@ -688,7 +687,7 @@ void grab_input (GtkButton *button, gpointer user_data)
     // window in place and not allowing the grab to be broken. Also, from a UX
     // perspective GDK_SEAT_CAPABILITY_ALL may be the right choice to communicte
     // to the user what a grab is.
-    GdkGrabStatus status = gdk_seat_grab (app.gdk_seat,
+    GdkGrabStatus status = gdk_seat_grab (gdk_display_get_default_seat (disp),
                                           gdk_window,
                                           GDK_SEAT_CAPABILITY_ALL, // See @why_not_GDK_SEAT_CAPABILITY_KEYBOARD
                                           TRUE, // If this is FALSE we don't get any pointer events, why?
@@ -707,9 +706,9 @@ void grab_input (GtkButton *button, gpointer user_data)
 void ungrab_input (GtkButton *button, gpointer user_data)
 {
 #ifndef DISABLE_GRABS
+    GdkDisplay *disp = gdk_display_get_default ();
     replace_wrapped_widget (&app.keymap_test_button, new_keymap_test_button ());
-    gdk_seat_ungrab (app.gdk_seat);
-    app.gdk_seat = NULL;
+    gdk_seat_ungrab (gdk_display_get_default_seat (disp));
 #endif
 
     if (app.is_edit_mode == true) {

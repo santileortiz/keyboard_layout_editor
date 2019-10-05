@@ -19,7 +19,6 @@
 #include "fk_searchable_list.c"
 
 #include "keyboard_layout_editor.h"
-struct kle_app_t app;
 
 #include "keyboard_view_repr_store.h"
 #include "keyboard_view_as_string.h"
@@ -27,7 +26,7 @@ struct kle_app_t app;
 #include "keyboard_view_repr_store.c"
 #include "keyboard_view_as_string.c"
 
-// TODO: We reuse the keyboard view from the application gut it wasn't written
+// TODO: We reuse the keyboard view from the application gui it wasn't written
 // to be abstracted this way. A better abstraction wouldn't require a lot of
 // boilerplate code we have here (for instance we are using the full app state).
 

@@ -91,6 +91,9 @@
 //   fake things being pushed to the left.
 //
 
+#define KV_GRAB_NOTIFY_CB(name) void name ()
+typedef KV_GRAB_NOTIFY_CB(kv_grab_change_notify_cb_t);
+
 enum keyboard_view_state_t {
     KV_PREVIEW,
 
@@ -311,6 +314,7 @@ struct keyboard_view_t {
     struct manual_tooltip_t *last_tooltip;
 
     // GUI related information and state
+    GtkWidget *window;
     GtkWidget *widget;
     GtkWidget *toolbar;
     GtkWidget *repr_combobox;
@@ -329,7 +333,36 @@ struct keyboard_view_t {
     enum keyboard_view_tools_t active_tool;
 
     GdkRectangle debug_rect;
+
+    // This pattern looks a lot like OOP, I'm not sure if it's the right thing
+    // to do. The reasoning behind this is that we would like keyboard_view to
+    // be a easily reusable GTK widget, with low friction to people who want to
+    // use it. Because the widget grabs/ungrabs keyboard input we want to notify
+    // the caller about it so they can show this to the user somehow in the UI.
+    // These callbacks are a way to decouple this functionality between the
+    // caller app and the keyboard view widget. We want this because we use the
+    // keyboard view at least in 2 apps the keyboard editor and the keyboard
+    // viewer used for testing. I think this UI couls also be used outside of
+    // this project.
+    kv_grab_change_notify_cb_t *grab_notify_cb;
+    kv_grab_change_notify_cb_t *ungrab_notify_cb;
 };
+
+void kv_grab_input_and_notify (struct keyboard_view_t *kv)
+{
+    grab_input (kv->window);
+    if (kv->grab_notify_cb != NULL) {
+        kv->grab_notify_cb (&app);
+    }
+}
+
+void kv_ungrab_input_and_notify (struct keyboard_view_t *kv)
+{
+    ungrab_input ();
+    if (kv->ungrab_notify_cb != NULL) {
+        kv->ungrab_notify_cb (&app);
+    }
+}
 
 static inline
 bool kv_is_view_empty (struct keyboard_view_t *kv)
@@ -3701,14 +3734,14 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 // just for consistency.
                 // @select_is_release_based
                 kv->selected_key = button_event_key;
-                grab_input (NULL, NULL);
+                kv_grab_input_and_notify (kv);
                 kv->state = KV_EDIT_KEYCODE_KEYPRESS;
 
             } else if (kv->active_tool == KV_TOOL_KEYCODE_KEYPRESS_MULTIPLE &&
                        e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
                 // @select_is_release_based
                 kv->selected_key = button_event_key;
-                grab_input (NULL, NULL);
+                kv_grab_input_and_notify (kv);
                 kv->state = KV_EDIT_KEYCODE_MULTIPLE_KEYPRESS;
 
             } else if (kv->active_tool == KV_TOOL_KEYCODE_LOOKUP &&
@@ -4181,13 +4214,13 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             if (e->type == GDK_KEY_PRESS) {
                 kv_keycode_reassign_selected_key (kv, key_event_kc);
                 kv->selected_key = NULL;
-                ungrab_input (NULL, NULL);
+                kv_ungrab_input_and_notify (kv);
                 kv_autosave (kv);
                 kv->state = KV_EDIT;
 
             } else if (e->type == GDK_BUTTON_RELEASE) { // @select_is_release_based
                 if (button_event_key == NULL || button_event_key == kv->selected_key) {
-                    ungrab_input (NULL, NULL);
+                    kv_ungrab_input_and_notify (kv);
                     kv->selected_key = NULL;
                     kv->state = KV_EDIT;
                 } else {
@@ -4214,7 +4247,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
                 kv->selected_key = next_selected_key;
                 if (next_selected_key == NULL) {
-                    ungrab_input (NULL, NULL);
+                    kv_ungrab_input_and_notify (kv);
                     kv->state = KV_EDIT;
                 }
                 kv_autosave (kv);
@@ -4603,8 +4636,9 @@ bool keyboard_view_set_keymap (struct keyboard_view_t *kv, const char *keymap_na
     return success;
 }
 
-// A keyboard view created with this is useful to test the data structure
-// programatically without having any GUI.
+// A keyboard view created with this is useful to use the data structure
+// programatically without having any GUI. Used to test the parser/writer of the
+// keyboard view string representation.
 struct keyboard_view_t* kv_new ()
 {
     mem_pool_t bootstrap_pool = {0};
@@ -4623,6 +4657,7 @@ struct keyboard_view_t* kv_new ()
 struct keyboard_view_t* keyboard_view_new_with_gui (GtkWidget *window)
 {
     struct keyboard_view_t *kv = kv_new ();
+    kv->window = window;
 
     // This handlers are set in the window so we don't need focus on the
     // keyboard view to react to keypresses. I think this is useful for

@@ -469,6 +469,42 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
     return grid;
 }
 
+GtkWidget *new_keymap_stop_test_button ();
+void show_grabbed_input_state ()
+{
+    replace_wrapped_widget (&app.keymap_test_button, new_keymap_stop_test_button ());
+}
+
+GtkWidget *new_keymap_test_button ();
+void show_ungrabbed_input_state ()
+{
+    replace_wrapped_widget (&app.keymap_test_button, new_keymap_test_button ());
+}
+
+// TODO: Get better icon for this. I'm thinking a gripper grabbing/ungrabbing a
+// key.
+void on_grab_input_button (GtkButton *button, gpointer user_data)
+{
+    if (grab_input (app.window)) {
+        show_grabbed_input_state (&app);
+    }
+
+    if (app.is_edit_mode == true) {
+        kv_set_preview_test (app.keyboard_view);
+    }
+}
+
+void on_ungrab_input_button (GtkButton *button, gpointer user_data)
+{
+    ungrab_input ();
+
+    show_ungrabbed_input_state (&app);
+
+    if (app.is_edit_mode == true) {
+        kv_set_preview_keys (app.keyboard_view);
+    }
+}
+
 // TODO: Almost everywhere we call new_keymap_test_button() we need to do:
 //
 //      app.keymap_test_button = new_keymap_test_button ();
@@ -492,12 +528,12 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
 // this seems to be a GTK issue and I really don't have time to dig deeper.
 GtkWidget *new_keymap_test_button ()
 {
-    return new_icon_button ("process-completed", "Test layout", G_CALLBACK(grab_input));
+    return new_icon_button ("process-completed", "Test layout", G_CALLBACK(on_grab_input_button));
 }
 
 GtkWidget *new_keymap_stop_test_button ()
 {
-    return new_icon_button ("media-playback-stop", "Stop testing layout", G_CALLBACK(ungrab_input));
+    return new_icon_button ("media-playback-stop", "Stop testing layout", G_CALLBACK(on_ungrab_input_button));
 }
 
 GtkWidget* new_welcome_sidebar (struct keyboard_layout_info_t *custom_layouts, int num_custom_layouts);
@@ -668,54 +704,6 @@ gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer use
     return FALSE;
 }
 
-// TODO: @requires:GTK_3.20
-// TODO: Get better icon for this. I'm thinking a gripper grabbing/ungrabbing a
-// key.
-//#define DISABLE_GRABS
-void grab_input (GtkButton *button, gpointer user_data)
-{
-#ifndef DISABLE_GRABS
-    GdkDisplay *disp = gdk_display_get_default ();
-    GdkWindow *gdk_window = gtk_widget_get_window (app.window);
-
-    // If the grab is made for GDK_SEAT_CAPABILITY_KEYBOARD, then the user can
-    // move the window by dragging the header bar. Doing this breaks the grab
-    // but we don't get a GdkGrabBroken event (in a handler set with
-    // gdk_event_handler_set()), in fact I wasn't able to receive a
-    // GdkGrabBroken in any way. This makes impossible to reset the button in
-    // the headerbar. Which is why we grab GDK_SEAT_CAPABILITY_ALL, freezing the
-    // window in place and not allowing the grab to be broken. Also, from a UX
-    // perspective GDK_SEAT_CAPABILITY_ALL may be the right choice to communicte
-    // to the user what a grab is.
-    GdkGrabStatus status = gdk_seat_grab (gdk_display_get_default_seat (disp),
-                                          gdk_window,
-                                          GDK_SEAT_CAPABILITY_ALL, // See @why_not_GDK_SEAT_CAPABILITY_KEYBOARD
-                                          TRUE, // If this is FALSE we don't get any pointer events, why?
-                                          NULL, NULL, NULL, NULL);
-    if (status == GDK_GRAB_SUCCESS) {
-        replace_wrapped_widget (&app.keymap_test_button, new_keymap_stop_test_button ());
-    }
-#endif
-
-    if (app.is_edit_mode == true) {
-        kv_set_preview_test (app.keyboard_view);
-    }
-}
-
-// TODO: @requires:GTK_3.20
-void ungrab_input (GtkButton *button, gpointer user_data)
-{
-#ifndef DISABLE_GRABS
-    GdkDisplay *disp = gdk_display_get_default ();
-    replace_wrapped_widget (&app.keymap_test_button, new_keymap_test_button ());
-    gdk_seat_ungrab (gdk_display_get_default_seat (disp));
-#endif
-
-    if (app.is_edit_mode == true) {
-        kv_set_preview_keys (app.keyboard_view);
-    }
-}
-
 GtkWidget* new_install_layout_button ()
 {
     GtkWidget *install_layout_button =
@@ -814,6 +802,9 @@ GtkWidget* new_welcome_screen_custom_layouts (struct keyboard_layout_info_t *cus
     replace_wrapped_widget (&app.headerbar_buttons, app.keymap_test_button);
 
     app.keyboard_view = keyboard_view_new_with_gui (app.window);
+    app.keyboard_view->grab_notify_cb = show_grabbed_input_state;
+    app.keyboard_view->ungrab_notify_cb = show_ungrabbed_input_state;
+
     app.sidebar = new_welcome_sidebar (custom_layouts, num_custom_layouts);
 
     GtkWidget *paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);

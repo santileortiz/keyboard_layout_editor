@@ -9,7 +9,6 @@ struct kle_app_t {
 
     GtkWidget *window;
     struct keyboard_view_t *keyboard_view;
-    GdkSeat *gdk_seat;
 
     char *user_dir;
     char *selected_repr;
@@ -39,8 +38,6 @@ struct kle_app_t {
     struct fk_searchable_list_t keysym_lookup_ui;
 };
 
-void grab_input (GtkButton *button, gpointer user_data);
-void ungrab_input (GtkButton *button, gpointer user_data);
 GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc);
 
 string_t app_get_repr_path (struct kle_app_t *app);

@@ -563,3 +563,36 @@ GtkWidget *new_welcome_screen (const char *title, const char *message, GtkWidget
     return useless_wrapper;
 }
 
+// TODO: @requires:GTK_3.20
+bool grab_input (GtkWidget *window)
+{
+    GdkWindow *gdk_window = gtk_widget_get_window (window);
+
+    GdkDisplay *disp = gdk_display_get_default ();
+    // If the grab is made for GDK_SEAT_CAPABILITY_KEYBOARD, then the user can
+    // move the window by dragging the header bar. Doing this breaks the grab
+    // but we don't get a GdkGrabBroken event (in a handler set with
+    // gdk_event_handler_set()), in fact I wasn't able to receive a
+    // GdkGrabBroken in any way. This makes impossible to reset the button in
+    // the headerbar. Which is why we grab GDK_SEAT_CAPABILITY_ALL, freezing the
+    // window in place and not allowing the grab to be broken. Also, from a UX
+    // perspective GDK_SEAT_CAPABILITY_ALL may be the right choice to communicte
+    // to the user what a grab is.
+    GdkGrabStatus status = gdk_seat_grab (gdk_display_get_default_seat (disp),
+                                          gdk_window,
+                                          GDK_SEAT_CAPABILITY_ALL, // See @why_not_GDK_SEAT_CAPABILITY_KEYBOARD
+                                          TRUE, // If this is FALSE we don't get any pointer events, why?
+                                          NULL, NULL, NULL, NULL);
+
+    return status == GDK_GRAB_SUCCESS;
+}
+
+// TODO: @requires:GTK_3.20
+void ungrab_input ()
+{
+    GdkDisplay *disp = gdk_display_get_default ();
+
+    // Apparently this can never fali?, we don't cet a status as with gdk_seat_grab.
+    gdk_seat_ungrab (gdk_display_get_default_seat (disp));
+}
+

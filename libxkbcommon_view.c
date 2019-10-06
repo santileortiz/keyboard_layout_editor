@@ -33,6 +33,11 @@ gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer use
 }
 
 struct interactive_debug_app_t {
+    mem_pool_t pool;
+
+    char *repr_path;
+    char *settings_file_path;
+
     GtkWidget *header_bar;
     GtkWidget *headerbar_buttons;
     struct keyboard_view_t *keyboard_view;
@@ -69,9 +74,11 @@ int main (int argc, char *argv[])
     gtk_widget_show_all (app.header_bar);
     gtk_window_set_titlebar (GTK_WINDOW(window), app.header_bar);
 
+    app.repr_path = sh_expand (REPRESENTATIONS_DIR_PATH, &app.pool);
+    app.settings_file_path = sh_expand (SETTINGS_FILE_PATH, &app.pool);
     app.keyboard_view = keyboard_view_new_with_gui (window,
-                                                    REPRESENTATIONS_DIR_PATH, NULL,
-                                                    SETTINGS_FILE_PATH);
+                                                    app.repr_path, NULL,
+                                                    app.settings_file_path);
     gtk_container_add(GTK_CONTAINER(window), wrap_gtk_widget(app.keyboard_view->widget));
 
     mem_pool_t tmp = {0};
@@ -87,4 +94,6 @@ int main (int argc, char *argv[])
 
     mem_pool_destroy (&tmp);
     keyboard_view_destroy (app.keyboard_view);
+
+    mem_pool_destroy (&app.pool);
 }

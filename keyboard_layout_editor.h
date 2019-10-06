@@ -3,6 +3,8 @@
  */
 
 struct kle_app_t {
+    mem_pool_t pool;
+
     char* argv_0;
     char** argv;
     int argc;
@@ -10,10 +12,13 @@ struct kle_app_t {
     GtkWidget *window;
     struct keyboard_view_t *keyboard_view;
 
+    // These are not string_t because they are not supposed to change at
+    // runtime. We only set them at startup. Also, we just don't use hardcoded
+    // macros because we want to compute absolute paths at startup.
     char *user_dir;
+    char *repr_path;
+    char *settings_file_path;
     char *selected_repr;
-
-    GResource *gresource;
 
     struct keyboard_layout_t *keymap;
 

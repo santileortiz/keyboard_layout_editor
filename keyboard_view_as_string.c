@@ -377,9 +377,9 @@ void kv_set_from_string (struct keyboard_view_t *kv, char *str)
 bool kv_test_parser (struct keyboard_view_t *kv)
 {
     mem_pool_t pool = ZERO_INIT(mem_pool_t);
-    char *str1 = kv_to_string (&pool, app.keyboard_view);
-    kv_set_from_string (app.keyboard_view, str1);
-    char *str2 = kv_to_string (&pool, app.keyboard_view);
+    char *str1 = kv_to_string (&pool, kv);
+    kv_set_from_string (kv, str1);
+    char *str2 = kv_to_string (&pool, kv);
 
     if (strcmp (str1, str2) != 0) {
         printf ("Strings differ\n");

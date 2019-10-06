@@ -36,6 +36,8 @@ struct kle_app_t app;
 #include "xkb_keymap_installer.c"
 #include "xkb_keymap_loader.c"
 
+#include "settings.h"
+
 // It seems like when calling pkexec we must always use absolute paths. We use
 // this function to get full paths from whatever the user passes in the CLI.
 // Maybe this is a configuration settiong in the policy file for pkexec, related
@@ -439,9 +441,9 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
             gtk_widget_set_hexpand (symbol_name, TRUE);
             gtk_label_set_ellipsize (GTK_LABEL(symbol_name), PANGO_ELLIPSIZE_END);
             GtkWidget *symbol_edit_button =
-                icon_button_new ("edit-symbolic",
-                                 "Modify assigned symbol",
-                                 G_CALLBACK(edit_symbol_popup_handler), &key->levels[i]);
+                small_icon_button_new ("edit-symbolic",
+                                       "Modify assigned symbol",
+                                       G_CALLBACK(edit_symbol_popup_handler), &key->levels[i]);
             GtkWidget *symbol_wdgt = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
             gtk_widget_set_halign (symbol_wdgt, GTK_ALIGN_END);
             gtk_container_add (GTK_CONTAINER(symbol_wdgt), symbol_name);
@@ -469,17 +471,26 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
     return grid;
 }
 
+/////////////////////////////
+// keyboard_view callbacks
 GtkWidget *new_keymap_stop_test_button ();
-void show_grabbed_input_state ()
+KV_GRAB_NOTIFY_CB(show_grabbed_input_state)
 {
     replace_wrapped_widget (&app.keymap_test_button, new_keymap_stop_test_button ());
 }
 
 GtkWidget *new_keymap_test_button ();
-void show_ungrabbed_input_state ()
+KV_GRAB_NOTIFY_CB(show_ungrabbed_input_state)
 {
     replace_wrapped_widget (&app.keymap_test_button, new_keymap_test_button ());
 }
+
+KV_SELECT_KEY_CHANGE_NOTIFY_CB(on_selected_key_change)
+{
+    GtkWidget *keys_sidebar = app_keys_sidebar_new (&app, kc);
+    replace_wrapped_widget (&app.keys_sidebar, keys_sidebar);
+}
+/////////////////////////////
 
 // TODO: Get better icon for this. I'm thinking a gripper grabbing/ungrabbing a
 // key.
@@ -801,9 +812,13 @@ GtkWidget* new_welcome_screen_custom_layouts (struct keyboard_layout_info_t *cus
     app.keymap_test_button = new_keymap_test_button ();
     replace_wrapped_widget (&app.headerbar_buttons, app.keymap_test_button);
 
-    app.keyboard_view = keyboard_view_new_with_gui (app.window);
+
+    app.keyboard_view = keyboard_view_new_with_gui (app.window,
+                                                    app.repr_path, app.selected_repr,
+                                                    app.settings_file_path);
     app.keyboard_view->grab_notify_cb = show_grabbed_input_state;
     app.keyboard_view->ungrab_notify_cb = show_ungrabbed_input_state;
+    app.keyboard_view->selected_key_change_cb = on_selected_key_change;
 
     app.sidebar = new_welcome_sidebar (custom_layouts, num_custom_layouts);
 
@@ -846,14 +861,6 @@ GtkWidget* new_welcome_screen_no_custom_layouts ()
     gtk_container_add (GTK_CONTAINER(buttons), install_layout_button);
 
     return welcome_screen;
-}
-
-string_t app_get_repr_path (struct kle_app_t *app)
-{
-    string_t path = str_new (app->user_dir);
-    str_cat_c (&path, "/repr/");
-    ensure_dir_exists (str_data(&path));
-    return path;
 }
 
 bool print_layout_info (struct keyboard_layout_info_t *info_list, int num_layouts, char *name)
@@ -968,26 +975,25 @@ int main (int argc, char *argv[])
     } else {
         gtk_init(&argc, &argv);
 
-        app.gresource = gresource_get_resource ();
         gtk_icon_theme_add_resource_path (gtk_icon_theme_get_default (),
                                           "/com/github/santileortiz/iconoscope/icons");
 
-        // TODO: When we get a pool at the app level, put this path there,
-        // currently it will leak, but I don't care ATM because it's small and
-        // only allocated once. Will make Valgrind complain though.
-        // @small_leaks
-        app.user_dir = sh_expand ("~/.keys-data", NULL);
+        mem_pool_t tmp = {0};
+
+        app.user_dir = sh_expand (USER_CONFIG_DIR_PATH, &app.pool);
         ensure_dir_exists (app.user_dir);
 
         // TODO: Currently the only setting we have is the last used
         // representation name. So for now that's the only content of the
         // settings file. When we get more settings either start using a
         // .desktop formatted file, or use gsettings.
-        // Also, the representation name will also leak ATM. @small_leaks
-        string_t settings_file_path = str_new(app.user_dir);
-        str_cat_c (&settings_file_path, "/settings");
-        if (path_exists(str_data(&settings_file_path))) {
-            app.selected_repr = full_file_read (NULL, str_data(&settings_file_path));
+        // :implement_better_persistent_settings
+        app.settings_file_path = sh_expand (SETTINGS_FILE_PATH, &app.pool);
+
+        // Load settings from file. Currently a single line contaíning the
+        // selected keyboard representation.
+        if (path_exists(app.settings_file_path)) {
+            app.selected_repr = full_file_read (&app.pool, app.settings_file_path);
             // Make the string end at the first line break
             char *c = app.selected_repr;
             while (*c) {
@@ -998,9 +1004,9 @@ int main (int argc, char *argv[])
                 c++;
             }
         }
-        str_free (&settings_file_path);
 
-        mem_pool_t tmp = {0};
+        app.repr_path = sh_expand (REPRESENTATIONS_DIR_PATH, &app.pool);
+
         struct keyboard_layout_info_t *custom_layouts;
         int num_custom_layouts = 0;
         xkb_keymap_list (&tmp, &custom_layouts, &num_custom_layouts);
@@ -1069,7 +1075,7 @@ int main (int argc, char *argv[])
         // TODO: Maybe only delete autosaves created in the current session, and
         // leave preexisting autosaves untouched.
         {
-            string_t repr_path = app_get_repr_path (&app);
+            string_t repr_path = str_new(app.repr_path);
             size_t repr_path_len = str_len (&repr_path);
 
             DIR *d = opendir (str_data(&repr_path));

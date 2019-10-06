@@ -26,6 +26,8 @@
 #include "keyboard_view_repr_store.c"
 #include "keyboard_view_as_string.c"
 
+#include "settings.h"
+
 // TODO: We reuse the keyboard view from the application gui it wasn't written
 // to be abstracted this way. A better abstraction wouldn't require a lot of
 // boilerplate code we have here (for instance we are using the full app state).
@@ -49,16 +51,10 @@ GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
     return NULL;
 }
 
-void grab_input (GtkButton *button, gpointer user_data)
-{
-}
-
-void ungrab_input (GtkButton *button, gpointer user_data)
-{
-}
-
 int main (int argc, char *argv[])
 {
+    struct kle_app_t app;
+
     if (argc <= 1) {
         printf ("Usage: xkbcommon-view [XKB_FILE]\n");
         return 0;
@@ -71,7 +67,6 @@ int main (int argc, char *argv[])
 
     gtk_init(&argc, &argv);
 
-    app.gresource = gresource_get_resource ();
     gtk_icon_theme_add_resource_path (gtk_icon_theme_get_default (),
                                       "/com/github/santileortiz/iconoscope/icons");
 
@@ -91,7 +86,9 @@ int main (int argc, char *argv[])
     gtk_widget_show_all (app.header_bar);
     gtk_window_set_titlebar (GTK_WINDOW(window), app.header_bar);
 
-    app.keyboard_view = keyboard_view_new_with_gui (window);
+    app.keyboard_view = keyboard_view_new_with_gui (window,
+                                                    REPRESENTATIONS_DIR_PATH, NULL,
+                                                    SETTINGS_FILE_PATH);
     gtk_container_add(GTK_CONTAINER(window), wrap_gtk_widget(app.keyboard_view->widget));
 
     mem_pool_t tmp = {0};

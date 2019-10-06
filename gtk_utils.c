@@ -521,6 +521,22 @@ void set_header_icon_button (GtkWidget **button,
     gtk_header_bar_pack_start (GTK_HEADER_BAR(parent), *button);
 }
 
+GtkWidget* small_icon_button_new (const char *icon_name, char *tooltip, GCallback callback, gpointer user_data)
+{
+    assert (icon_name != NULL);
+
+    GtkWidget *new_button = gtk_button_new_from_icon_name (icon_name, GTK_ICON_SIZE_SMALL_TOOLBAR);
+    gtk_widget_set_valign (new_button, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign (new_button, GTK_ALIGN_CENTER);
+    g_signal_connect (G_OBJECT(new_button), "clicked", callback, user_data);
+
+    gtk_widget_set_tooltip_text (new_button, tooltip);
+
+    gtk_widget_show (new_button);
+
+    return new_button;
+}
+
 GtkWidget *new_welcome_screen (const char *title, const char *message, GtkWidget **buttons_cotainer)
 {
     assert (title != NULL && message != NULL);

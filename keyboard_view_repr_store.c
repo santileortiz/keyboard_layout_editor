@@ -451,7 +451,7 @@ void kv_repr_store_push_file (struct kv_repr_store_t *store, char *path)
 #define kv_repr_store_push_func_simple(store,func_name) \
     kv_repr_store_push_func(store, #func_name, func_name);
 
-struct kv_repr_store_t* kv_repr_store_new ()
+struct kv_repr_store_t* kv_repr_store_new (char *repr_path)
 {
     struct kv_repr_store_t *store;
     {
@@ -465,10 +465,11 @@ struct kv_repr_store_t* kv_repr_store_new ()
 
     // Load internal representations from GResource
     {
+        GResource *gresource = gresource_get_resource ();
         string_t path = str_new ("/com/github/santileortiz/iconoscope/data/repr/");
         size_t path_len = str_len (&path);
         GError *error = NULL;
-        char **fnames = g_resource_enumerate_children (app.gresource,
+        char **fnames = g_resource_enumerate_children (gresource,
                                                        str_data(&path),
                                                        G_RESOURCE_LOOKUP_FLAGS_NONE,
                                                        &error);
@@ -504,68 +505,70 @@ struct kv_repr_store_t* kv_repr_store_new ()
     kv_repr_store_push_func_simple (store, vertical_extend_test_3);
 #endif
 
-    string_t repr_path = app_get_repr_path (&app);
-    size_t repr_path_len = str_len (&repr_path);
+    if (repr_path != NULL) {
+        string_t repr_path_str = str_new (repr_path);
+        size_t repr_path_len = str_len (&repr_path_str);
 
-    // Load all saved representations (ignore autosave files)
-    {
-        DIR *d = opendir (str_data(&repr_path));
-        if (d != NULL) {
-            struct dirent *entry_info;
-            while (read_dir (d, &entry_info)) {
-                if (entry_info->d_name[0] != '.' &&
-                    !g_str_has_suffix (entry_info->d_name, ".autosave.lrep") &&
-                    g_str_has_suffix (entry_info->d_name, ".lrep")) {
+        // Load all saved representations (ignore autosave files)
+        {
+            DIR *d = opendir (str_data(&repr_path_str));
+            if (d != NULL) {
+                struct dirent *entry_info;
+                while (read_dir (d, &entry_info)) {
+                    if (entry_info->d_name[0] != '.' &&
+                        !g_str_has_suffix (entry_info->d_name, ".autosave.lrep") &&
+                        g_str_has_suffix (entry_info->d_name, ".lrep")) {
 
-                    str_put_c (&repr_path, repr_path_len, entry_info->d_name);
-                    kv_repr_store_push_file (store, str_data(&repr_path));
-                }
-            }
-
-            closedir (d);
-
-        } else {
-            printf ("Error opening %s: %s\n", str_data(&repr_path), strerror(errno));
-        }
-    }
-
-    // Push autosaves as a state into the corresponding representation
-    // FIXME: This is O(n^2) @performance
-    {
-        str_data(&repr_path)[repr_path_len] = '\0';
-
-        DIR *d = opendir (str_data(&repr_path));
-        if (d != NULL) {
-            struct dirent *entry_info;
-            while (read_dir (d, &entry_info)) {
-                if (entry_info->d_name[0] != '.' &&
-                    g_str_has_suffix (entry_info->d_name, ".autosave.lrep")) {
-
-                    char *name = remove_multiple_extensions (NULL, entry_info->d_name, 2);
-                    struct kv_repr_t *repr = kv_repr_get_by_name (store, name);
-
-                    if (repr != NULL) {
-                        str_put_c (&repr_path, repr_path_len, entry_info->d_name);
-                        char *str = full_file_read (&store->pool, str_data(&repr_path));
-                        kv_repr_push_state_no_dup (store, repr, str);
-
-                    } else {
-                        // TODO: Should we remove this dangling autosave?
-                        printf ("Autosave for non existant representation \"%s\".\n", name);
+                        str_put_c (&repr_path_str, repr_path_len, entry_info->d_name);
+                        kv_repr_store_push_file (store, str_data(&repr_path_str));
                     }
-
-                    free (name);
                 }
+
+                closedir (d);
+
+            } else {
+                printf ("Error opening %s: %s\n", str_data(&repr_path_str), strerror(errno));
             }
-
-            closedir (d);
-
-        } else {
-            printf ("Error opening %s: %s\n", str_data(&repr_path), strerror(errno));
         }
-    }
 
-    str_free (&repr_path);
+        // Push autosaves as a state into the corresponding representation
+        // FIXME: This is O(n^2) @performance
+        {
+            str_data(&repr_path_str)[repr_path_len] = '\0';
+
+            DIR *d = opendir (str_data(&repr_path_str));
+            if (d != NULL) {
+                struct dirent *entry_info;
+                while (read_dir (d, &entry_info)) {
+                    if (entry_info->d_name[0] != '.' &&
+                        g_str_has_suffix (entry_info->d_name, ".autosave.lrep")) {
+
+                        char *name = remove_multiple_extensions (NULL, entry_info->d_name, 2);
+                        struct kv_repr_t *repr = kv_repr_get_by_name (store, name);
+
+                        if (repr != NULL) {
+                            str_put_c (&repr_path_str, repr_path_len, entry_info->d_name);
+                            char *str = full_file_read (&store->pool, str_data(&repr_path_str));
+                            kv_repr_push_state_no_dup (store, repr, str);
+
+                        } else {
+                            // TODO: Should we remove this dangling autosave?
+                            printf ("Autosave for non existant representation \"%s\".\n", name);
+                        }
+
+                        free (name);
+                    }
+                }
+
+                closedir (d);
+
+            } else {
+                printf ("Error opening %s: %s\n", str_data(&repr_path_str), strerror(errno));
+            }
+        }
+
+        str_free (&repr_path_str);
+    }
 
     store->curr_repr = store->reprs;
 

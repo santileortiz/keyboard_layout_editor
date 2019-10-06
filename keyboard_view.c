@@ -16,16 +16,28 @@
 // way out of the scope of the application in terms of complexity both in
 // implementation and ease of use.
 //
+// When we talk about a key we refer to a phisical key in a keyboard. A key that
+// spans multiple rows is called a multirow key. We split multirow keys in
+// rectangles that are located one per row, we call these rectangles key
+// segments.
+//
 // The main data structure is a liked list of rows (row_t), each of which
-// contains a linked list of key segments (sgmt_t). The key segments of a key
-// that extends across multiple rows are called "multirow keys" and are grouped
-// with the pointers next_multirow forming a cyclic linked list. In multirow
-// keys the top segment is called the "key parent" and is the segment that
-// represents the full key, here is where the keycode will be stored.
+// contains a linked list of key segments (sgmt_t). The key segments of a
+// multirow key are grouped with the pointers next_multirow forming a cyclic
+// linked list. In multirow keys the top segment is called the "key parent" or
+// "parent segment" and is the segment that represents the full key, here is
+// where the keycode will be stored.
+//
+// Alignment between segments of the same key is done by choosing an alignment
+// mode for each segment (multirow_key_align_t). Right now we align either right
+// or left edges, for a more detailed discussion of the limitations of this see
+// @arbitrary_align. A segment will align its alignment mode edge with the same
+// edge in the previous segment. The alignment mode of the parent segment is
+// meaningless.
 //
 // Multirow keys are rigid, so the position of a segment in a row restricts the
-// position of the other segments, this means there may be some blank space
-// before some of the segments of a multirow key. This distance is called
+// position of the other segments of the key, this means there may be some blank
+// space before some of the segments of a multirow key. This distance is called
 // internal glue, it's stored for each segment in the keyboard, and computed by
 // kv_compute_glue(). Note that a multirow key will always have at least one
 // segment (and maybe more) with internal glue equal to 0, we call such segments
@@ -93,6 +105,9 @@
 
 #define KV_GRAB_NOTIFY_CB(name) void name ()
 typedef KV_GRAB_NOTIFY_CB(kv_grab_change_notify_cb_t);
+
+#define KV_SELECT_KEY_CHANGE_NOTIFY_CB(name) void name (int kc)
+typedef KV_SELECT_KEY_CHANGE_NOTIFY_CB(kv_select_key_change_notify_cb_t);
 
 enum keyboard_view_state_t {
     KV_PREVIEW,
@@ -241,6 +256,8 @@ struct keyboard_view_t {
     int geometry_idx;
 
     // This is the state used to keep track of available layout representations.
+    string_t repr_path;
+    string_t settings_file_path;
     struct kv_repr_store_t *repr_store;
 
     // Array of sgmt_t pointers indexed by keycode. Provides fast access to keys
@@ -346,13 +363,58 @@ struct keyboard_view_t {
     // this project.
     kv_grab_change_notify_cb_t *grab_notify_cb;
     kv_grab_change_notify_cb_t *ungrab_notify_cb;
+
+    // TODO: Rearchitect everything to remove the need for this callback.
+    // The current API available to the caller to control the keyboard view
+    // consists basically of changing the mode through 'commands'
+    // (keyboard_view_commands_t). I now think this was a mistake. It makes the
+    // keyboard view have basically 2 state machinse mixed together, the one
+    // used for view editing commands, and the one to keep these caller states.
+    // This second state machine really belongs in the caller, not inside the
+    // keyboard_view. Comming up with a set of "modes" that would work in
+    // general will be impossible and limit the caller somehow anyway. It also
+    // makes us have callbacks like the following to notify the caller when a
+    // mode does something they need to know about, this is not good. Callbacks
+    // make things complicated because you don't really know WHEN this callback
+    // will happen, and bugs can happen very easily if we start calling stuff in
+    // the callback that may trigger another callback.
+    //
+    // What I want to do now, is turn everything inside out and take all this
+    // state code into the caller and out of the keyboard view. This means the
+    // following:
+    //   - Remove keyboard_view_commands_t
+    //   - Allow the caller to modify the rendered string of each key and their
+    //     tooltip.
+    //   - Allow the caller to set the color of individual keys.
+    //   - Expose a function that takes x and y coordinates and returns the
+    //     keycode of the key at that position.
+    //   - Allow easy iteration thorugh all keys.
+    //   - Make easy the common case where we 'move' the previously colored key.
+    //
+    // The reasons why this wasn't the straight forward thing to do before were:
+    //   - Changing the rendering string per key implied keeping an allocated
+    //     string per key struct and being able to modify it dynamically, with
+    //     only pools this was not feasible. Now we have pooled string which
+    //     make it easy to allocate/deallocate them.
+    //   - There was no need to have multiple colors at the same time. But now
+    //     to show types I do want to have multiple colors at the same time.
+    //
+    // As to how this implementation will look like I'm leaning towards just
+    // exposing a kv_key_t struct where the user will store the data they want,
+    // and have internally an array of them indexed by keycode, then when
+    // rendering this data is looked up and things are rendered accordingly. I
+    // had thought about adding functions for setting each thing internally, but
+    // this seems more boilerplate code. This way also avoids duplicating
+    // information in each segment, and confusing the caller about the concept
+    // of segments.
+    kv_select_key_change_notify_cb_t *selected_key_change_cb;
 };
 
 void kv_grab_input_and_notify (struct keyboard_view_t *kv)
 {
     grab_input (kv->window);
     if (kv->grab_notify_cb != NULL) {
-        kv->grab_notify_cb (&app);
+        kv->grab_notify_cb ();
     }
 }
 
@@ -360,7 +422,7 @@ void kv_ungrab_input_and_notify (struct keyboard_view_t *kv)
 {
     ungrab_input ();
     if (kv->ungrab_notify_cb != NULL) {
-        kv->ungrab_notify_cb (&app);
+        kv->ungrab_notify_cb ();
     }
 }
 
@@ -1562,7 +1624,7 @@ char *keysym_representations[][2] = {
 
 gboolean keyboard_view_render (GtkWidget *widget, cairo_t *cr, gpointer data)
 {
-    struct keyboard_view_t *kv = app.keyboard_view;
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)data;
     cairo_set_source_rgba (cr, 1, 1, 1, 1);
     cairo_paint(cr);
     cairo_set_line_width (cr, 1);
@@ -1915,71 +1977,85 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
 
 void start_edit_handler (GtkButton *button, gpointer user_data)
 {
-    kv_update (app.keyboard_view, KV_CMD_SET_MODE_EDIT, NULL);
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    kv_update (kv, KV_CMD_SET_MODE_EDIT, NULL);
 }
 void stop_edit_handler (GtkButton *button, gpointer user_data)
 {
-    kv_update (app.keyboard_view, KV_CMD_SET_MODE_PREVIEW, NULL);
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    kv_update (kv, KV_CMD_SET_MODE_PREVIEW, NULL);
 }
 
 void keycode_keypress_handler (GtkButton *button, gpointer user_data)
 {
-    app.keyboard_view->active_tool = KV_TOOL_KEYCODE_KEYPRESS;
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    kv->active_tool = KV_TOOL_KEYCODE_KEYPRESS;
 }
 
 void keycode_multiple_keypress_handler (GtkButton *button, gpointer user_data)
 {
-    app.keyboard_view->active_tool = KV_TOOL_KEYCODE_KEYPRESS_MULTIPLE;
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    kv->active_tool = KV_TOOL_KEYCODE_KEYPRESS_MULTIPLE;
 }
 
 void keycode_lookup_keypress_handler (GtkButton *button, gpointer user_data)
 {
-    app.keyboard_view->active_tool = KV_TOOL_KEYCODE_LOOKUP;
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    kv->active_tool = KV_TOOL_KEYCODE_LOOKUP;
 }
 
 void split_key_handler (GtkButton *button, gpointer user_data)
 {
-    app.keyboard_view->active_tool = KV_TOOL_SPLIT_KEY;
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    kv->active_tool = KV_TOOL_SPLIT_KEY;
 }
 
 void delete_key_handler (GtkButton *button, gpointer user_data)
 {
-    app.keyboard_view->active_tool = KV_TOOL_DELETE_KEY;
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    kv->active_tool = KV_TOOL_DELETE_KEY;
 }
 
 void resize_key_handler (GtkButton *button, gpointer user_data)
 {
-    app.keyboard_view->active_tool = KV_TOOL_RESIZE_KEY;
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    kv->active_tool = KV_TOOL_RESIZE_KEY;
 }
 
 void resize_segment_handler (GtkButton *button, gpointer user_data)
 {
-    app.keyboard_view->active_tool = KV_TOOL_RESIZE_SEGMENT;
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    kv->active_tool = KV_TOOL_RESIZE_SEGMENT;
 }
 
 void resize_row_handler (GtkButton *button, gpointer user_data)
 {
-    app.keyboard_view->active_tool = KV_TOOL_RESIZE_ROW;
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    kv->active_tool = KV_TOOL_RESIZE_ROW;
 }
 
 void vertical_extend_handler (GtkButton *button, gpointer user_data)
 {
-    app.keyboard_view->active_tool = KV_TOOL_VERTICAL_EXTEND;
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    kv->active_tool = KV_TOOL_VERTICAL_EXTEND;
 }
 
 void vertical_shrink_handler (GtkButton *button, gpointer user_data)
 {
-    app.keyboard_view->active_tool = KV_TOOL_VERTICAL_SHRINK;
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    kv->active_tool = KV_TOOL_VERTICAL_SHRINK;
 }
 
 void add_key_handler (GtkButton *button, gpointer user_data)
 {
-    app.keyboard_view->active_tool = KV_TOOL_ADD_KEY;
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    kv->active_tool = KV_TOOL_ADD_KEY;
 }
 
 void push_right_handler (GtkButton *button, gpointer user_data)
 {
-    app.keyboard_view->active_tool = KV_TOOL_PUSH_RIGHT;
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+    kv->active_tool = KV_TOOL_PUSH_RIGHT;
 }
 
 void kv_set_preview_test (struct keyboard_view_t *kv)
@@ -2075,14 +2151,14 @@ void kv_rebuild_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *act
 
 // Resturns if we should execute an action that would overwrite path, if path
 // does not exist then we return true.
-bool maybe_get_overwrite_confirmation (char *path)
+bool maybe_get_overwrite_confirmation (struct keyboard_view_t *kv, char *path)
 {
     bool write = true;
     if (path_exists (path)) {
         char *fname;
         path_split (NULL, path, NULL, &fname);
         GtkWidget *dialog =
-            gtk_message_dialog_new (GTK_WINDOW(app.window),
+            gtk_message_dialog_new (GTK_WINDOW(kv->window),
                                     GTK_MESSAGE_QUESTION,
                                     GTK_DIALOG_DESTROY_WITH_PARENT,
                                     GTK_BUTTONS_NONE,
@@ -2112,7 +2188,7 @@ void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr);
 void kv_reload_representations (struct keyboard_view_t *kv, const char *name, bool saved)
 {
     // Reload representations into a new repr_store
-    struct kv_repr_store_t *repr_store = kv_repr_store_new ();
+    struct kv_repr_store_t *repr_store = kv_repr_store_new (str_data(&kv->repr_path));
 
     // Lookup the representation mathching name and saved arguments.
     struct kv_repr_t *curr_repr = kv_repr_get_by_name (repr_store, name);
@@ -2135,7 +2211,7 @@ void kv_repr_save_current (struct keyboard_view_t *kv, const char *name, bool co
 {
     assert (!kv_curr_repr_is_saved(kv) && "Don't save a representation that isn't an autosave");
 
-    string_t repr_path = app_get_repr_path (&app);
+    string_t repr_path = str_dup (&kv->repr_path);
     size_t repr_path_len = str_len (&repr_path);
     str_cat_c (&repr_path, name);
     if (!g_str_has_suffix (str_data(&repr_path), ".lrep")) {
@@ -2162,7 +2238,7 @@ void kv_repr_save_current (struct keyboard_view_t *kv, const char *name, bool co
 
     if (valid_name &&
         !exist_internal_repr_with_same_name &&
-        (!confirm_overwrite || maybe_get_overwrite_confirmation (str_data (&repr_path)))) {
+        (!confirm_overwrite || maybe_get_overwrite_confirmation (kv, str_data (&repr_path)))) {
 
         full_file_write (kv_curr_repr(kv), strlen(kv_curr_repr(kv)), str_data (&repr_path));
         str_put_c (&repr_path, repr_path_len, kv->repr_store->curr_repr->name);
@@ -2176,7 +2252,7 @@ void kv_repr_save_current (struct keyboard_view_t *kv, const char *name, bool co
 
     if (exist_internal_repr_with_same_name) {
         GtkWidget *dialog =
-            gtk_message_dialog_new (GTK_WINDOW(app.window),
+            gtk_message_dialog_new (GTK_WINDOW(kv->window),
                                     GTK_DIALOG_DESTROY_WITH_PARENT,
                                     GTK_MESSAGE_WARNING,
                                     GTK_BUTTONS_CLOSE,
@@ -2297,14 +2373,14 @@ void kv_set_current_repr (struct keyboard_view_t *kv, struct kv_repr_t *repr)
     }
 
     // Update settings so the active representation becomes the one just set
-    string_t settings_file_path = str_new(app.user_dir);
-    str_cat_c (&settings_file_path, "/settings");
-    full_file_write (repr->name, strlen(repr->name), str_data(&settings_file_path));
-    str_free (&settings_file_path);
+    // :implement_better_persistent_settings
+    full_file_write (repr->name, strlen(repr->name), str_data(&kv->settings_file_path));
 }
 
 void change_repr_handler (GtkComboBox *themes_combobox, gpointer user_data)
 {
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+
     // NOTE: theme_name is interned, don't free it.
     const char* repr_name = gtk_combo_box_get_active_id (themes_combobox);
 
@@ -2316,9 +2392,9 @@ void change_repr_handler (GtkComboBox *themes_combobox, gpointer user_data)
         saved = false;
     }
 
-    struct kv_repr_t *repr = kv_repr_get_by_name (app.keyboard_view->repr_store, str_data(&repr_name_str));
-    kv_set_current_repr (app.keyboard_view, repr);
-    kv_load_current_repr (app.keyboard_view, saved);
+    struct kv_repr_t *repr = kv_repr_get_by_name (kv->repr_store, str_data(&repr_name_str));
+    kv_set_current_repr (kv, repr);
+    kv_load_current_repr (kv, saved);
     str_free (&repr_name_str);
 }
 
@@ -2357,7 +2433,7 @@ GtkWidget* kv_new_repr_combobox (struct keyboard_view_t *kv, struct kv_repr_t *a
     gtk_combo_box_set_active_id (GTK_COMBO_BOX(layout_combobox), str_data(&display_name));
     str_free (&display_name);
 
-    g_signal_connect (G_OBJECT(layout_combobox), "changed", G_CALLBACK (change_repr_handler), NULL);
+    g_signal_connect (G_OBJECT(layout_combobox), "changed", G_CALLBACK (change_repr_handler), kv);
 
     gtk_widget_show (layout_combobox);
     return layout_combobox;
@@ -2389,32 +2465,21 @@ void kv_clear_manual_tooltips (struct keyboard_view_t *kv)
 // FIXME: @broken_tooltips_in_overlay
 void button_allocated (GtkWidget *widget, GdkRectangle *rect, gpointer user_data)
 {
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+
     gchar *text = gtk_widget_get_tooltip_text (widget);
-    kv_push_manual_tooltip (app.keyboard_view, rect, text);
+    kv_push_manual_tooltip (kv, rect, text);
     g_free (text);
 }
 
-GtkWidget* icon_button_new (const char *icon_name, char *tooltip, GCallback callback, gpointer user_data)
+GtkWidget* kv_toolbar_button_new (struct keyboard_view_t *kv,
+                                  const char *icon_name, char *tooltip, GCallback callback)
 {
-    assert (icon_name != NULL);
+    GtkWidget *new_button = small_icon_button_new (icon_name, tooltip, callback, kv);
 
-    GtkWidget *new_button = gtk_button_new_from_icon_name (icon_name, GTK_ICON_SIZE_SMALL_TOOLBAR);
-    gtk_widget_set_valign (new_button, GTK_ALIGN_CENTER);
-    gtk_widget_set_halign (new_button, GTK_ALIGN_CENTER);
-    g_signal_connect (G_OBJECT(new_button), "clicked", callback, user_data);
-
-    gtk_widget_set_tooltip_text (new_button, tooltip);
     // FIXME: @broken_tooltips_in_overlay
-    g_signal_connect (G_OBJECT(new_button), "size-allocate", G_CALLBACK(button_allocated), tooltip);
+    g_signal_connect (G_OBJECT(new_button), "size-allocate", G_CALLBACK(button_allocated), kv);
 
-    gtk_widget_show (new_button);
-
-    return new_button;
-}
-
-GtkWidget* toolbar_button_new (const char *icon_name, char *tooltip, GCallback callback, gpointer user_data)
-{
-    GtkWidget *new_button = icon_button_new (icon_name, tooltip, callback, user_data);
     add_css_class (new_button, "flat");
     return new_button;
 }
@@ -2435,14 +2500,16 @@ void kv_toolbar_init (GtkWidget **toolbar)
     }
 }
 
-void kv_set_simple_toolbar (GtkWidget **toolbar)
+void kv_set_simple_toolbar (struct keyboard_view_t *kv, GtkWidget **toolbar)
 {
     assert (toolbar != NULL);
     kv_toolbar_init (toolbar);
 
-    GtkWidget *edit_button = toolbar_button_new ("edit-symbolic",
-                                                 "Edit the view to match your keyboard",
-                                                 G_CALLBACK (start_edit_handler), NULL);
+    GtkWidget *edit_button =
+        kv_toolbar_button_new (kv,
+                               "edit-symbolic",
+                               "Edit the view to match your keyboard",
+                               G_CALLBACK (start_edit_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), edit_button, 0, 0, 1, 1);
 
 }
@@ -2453,82 +2520,112 @@ void kv_set_full_toolbar (struct keyboard_view_t *kv, GtkWidget **toolbar)
     kv_toolbar_init (toolbar);
 
     int i = 0;
-    GtkWidget *stop_edit_button = toolbar_button_new ("close-symbolic",
-                                                      "Stop edit mode",
-                                                      G_CALLBACK (stop_edit_handler), NULL);
+    GtkWidget *stop_edit_button =
+        kv_toolbar_button_new (kv,
+                               "close-symbolic",
+                               "Stop edit mode",
+                               G_CALLBACK (stop_edit_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), stop_edit_button, i++, 0, 1, 1);
 
-    GtkWidget *keycode_keypress = toolbar_button_new ("set-keycode-single-symbolic",
-                                                      "Assign keycode by pressing key",
-                                                      G_CALLBACK (keycode_keypress_handler), NULL);
+    GtkWidget *keycode_keypress =
+        kv_toolbar_button_new (kv,
+                               "set-keycode-single-symbolic",
+                               "Assign keycode by pressing key",
+                               G_CALLBACK (keycode_keypress_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), keycode_keypress, i++, 0, 1, 1);
 
-    GtkWidget *keycode_keypress_multiple = toolbar_button_new ("set-keycode-multiple-symbolic",
-                                                      "Assign keycodes by sequentially pressing multiple keys",
-                                                      G_CALLBACK (keycode_multiple_keypress_handler), NULL);
+    GtkWidget *keycode_keypress_multiple =
+        kv_toolbar_button_new (kv,
+                               "set-keycode-multiple-symbolic",
+                               "Assign keycodes by sequentially pressing multiple keys",
+                               G_CALLBACK (keycode_multiple_keypress_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), keycode_keypress_multiple, i++, 0, 1, 1);
 
-    GtkWidget *keycode_lookup = toolbar_button_new ("set-keycode-lookup-symbolic",
-                                                      "Assign keycode by name",
-                                                      G_CALLBACK (keycode_lookup_keypress_handler), NULL);
+    GtkWidget *keycode_lookup =
+        kv_toolbar_button_new (kv,
+                               "set-keycode-lookup-symbolic",
+                               "Assign keycode by name",
+                               G_CALLBACK (keycode_lookup_keypress_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), keycode_lookup, i++, 0, 1, 1);
 
-    GtkWidget *add_key_button = toolbar_button_new ("add-key-symbolic",
-                                                    "Add key",
-                                                    G_CALLBACK (add_key_handler), NULL);
+    GtkWidget *add_key_button =
+        kv_toolbar_button_new (kv,
+                               "add-key-symbolic",
+                               "Add key",
+                               G_CALLBACK (add_key_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), add_key_button, i++, 0, 1, 1);
 
-    GtkWidget *delete_key_button = toolbar_button_new ("delete-key-symbolic",
-                                                      "Delete key",
-                                                      G_CALLBACK (delete_key_handler), NULL);
+    GtkWidget *delete_key_button =
+        kv_toolbar_button_new (kv,
+                               "delete-key-symbolic",
+                               "Delete key",
+                               G_CALLBACK (delete_key_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), delete_key_button, i++, 0, 1, 1);
 
-    GtkWidget *split_key_button = toolbar_button_new ("split-key-symbolic",
-                                                      "Split key",
-                                                      G_CALLBACK (split_key_handler), NULL);
+    GtkWidget *split_key_button =
+        kv_toolbar_button_new (kv,
+                               "split-key-symbolic",
+                               "Split key",
+                               G_CALLBACK (split_key_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), split_key_button, i++, 0, 1, 1);
 
-    GtkWidget *resize_key_button = toolbar_button_new ("resize-key-symbolic",
-                                                      "Resize key edge",
-                                                      G_CALLBACK (resize_key_handler), NULL);
+    GtkWidget *resize_key_button =
+        kv_toolbar_button_new (kv,
+                               "resize-key-symbolic",
+                               "Resize key edge",
+                               G_CALLBACK (resize_key_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), resize_key_button, i++, 0, 1, 1);
 
-    GtkWidget *resize_segment_button = toolbar_button_new ("resize-segment-symbolic",
-                                                           "Resize key segment",
-                                                           G_CALLBACK (resize_segment_handler), NULL);
+    GtkWidget *resize_segment_button =
+        kv_toolbar_button_new (kv,
+                               "resize-segment-symbolic",
+                               "Resize key segment",
+                               G_CALLBACK (resize_segment_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), resize_segment_button, i++, 0, 1, 1);
 
-    GtkWidget *resize_row_button = toolbar_button_new ("resize-row-symbolic",
-                                                       "Resize row",
-                                                       G_CALLBACK (resize_row_handler), NULL);
+    GtkWidget *resize_row_button =
+        kv_toolbar_button_new (kv,
+                               "resize-row-symbolic",
+                               "Resize row",
+                               G_CALLBACK (resize_row_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), resize_row_button, i++, 0, 1, 1);
 
-    GtkWidget *vertical_extend_button = toolbar_button_new ("vextend-key-symbolic",
-                                                            "Extend key vertically",
-                                                            G_CALLBACK (vertical_extend_handler), NULL);
+    GtkWidget *vertical_extend_button =
+        kv_toolbar_button_new (kv,
+                               "vextend-key-symbolic",
+                               "Extend key vertically",
+                               G_CALLBACK (vertical_extend_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), vertical_extend_button, i++, 0, 1, 1);
 
-    GtkWidget *vertical_shrink_button = toolbar_button_new ("vshrink-key-symbolic",
-                                                            "Shrink key vertically",
-                                                            G_CALLBACK (vertical_shrink_handler), NULL);
+    GtkWidget *vertical_shrink_button =
+        kv_toolbar_button_new (kv,
+                               "vshrink-key-symbolic",
+                               "Shrink key vertically",
+                               G_CALLBACK (vertical_shrink_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), vertical_shrink_button, i++, 0, 1, 1);
 
-    GtkWidget *push_right_button = toolbar_button_new ("push-key-symbolic",
-                                                       "Move and push keys to the right",
-                                                       G_CALLBACK (push_right_handler), NULL);
+    GtkWidget *push_right_button =
+        kv_toolbar_button_new (kv,
+                               "push-key-symbolic",
+                               "Move and push keys to the right",
+                               G_CALLBACK (push_right_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), push_right_button, i++, 0, 1, 1);
 
-    GtkWidget *save_button = toolbar_button_new ("document-save-symbolic",
-                                                 "Save keyboard representation",
-                                                 G_CALLBACK (save_view_handler), kv);
+    GtkWidget *save_button =
+        kv_toolbar_button_new (kv,
+                               "document-save-symbolic",
+                               "Save keyboard representation",
+                               G_CALLBACK (save_view_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), save_button, i++, 0, 1, 1);
     gtk_widget_set_halign (save_button, GTK_ALIGN_END);
     gtk_widget_set_hexpand (save_button, TRUE);
     kv->repr_save_button = save_button;
 
-    GtkWidget *save_as_button = toolbar_button_new ("document-save-as-symbolic",
-                                                    "Save keyboard representation as…",
-                                                    G_CALLBACK (save_view_as_handler), kv);
+    GtkWidget *save_as_button =
+        kv_toolbar_button_new (kv,
+                               "document-save-as-symbolic",
+                               "Save keyboard representation as…",
+                               G_CALLBACK (save_view_as_handler));
     gtk_grid_attach (GTK_GRID(*toolbar), save_as_button, i++, 0, 1, 1);
     kv->repr_save_as_button = save_as_button;
 
@@ -3575,7 +3672,7 @@ void kv_autosave (struct keyboard_view_t *kv)
     bool was_saved = kv_curr_repr_is_saved (kv);
     if (kv_push_state_to_curr_repr (kv)) {
         // Create an autosave
-        string_t path = app_get_repr_path (&app);
+        string_t path = str_dup(&kv->repr_path);
         str_cat_c (&path, kv->repr_store->curr_repr->name);
         str_cat_c (&path, ".autosave.lrep");
         full_file_write (kv_curr_repr(kv), strlen(kv_curr_repr(kv)), str_data(&path));
@@ -3665,8 +3762,9 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
         if (e->type == GDK_BUTTON_RELEASE && button_event_key != NULL) {
             kv->preview_keys_selection = button_event_key;
 
-            GtkWidget *keys_sidebar = app_keys_sidebar_new (&app, button_event_key->kc);
-            replace_wrapped_widget (&app.keys_sidebar, keys_sidebar);
+            if (kv->selected_key_change_cb != NULL) {
+                kv->selected_key_change_cb(button_event_key->kc);
+            }
         }
     }
 
@@ -3720,7 +3818,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
             if (cmd == KV_CMD_SET_MODE_PREVIEW) {
                 // FIXME: @broken_tooltips_in_overlay
                 kv_clear_manual_tooltips (kv);
-                kv_set_simple_toolbar (&kv->toolbar);
+                kv_set_simple_toolbar (kv, &kv->toolbar);
                 kv->label_mode = KV_KEYSYM_LABELS;
                 kv->state = KV_PREVIEW;
 
@@ -3761,7 +3859,7 @@ void kv_update (struct keyboard_view_t *kv, enum keyboard_view_commands_t cmd, G
                 gtk_container_add (GTK_CONTAINER(box), list);
 
                 GtkWidget *popover;
-                fk_popover_init (&app.edit_symbol_popover,
+                fk_popover_init (&kv->keycode_lookup_popover,
                                  kv->widget, &button_event_key_rect,
                                  &popover, box,
                                  "Set", keycode_lookup_set_handler,
@@ -4477,53 +4575,65 @@ gboolean kv_will_consume_key_event (struct keyboard_view_t *kv)
 
 gboolean key_press_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-    gboolean consumed = kv_will_consume_key_event (app.keyboard_view);
-    kv_update (app.keyboard_view, KV_CMD_NONE, event);
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+
+    gboolean consumed = kv_will_consume_key_event (kv);
+    kv_update (kv, KV_CMD_NONE, event);
     return consumed;
 }
 
 gboolean key_release_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-    gboolean consumed = kv_will_consume_key_event (app.keyboard_view);
-    kv_update (app.keyboard_view, KV_CMD_NONE, event);
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+
+    gboolean consumed = kv_will_consume_key_event (kv);
+    kv_update (kv, KV_CMD_NONE, event);
     return consumed;
 }
 
 gboolean kv_motion_notify (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-    kv_update (app.keyboard_view, KV_CMD_NONE, event);
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+
+    kv_update (kv, KV_CMD_NONE, event);
     return TRUE;
 }
 
 gboolean kv_button_press (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
     GdkEventButton *button_event = (GdkEventButton*)event;
+
     if (button_event->type == GDK_2BUTTON_PRESS || button_event->type == GDK_3BUTTON_PRESS) {
         // Ignore double and triple clicks.
         return FALSE;
     }
 
-    kv_update (app.keyboard_view, KV_CMD_NONE, event);
+    kv_update (kv, KV_CMD_NONE, event);
     return TRUE;
 }
 
 gboolean kv_button_release (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-    kv_update (app.keyboard_view, KV_CMD_NONE, event);
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+
+    kv_update (kv, KV_CMD_NONE, event);
     return TRUE;
 }
 
 gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
-                                        gboolean keyboard_mode, GtkTooltip *tooltip,
-                                        gpointer user_data)
+                             gboolean keyboard_mode, GtkTooltip *tooltip,
+                             gpointer user_data)
 {
+    struct keyboard_view_t *kv = (struct keyboard_view_t*)user_data;
+
     if (keyboard_mode) {
         return FALSE;
     }
 
     gboolean show_tooltip = FALSE;
     GdkRectangle rect = {0};
-    struct sgmt_t *key = keyboard_view_get_key (app.keyboard_view, x, y, &rect, NULL, NULL, NULL);
+    struct sgmt_t *key = keyboard_view_get_key (kv, x, y, &rect, NULL, NULL, NULL);
     if (key != NULL) {
         // For non rectangular multirow keys keyboard_view_get_key() returns the
         // rectangle of the segment that was hovered. This has the (undesired?)
@@ -4533,13 +4643,13 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
         // bounding box, which would cause the tooltip to not jump even when
         // changing across different keys (although the text inside would change
         // appropiately).
-        if (app.keyboard_view->label_mode == KV_KEYCODE_LABELS) {
+        if (kv->label_mode == KV_KEYCODE_LABELS) {
             gtk_tooltip_set_text (tooltip, kernel_keycode_names[key->kc]);
 
         } else { // KV_KEYSYM_LABELS
             char buff[64];
             // @keycode_offset
-            xkb_keysym_t keysym = xkb_state_key_get_one_sym(app.keyboard_view->xkb_state, key->kc + 8);
+            xkb_keysym_t keysym = xkb_state_key_get_one_sym(kv->xkb_state, key->kc + 8);
             xkb_keysym_get_name(keysym, buff, ARRAY_SIZE(buff)-1);
             gtk_tooltip_set_text (tooltip, buff);
         }
@@ -4548,7 +4658,7 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
         show_tooltip = TRUE;
 
     } else {
-        struct manual_tooltip_t *curr_tooltip = app.keyboard_view->first_tooltip;
+        struct manual_tooltip_t *curr_tooltip = kv->first_tooltip;
         while (curr_tooltip != NULL) {
             if (is_in_rect (x, y, curr_tooltip->rect)) {
                 gtk_tooltip_set_text (tooltip, curr_tooltip->text);
@@ -4654,17 +4764,22 @@ struct keyboard_view_t* kv_new ()
 
 // NOTE: The caller of keyboard_view_new_with_gui() is responsible of calling
 // keyboard_view_destroy() when the view is no longer needed.
-struct keyboard_view_t* keyboard_view_new_with_gui (GtkWidget *window)
+struct keyboard_view_t* keyboard_view_new_with_gui (GtkWidget *window,
+                                                    char *repr_path, char *active_repr_name,
+                                                    char *settings_file_path)
 {
     struct keyboard_view_t *kv = kv_new ();
+
+    str_set_pooled (kv->pool, &kv->repr_path, repr_path);
+    str_set_pooled (kv->pool, &kv->settings_file_path, settings_file_path);
     kv->window = window;
 
     // This handlers are set in the window so we don't need focus on the
     // keyboard view to react to keypresses. I think this is useful for
     // discoverability of how the keyboard view is interactive, not requiring
     // the user to click on the view to enable keypress feedback.
-    g_signal_connect (G_OBJECT(window), "key-press-event", G_CALLBACK (key_press_handler), NULL);
-    g_signal_connect (G_OBJECT(window), "key-release-event", G_CALLBACK (key_release_handler), NULL);
+    g_signal_connect (G_OBJECT(window), "key-press-event", G_CALLBACK (key_press_handler), kv);
+    g_signal_connect (G_OBJECT(window), "key-release-event", G_CALLBACK (key_release_handler), kv);
 
     // Build the GtkWidget as an Overlay of a GtkDrawingArea and a GtkGrid
     // containing the toolbar.
@@ -4675,9 +4790,9 @@ struct keyboard_view_t* keyboard_view_new_with_gui (GtkWidget *window)
                                GDK_POINTER_MOTION_MASK);
         gtk_widget_set_vexpand (kv_widget, TRUE);
         gtk_widget_set_hexpand (kv_widget, TRUE);
-        g_signal_connect (G_OBJECT (kv_widget), "button-press-event", G_CALLBACK (kv_button_press), NULL);
-        g_signal_connect (G_OBJECT (kv_widget), "button-release-event", G_CALLBACK (kv_button_release), NULL);
-        g_signal_connect (G_OBJECT (kv_widget), "motion-notify-event", G_CALLBACK (kv_motion_notify), NULL);
+        g_signal_connect (G_OBJECT (kv_widget), "button-press-event", G_CALLBACK (kv_button_press), kv);
+        g_signal_connect (G_OBJECT (kv_widget), "button-release-event", G_CALLBACK (kv_button_release), kv);
+        g_signal_connect (G_OBJECT (kv_widget), "motion-notify-event", G_CALLBACK (kv_motion_notify), kv);
         gtk_widget_set_has_tooltip (kv_widget, TRUE);
 
         // FIXME: Tooltips for children of a GtkOverlay appear to be broken (or
@@ -4701,26 +4816,28 @@ struct keyboard_view_t* keyboard_view_new_with_gui (GtkWidget *window)
         // Sigh, maybe just create a fk_tooltip() API...
         //
         // @broken_tooltips_in_overlay
-        g_signal_connect (G_OBJECT (kv_widget), "query-tooltip", G_CALLBACK (kv_tooltip_handler), NULL);
+        g_signal_connect (G_OBJECT (kv_widget), "query-tooltip", G_CALLBACK (kv_tooltip_handler), kv);
         gtk_widget_show (kv_widget);
 
         GtkWidget *draw_area = gtk_drawing_area_new ();
         gtk_widget_set_vexpand (draw_area, TRUE);
         gtk_widget_set_hexpand (draw_area, TRUE);
-        g_signal_connect (G_OBJECT (draw_area), "draw", G_CALLBACK (keyboard_view_render), NULL);
+        g_signal_connect (G_OBJECT (draw_area), "draw", G_CALLBACK (keyboard_view_render), kv);
         gtk_widget_show (draw_area);
         gtk_overlay_add_overlay (GTK_OVERLAY(kv_widget), draw_area);
         kv->widget = kv_widget;
     }
 
-    kv_set_simple_toolbar (&kv->toolbar);
+    kv_set_simple_toolbar (kv, &kv->toolbar);
     gtk_overlay_add_overlay (GTK_OVERLAY(kv->widget), kv->toolbar);
 
     kv->default_key_size = KV_DEFAULT_KEY_SIZE;
-    kv->repr_store = kv_repr_store_new ();
+    kv->repr_store = kv_repr_store_new (repr_path);
 
-    char *active_repr_name = app.selected_repr==NULL ? "Simple" : app.selected_repr;
-    struct kv_repr_t *repr = kv_repr_get_by_name (kv->repr_store, active_repr_name);
+    // TODO: Maybe in some cases we would like to work without a representation
+    // store?, we would need to decouple that.
+    struct kv_repr_t *repr = kv_repr_get_by_name (kv->repr_store,
+                                                  active_repr_name==NULL ? "Simple" : active_repr_name);
     // NOTE: This may be null if for some reason the avtive representation
     // stored in the settings file was deleted.
     if (repr != NULL) {

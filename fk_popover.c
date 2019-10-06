@@ -29,6 +29,9 @@ void fk_accept_button_handler (GtkWidget *button, gpointer user_data)
     gtk_widget_destroy (fk_popover->popover);
 }
 
+// FIXME: We should tie the lifespan of a popover to some pool and add a
+// kv_popover_destroy() function that will get called automatically if the
+// associated pool is destroyed. Right now we are leaking gtk objects here.
 void fk_popover_init (struct fk_popover_t *fk_popover,
                       GtkWidget *target_w, GdkRectangle *rect,
                       GtkWidget **popover,

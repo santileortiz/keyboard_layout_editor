@@ -356,6 +356,7 @@ void str_debug_print (string_t *str)
 
 #endif
 
+#define str_dup(str) strn_new(str_data(str), str_len(str))
 #define str_new(data) strn_new((data),((data)!=NULL?strlen(data):0))
 string_t strn_new (const char *c_str, size_t len)
 {

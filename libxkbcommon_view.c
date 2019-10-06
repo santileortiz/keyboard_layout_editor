@@ -18,27 +18,13 @@
 #include "fk_popover.c"
 #include "fk_searchable_list.c"
 
-#include "keyboard_layout_editor.h"
-
-#include "keyboard_view_repr_store.h"
-#include "keyboard_view_as_string.h"
-#include "keyboard_view.c"
-#include "keyboard_view_repr_store.c"
+#include "keyboard_view.h"
+#include "keyboard_view_builder.c"
 #include "keyboard_view_as_string.c"
+#include "keyboard_view_repr_store.c"
+#include "keyboard_view.c"
 
 #include "settings.h"
-
-// TODO: We reuse the keyboard view from the application gui it wasn't written
-// to be abstracted this way. A better abstraction wouldn't require a lot of
-// boilerplate code we have here (for instance we are using the full app state).
-
-string_t app_get_repr_path (struct kle_app_t *app)
-{
-    string_t path = str_new (app->user_dir);
-    str_cat_c (&path, "/repr/");
-    ensure_dir_exists (str_data(&path));
-    return path;
-}
 
 gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
@@ -46,21 +32,20 @@ gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer use
     return FALSE;
 }
 
-GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc)
-{
-    return NULL;
-}
+struct interactive_debug_app_t {
+    GtkWidget *header_bar;
+    GtkWidget *headerbar_buttons;
+    struct keyboard_view_t *keyboard_view;
+};
 
 int main (int argc, char *argv[])
 {
-    struct kle_app_t app;
+    struct interactive_debug_app_t app = {0};
 
     if (argc <= 1) {
         printf ("Usage: xkbcommon-view [XKB_FILE]\n");
         return 0;
     }
-
-    app = ZERO_INIT(struct kle_app_t);
 
     init_kernel_keycode_names ();
     init_xkb_keycode_names ();
@@ -69,8 +54,6 @@ int main (int argc, char *argv[])
 
     gtk_icon_theme_add_resource_path (gtk_icon_theme_get_default (),
                                       "/com/github/santileortiz/iconoscope/icons");
-
-    app.user_dir = sh_expand ("~/.keys-data", NULL);
 
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_default_size (GTK_WINDOW(window), 1200, 540);

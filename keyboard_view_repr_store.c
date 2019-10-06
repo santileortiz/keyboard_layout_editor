@@ -2,6 +2,38 @@
  * Copiright (C) 2018 Santiago León O.
  */
 
+// This component of the keyboard view manages string representations of
+// keyboard views. We need this becaúse a keyboard representation can be defined
+// programatically, be stored in the application's gresources, or be stored in
+// the user's configuration folder (either as an autosave or a custom
+// representation). The code in this file loads representations from all these
+// sources and exposes them as a linked list of string representations.
+//
+// This is also where we create all programatic representations so there are
+// several examples of how the keyboard_view_builder.c module is used.
+
+struct kv_repr_state_t {
+    char *repr;
+
+    struct kv_repr_state_t *next;
+};
+
+struct kv_repr_t {
+    bool is_internal;
+    char *name;
+    struct kv_repr_state_t *states;
+    struct kv_repr_state_t *last_state;
+
+    struct kv_repr_t *next;
+};
+
+struct kv_repr_store_t {
+    mem_pool_t pool;
+    struct kv_repr_t *reprs;
+    struct kv_repr_t *last_repr;
+    struct kv_repr_t *curr_repr;
+};
+
 #define BUILD_GEOMETRY_FUNC(name) \
     void name(struct keyboard_view_t *kv)
 typedef BUILD_GEOMETRY_FUNC(set_geometry_func_t);
@@ -448,6 +480,18 @@ void kv_repr_store_push_file (struct kv_repr_store_t *store, char *path)
     mem_pool_destroy (&pool_l);
 }
 
+struct kv_repr_t* kv_repr_get_by_name (struct kv_repr_store_t *store, const char *name)
+{
+    struct kv_repr_t *curr_repr = store->reprs;
+    while (curr_repr != NULL) {
+        if (strcmp (name, curr_repr->name) == 0) {
+            break;
+        }
+        curr_repr = curr_repr->next;
+    }
+    return curr_repr;
+}
+
 #define kv_repr_store_push_func_simple(store,func_name) \
     kv_repr_store_push_func(store, #func_name, func_name);
 
@@ -573,17 +617,5 @@ struct kv_repr_store_t* kv_repr_store_new (char *repr_path)
     store->curr_repr = store->reprs;
 
     return store;
-}
-
-struct kv_repr_t* kv_repr_get_by_name (struct kv_repr_store_t *store, const char *name)
-{
-    struct kv_repr_t *curr_repr = store->reprs;
-    while (curr_repr != NULL) {
-        if (strcmp (name, curr_repr->name) == 0) {
-            break;
-        }
-        curr_repr = curr_repr->next;
-    }
-    return curr_repr;
 }
 

@@ -22,14 +22,11 @@
 #include "fk_popover.c"
 #include "fk_searchable_list.c"
 
-#include "keyboard_layout_editor.h"
-struct kle_app_t app;
-
-#include "keyboard_view_repr_store.h"
-#include "keyboard_view_as_string.h"
-#include "keyboard_view.c"
-#include "keyboard_view_repr_store.c"
+#include "keyboard_view.h"
+#include "keyboard_view_builder.c"
 #include "keyboard_view_as_string.c"
+#include "keyboard_view_repr_store.c"
+#include "keyboard_view.c"
 
 #include "keyboard_layout.c"
 #include "xkb_file_backend.c"
@@ -37,6 +34,48 @@ struct kle_app_t app;
 #include "xkb_keymap_loader.c"
 
 #include "settings.h"
+
+struct kle_app_t {
+    mem_pool_t pool;
+
+    int argc;
+    char** argv;
+
+    GtkWidget *window;
+    struct keyboard_view_t *keyboard_view;
+
+    // These are not string_t because they are not supposed to change at
+    // runtime. We only set them at startup. Also, we just don't use hardcoded
+    // macros because we want to compute absolute paths at startup.
+    char *user_dir;
+    char *repr_path;
+    char *settings_file_path;
+    char *selected_repr;
+
+    struct keyboard_layout_t *keymap;
+
+    string_t curr_keymap_name;
+    string_t curr_xkb_str;
+
+    int sidebar_min_width;
+
+    // TODO: This will become an enum when we implement different states like
+    // EDIT_KEYS, EDIT_TYPES, etc.
+    bool is_edit_mode;
+
+    // UI widgets that change
+    GtkWidget *header_bar;
+    GtkWidget *headerbar_buttons;
+    GtkWidget *keymap_test_button;
+    GtkWidget *window_content;
+    GtkWidget *custom_layout_list;
+    GtkWidget *sidebar;
+    GtkWidget *keys_sidebar;
+    struct fk_popover_t edit_symbol_popover;
+    struct fk_searchable_list_t keysym_lookup_ui;
+};
+
+struct kle_app_t app;
 
 // It seems like when calling pkexec we must always use absolute paths. We use
 // this function to get full paths from whatever the user passes in the CLI.
@@ -311,6 +350,7 @@ gboolean delete_layout_handler (GtkButton *button, gpointer user_data)
     return G_SOURCE_REMOVE;
 }
 
+GtkWidget* app_keys_sidebar_new (struct kle_app_t *app, int kc);
 FK_POPOVER_BUTTON_PRESSED_CB (set_key_symbol_handler)
 {
     bool keysym_set = false;
@@ -900,7 +940,6 @@ int main (int argc, char *argv[])
     app.argv = argv;
     app.argc = argc;
 
-    app.argv_0 = argv[0];
     if (argc > 1) {
         if (strcmp (argv[1], "--install") == 0) {
             if (argc == 2) {

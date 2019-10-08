@@ -4,7 +4,10 @@
 
 #define _GNU_SOURCE // Used to enable strcasestr()
 #include "common.h"
+#include "bit_operations.c"
 #include "scanner.c"
+#include "status.c"
+#include "binary_tree.c"
 
 #include <xkbcommon/xkbcommon.h>
 #include <linux/input-event-codes.h>
@@ -23,6 +26,10 @@
 #include "keyboard_view_as_string.c"
 #include "keyboard_view_repr_store.c"
 #include "keyboard_view.c"
+
+#include "keyboard_layout.c"
+#include "xkb_file_backend.c"
+#include "xkb_keymap_installer.c"
 
 #include "settings.h"
 
@@ -82,14 +89,27 @@ int main (int argc, char *argv[])
     gtk_container_add(GTK_CONTAINER(window), wrap_gtk_widget(app.keyboard_view->widget));
 
     mem_pool_t tmp = {0};
+
+    char *absolute_path = sh_expand (argv[1], &tmp);
     char *name, *file_content;
     path_split (&tmp, argv[1], NULL, &name);
     file_content = full_file_read (&tmp, argv[1]);
+
+    struct keyboard_layout_info_t info = {0};
+    info.name = "TEST_keyboard_view_test_installation";
+    bool keymap_installed = xkb_keymap_install (absolute_path, &info);
+    if (!keymap_installed) {
+        printf ("WARN: To install the layout and get GTK event info run with sudo.\n");
+    }
 
     if (keyboard_view_set_keymap (app.keyboard_view, name, file_content)) {
         gtk_widget_show_all (window);
 
         gtk_main();
+    }
+
+    if (keymap_installed) {
+        xkb_keymap_uninstall (info.name);
     }
 
     mem_pool_destroy (&tmp);

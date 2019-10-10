@@ -556,7 +556,7 @@ void str_right_pad (string_t *str, int n)
 bool xkb_keymap_rules_install (char *keymap_name)
 {
     // Build the rule that will be installed
-    string_t new_rule = str_new("\n");
+    string_t new_rule = {0};
     {
         int col_size = MAX (2 + strlen (keymap_name), strlen("! layout")) + 1;
 
@@ -577,6 +577,7 @@ bool xkb_keymap_rules_install (char *keymap_name)
             str_cat (&new_rule, &decl);
             str_cat (&new_rule, &value);
         }
+        str_cat_c (&new_rule, "\n");
 
         str_free (&decl);
         str_free (&value);
@@ -599,7 +600,7 @@ bool xkb_keymap_rules_install (char *keymap_name)
                                              &res_len);
         } else {
             string_t new_install = str_new ("// CUSTOM LAYOUTS START\n");
-            str_cat_c (&new_install, "// These rules were added by keyboard_layout_editor.\n");
+            str_cat_c (&new_install, "// These rules were added by keyboard_layout_editor.\n\n");
             str_cat (&new_install, &new_rule);
             str_cat_c (&new_install, "// CUSTOM LAYOUTS END\n\n");
             res = insert_string_before_line (&pool, db, "// PC models",
@@ -994,13 +995,13 @@ bool xkb_keymap_uninstall (char *layout_name)
         int col_size = MAX (2 + strlen(layout_name), strlen("! layout")) + 1;
         string_t mrkr = str_new ("! layout");
         str_right_pad (&mrkr, col_size);
-        str_cat_c (&mrkr, "= types\n  ");
+        str_cat_printf (&mrkr, "= %s\n  ", xkb_cmpnt_names[0]);
         size_t line_len = str_len (&mrkr);
         str_cat_c (&mrkr, layout_name);
         str_right_pad (&mrkr, line_len + col_size - 2 /*spaces after \n*/);
         str_cat_c (&mrkr, "= ");
         str_cat_c (&mrkr, layout_name);
-        str_cat_c (&mrkr, "_t");
+        str_cat_c (&mrkr, xkb_cmpnt_suffixes[0]);
 
         char *rules_path = "/usr/share/X11/xkb/rules/evdev";
         char *rules = full_file_read (&pool, rules_path);

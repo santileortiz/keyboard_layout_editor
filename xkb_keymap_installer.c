@@ -1107,7 +1107,72 @@ bool xkb_keymap_uninstall_everything ()
     return success;
 }
 
-bool xkb_keymap_set_active (char *name)
+struct gsettings_layout_t {
+    char *type;
+    char *name;
+};
+
+bool xkb_keymap_get_active (mem_pool_t *pool, struct gsettings_layout_t *res)
+{
+    assert (res != NULL);
+    bool success = false;
+
+    GSettings *gtk_keyboard_settings = g_settings_new ("org.gnome.desktop.input-sources");
+
+    // Get index of active layout
+    uint32_t layout_idx;
+    {
+        GVariant *current_v = g_settings_get_value (gtk_keyboard_settings, "current");
+        layout_idx = g_variant_get_uint32 (current_v);
+        g_variant_unref (current_v);
+    }
+
+
+    // Get the layout name and type at position layout_idx
+    {
+        GVariant *layout_list = g_settings_get_value (gtk_keyboard_settings, "sources");
+        GVariantIter *layout_list_it = g_variant_iter_new (layout_list);
+        GVariant *layout_tuple;
+
+        int idx = 0;
+        while (idx < layout_idx &&
+               (layout_tuple = g_variant_iter_next_value (layout_list_it))) {
+            idx++;
+            g_variant_unref (layout_tuple);
+        }
+
+        layout_tuple = g_variant_iter_next_value (layout_list_it);
+        if (layout_tuple) {
+            GVariantIter *layout_tuple_it = g_variant_iter_new (layout_tuple);
+
+            GVariant *layout_type_v = g_variant_iter_next_value (layout_tuple_it);
+            GVariant *layout_name_v = g_variant_iter_next_value (layout_tuple_it);
+
+            const char *layout_type = g_variant_get_string (layout_type_v, NULL);
+            res->type = pom_strdup (pool, layout_type);
+
+            const char *layout_name = g_variant_get_string (layout_name_v, NULL);
+            res->name = pom_strdup (pool, layout_name);
+            success = true;
+
+            g_variant_unref (layout_type_v);
+            g_variant_unref (layout_name_v);
+
+            g_variant_iter_free (layout_tuple_it);
+            g_variant_unref (layout_tuple);
+        }
+
+        g_variant_iter_free (layout_list_it);
+        g_variant_unref (layout_list);
+    }
+
+    g_object_unref (gtk_keyboard_settings);
+
+    return success;
+}
+
+#define xkb_keymap_set_active(name) xkb_keymap_set_active_full("xkb",name)
+bool xkb_keymap_set_active_full (char *type, char *name)
 {
     GSettings *gtk_keyboard_settings = g_settings_new ("org.gnome.desktop.input-sources");
 
@@ -1129,7 +1194,7 @@ bool xkb_keymap_set_active (char *name)
 
             const char *layout_type = g_variant_get_string (layout_type_v, NULL);
             const char *layout_name = g_variant_get_string (layout_name_v, NULL);
-            if (strcmp (layout_type, "xkb") == 0 && strcmp (layout_name, name) == 0) {
+            if (strcmp (layout_type, type) == 0 && strcmp (layout_name, name) == 0) {
                 found = true;
             }
             g_variant_unref (layout_type_v);
@@ -1148,31 +1213,12 @@ bool xkb_keymap_set_active (char *name)
 
     // Set 'current' key to the value of the found index
     if (found) {
-        printf ("Found at index: %i\n", layout_idx);
+        g_settings_set_uint (gtk_keyboard_settings, "current", layout_idx);
     }
 
     g_variant_unref (layout_list);
     g_object_unref (gtk_keyboard_settings);
 
-    return false;
+    return found;
 }
 
-
-uint32_t xkb_keymap_get_active_idx ()
-{
-    GSettings *gtk_keyboard_settings = g_settings_new ("org.gnome.desktop.input-sources");
-
-    GVariant *current_v = g_settings_get_value (gtk_keyboard_settings, "current");
-    uint32_t res = g_variant_get_uint32 (current_v);
-    g_variant_unref (current_v);
-
-    g_object_unref (gtk_keyboard_settings);
-    return res;
-}
-
-void xkb_keymap_set_active_idx (uint32_t layout_idx)
-{
-    GSettings *gtk_keyboard_settings = g_settings_new ("org.gnome.desktop.input-sources");
-    g_settings_set_uint (gtk_keyboard_settings, "current", layout_idx);
-    g_object_unref (gtk_keyboard_settings);
-}

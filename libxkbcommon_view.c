@@ -48,6 +48,8 @@ struct interactive_debug_app_t {
     GtkWidget *header_bar;
     GtkWidget *headerbar_buttons;
     struct keyboard_view_t *keyboard_view;
+
+    struct gsettings_layout_t original_active_layout;
 };
 
 int main (int argc, char *argv[])
@@ -100,6 +102,11 @@ int main (int argc, char *argv[])
     bool keymap_installed = xkb_keymap_install (absolute_path, &info);
     if (!keymap_installed) {
         printf ("WARN: To install the layout and get GTK event info run with sudo.\n");
+
+    } else if(xkb_keymap_get_active (&app.pool, &app.original_active_layout)) {
+        if (!xkb_keymap_set_active (info.name)) {
+            printf ("Failed to set the input layout as active.\n");
+        }
     }
 
     if (keyboard_view_set_keymap (app.keyboard_view, name, file_content)) {
@@ -109,6 +116,7 @@ int main (int argc, char *argv[])
     }
 
     if (keymap_installed) {
+        xkb_keymap_set_active_full (app.original_active_layout.type, app.original_active_layout.name);
         xkb_keymap_uninstall (info.name);
     }
 

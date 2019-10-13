@@ -1200,7 +1200,7 @@ bool xkb_keymap_set_active_full (char *type, char *name)
             g_variant_unref (layout_type_v);
             g_variant_unref (layout_name_v);
 
-            if (found) {
+            if (!found) {
                 layout_idx++;
             }
 
@@ -1220,5 +1220,63 @@ bool xkb_keymap_set_active_full (char *type, char *name)
     g_object_unref (gtk_keyboard_settings);
 
     return found;
+}
+
+bool xkb_keymap_add_to_gsettings (char *name)
+{
+    GSettings *gtk_keyboard_settings = g_settings_new ("org.gnome.desktop.input-sources");
+
+    GVariant *layout_list = g_settings_get_value (gtk_keyboard_settings, "sources");
+
+    GVariantBuilder builder;
+    bool found = false;
+
+    g_variant_builder_init (&builder, G_VARIANT_TYPE (g_variant_get_type_string (layout_list)));
+
+    GVariantIter *layout_list_it = g_variant_iter_new (layout_list);
+    GVariant *layout_tuple;
+
+    while (!found &&
+           (layout_tuple = g_variant_iter_next_value (layout_list_it))) {
+        GVariantIter *layout_tuple_it = g_variant_iter_new (layout_tuple);
+
+        GVariant *layout_type_v = g_variant_iter_next_value (layout_tuple_it);
+        GVariant *layout_name_v = g_variant_iter_next_value (layout_tuple_it);
+
+        const char *layout_type = g_variant_get_string (layout_type_v, NULL);
+        const char *layout_name = g_variant_get_string (layout_name_v, NULL);
+        if (strcmp (layout_type, "xkb") == 0 && strcmp (layout_name, name) == 0) {
+            found = true;
+        }
+
+        // Add the current tuple to the new layout list
+        char *tuple_str = g_variant_print (layout_tuple, FALSE);
+        printf ("Adding tuple: %s\n", tuple_str);
+        g_variant_builder_add_parsed (&builder, tuple_str);
+        g_free (tuple_str);
+
+        g_variant_unref (layout_type_v);
+        g_variant_unref (layout_name_v);
+
+        g_variant_iter_free (layout_tuple_it);
+        g_variant_unref (layout_tuple);
+    }
+
+    g_variant_iter_free (layout_list_it);
+
+    if (!found) {
+        g_variant_builder_add_parsed (&builder, "('xkb', %s)", name);
+        GVariant *new_list = g_variant_builder_end (&builder);
+        g_settings_set_value (gtk_keyboard_settings, "sources", new_list);
+        //g_settings_sync();
+
+        char *str = g_variant_print (new_list, FALSE);
+        printf ("New list: %s\n", str);
+    }
+
+    g_variant_unref (layout_list);
+    g_object_unref (gtk_keyboard_settings);
+
+    return false;
 }
 

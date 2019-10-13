@@ -99,13 +99,17 @@ int main (int argc, char *argv[])
 
     struct keyboard_layout_info_t info = {0};
     info.name = "TEST_keyboard_view_test_installation";
-    bool keymap_installed = xkb_keymap_install (absolute_path, &info);
-    if (!keymap_installed) {
+    bool keymap_installed = false;;
+    if (!xkb_keymap_install (absolute_path, &info)) {
         printf ("WARN: To install the layout and get GTK event info run with sudo.\n");
 
     } else if(xkb_keymap_get_active (&app.pool, &app.original_active_layout)) {
+        xkb_keymap_add_to_gsettings ("BLA");
+
         if (!xkb_keymap_set_active (info.name)) {
             printf ("Failed to set the input layout as active.\n");
+        } else {
+            keymap_installed = true;
         }
     }
 

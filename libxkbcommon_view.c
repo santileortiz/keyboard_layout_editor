@@ -100,17 +100,22 @@ int main (int argc, char *argv[])
     struct keyboard_layout_info_t info = {0};
     info.name = "TEST_keyboard_view_test_installation";
     bool keymap_installed = false;;
+
     if (!xkb_keymap_install (absolute_path, &info)) {
         printf ("WARN: To install the layout and get GTK event info run with sudo.\n");
 
     } else if(xkb_keymap_get_active (&app.pool, &app.original_active_layout)) {
-        xkb_keymap_add_to_gsettings ("BLA");
-
+        // TODO: Changing gsettings as sudo seems to be different than changing
+        // it without. Implement event capturing and see if the layout is
+        // acttually changing or not.
+        xkb_keymap_add_to_gsettings (info.name);
         if (!xkb_keymap_set_active (info.name)) {
             printf ("Failed to set the input layout as active.\n");
         } else {
             keymap_installed = true;
         }
+
+        g_settings_sync();
     }
 
     if (keyboard_view_set_keymap (app.keyboard_view, name, file_content)) {

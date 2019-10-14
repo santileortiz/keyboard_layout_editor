@@ -1251,7 +1251,6 @@ bool xkb_keymap_add_to_gsettings (char *name)
 
         // Add the current tuple to the new layout list
         char *tuple_str = g_variant_print (layout_tuple, FALSE);
-        printf ("Adding tuple: %s\n", tuple_str);
         g_variant_builder_add_parsed (&builder, tuple_str);
         g_free (tuple_str);
 
@@ -1268,10 +1267,6 @@ bool xkb_keymap_add_to_gsettings (char *name)
         g_variant_builder_add_parsed (&builder, "('xkb', %s)", name);
         GVariant *new_list = g_variant_builder_end (&builder);
         g_settings_set_value (gtk_keyboard_settings, "sources", new_list);
-        //g_settings_sync();
-
-        char *str = g_variant_print (new_list, FALSE);
-        printf ("New list: %s\n", str);
     }
 
     g_variant_unref (layout_list);
@@ -1280,3 +1275,7 @@ bool xkb_keymap_add_to_gsettings (char *name)
     return false;
 }
 
+bool xkb_keymap_remove_from_gsettings (char *name)
+{
+    // TODO: Implement this.
+}

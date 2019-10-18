@@ -32,12 +32,7 @@
 #include "xkb_keymap_installer.c"
 
 #include "settings.h"
-
-gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
-{
-    gtk_main_quit ();
-    return FALSE;
-}
+#include "gdk_modifier_names.h"
 
 struct interactive_debug_app_t {
     mem_pool_t pool;
@@ -49,8 +44,99 @@ struct interactive_debug_app_t {
     GtkWidget *headerbar_buttons;
     struct keyboard_view_t *keyboard_view;
 
+    int num_mods;
+    const char **mod_names;
+
     struct gsettings_layout_t original_active_layout;
 };
+
+static gint on_gdk_key_event (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
+{
+    struct interactive_debug_app_t *app = (struct interactive_debug_app_t*)user_data;
+    struct keyboard_view_t *kv = app->keyboard_view;
+    struct xkb_state *state = kv->xkb_state;
+
+    xkb_keycode_t keycode = event->hardware_keycode;
+    enum xkb_state_component changed;
+    printf ("type: ");
+    if (event->type == GDK_KEY_PRESS) {
+        printf ("KEY_PRESS\n");
+        changed = xkb_state_update_key(state, keycode, XKB_KEY_DOWN);
+    } else if (event->type == GDK_KEY_RELEASE) {
+        printf ("KEY_RELEASE\n");
+        changed = xkb_state_update_key(state, keycode, XKB_KEY_UP);
+    } else {
+        invalid_code_path;
+    }
+
+    printf ("state: ");
+    bool is_first = true;
+    for (uint32_t mask = event->state;
+         mask;
+         mask = mask & (mask-1)) {
+        uint32_t next_bit_mask = mask & -mask;
+
+        if (!is_first) {
+            printf (", ");
+        }
+        is_first = false;
+        printf ("%s", gdk_modifier_names[bit_pos(next_bit_mask)]);
+    }
+    printf ("\n");
+
+    printf ("Changed: %x\n", changed);
+
+    xkb_keysym_t keysym = xkb_state_key_get_one_sym(state, event->hardware_keycode);
+
+    char keysym_name[64];
+    xkb_keysym_get_name(keysym, keysym_name, sizeof(keysym_name));
+
+    printf ("keysym: %s\n", keysym_name);
+
+    int size = xkb_state_key_get_utf8(state, keycode, NULL, 0) + 1;
+    if (size > 1) {
+        char *buffer = malloc (size);
+        xkb_state_key_get_utf8(state, keycode, buffer, size);
+        printf ("UTF-8: %s\n", buffer);
+    }
+
+    // Print modifier information
+    {
+        printf ("Effective Mods: ");
+        for (int i=0; i<app->num_mods; i++) {
+            if (xkb_state_mod_index_is_active(state, i, XKB_STATE_MODS_EFFECTIVE)) {
+                printf ("%s ", app->mod_names[i]);
+            }
+        }
+        printf ("\n");
+
+        printf ("Consumed Mods (XKB): ");
+        for (int i=0; i<app->num_mods; i++) {
+            if (xkb_state_mod_index_is_consumed2 (state, keycode, i, XKB_CONSUMED_MODE_XKB)) {
+                printf ("%s ", app->mod_names[i]);
+            }
+        }
+        printf ("\n");
+
+        printf ("Consumed Mods (GTK): ");
+        for (int i=0; i<app->num_mods; i++) {
+            if (xkb_state_mod_index_is_consumed2 (state, keycode, i, XKB_CONSUMED_MODE_GTK)) {
+                printf ("%s ", app->mod_names[i]);
+            }
+        }
+        printf ("\n");
+    }
+
+    printf ("\n");
+
+    return FALSE;
+}
+
+gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+{
+    gtk_main_quit ();
+    return FALSE;
+}
 
 int main (int argc, char *argv[])
 {
@@ -63,6 +149,7 @@ int main (int argc, char *argv[])
 
     init_kernel_keycode_names ();
     init_xkb_keycode_names ();
+    gdk_modifier_names_init ();
 
     gtk_init(&argc, &argv);
 
@@ -116,9 +203,24 @@ int main (int argc, char *argv[])
         }
 
         g_settings_sync();
+
+        g_signal_connect (window, "key-press-event", G_CALLBACK (on_gdk_key_event), &app);
+        g_signal_connect (window, "key-release-event", G_CALLBACK (on_gdk_key_event), &app);
     }
 
     if (keyboard_view_set_keymap (app.keyboard_view, name, file_content)) {
+        // Compute the modifier name array for easy access
+        {
+            // TODO: I think we have better implementations for this in our xkb
+            // tests.
+            app.num_mods = xkb_keymap_num_mods (app.keyboard_view->xkb_keymap);
+            app.mod_names = mem_pool_push_size (&app.pool, sizeof(char *)*app.num_mods);
+
+            for (int i=0; i<app.num_mods; i++) {
+                app.mod_names[i] = xkb_keymap_mod_get_name(app.keyboard_view->xkb_keymap, i);
+            }
+        }
+
         gtk_widget_show_all (window);
 
         gtk_main();

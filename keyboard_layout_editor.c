@@ -579,12 +579,13 @@ void on_ungrab_input_button (GtkButton *button, gpointer user_data)
 // this seems to be a GTK issue and I really don't have time to dig deeper.
 GtkWidget *new_keymap_test_button ()
 {
-    return new_icon_button ("process-completed", "Test layout", G_CALLBACK(on_grab_input_button));
+    return new_icon_button ("process-completed", "Test layout", G_CALLBACK(on_grab_input_button), NULL);
 }
 
 GtkWidget *new_keymap_stop_test_button ()
 {
-    return new_icon_button ("media-playback-stop", "Stop testing layout", G_CALLBACK(on_ungrab_input_button));
+    return new_icon_button ("media-playback-stop", "Stop testing layout",
+                            G_CALLBACK(on_ungrab_input_button), NULL);
 }
 
 GtkWidget* new_welcome_sidebar (struct keyboard_layout_info_t *custom_layouts, int num_custom_layouts);

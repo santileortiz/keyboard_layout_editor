@@ -50,6 +50,8 @@ struct interactive_debug_app_t {
     struct gsettings_layout_t original_active_layout;
 };
 
+struct interactive_debug_app_t app = {0};
+
 static gint on_gdk_key_event (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
 {
     struct interactive_debug_app_t *app = (struct interactive_debug_app_t*)user_data;
@@ -138,10 +140,35 @@ gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer use
     return FALSE;
 }
 
+GtkWidget *new_keymap_stop_test_button ();
+void on_grab_input_button (GtkButton *button, gpointer user_data)
+{
+    if (grab_input (app.window)) {
+        replace_wrapped_widget (&app.keymap_test_button, new_keymap_stop_test_button ());
+    }
+}
+
+GtkWidget *new_keymap_test_button ();
+void on_ungrab_input_button (GtkButton *button, gpointer user_data)
+{
+    ungrab_input ();
+
+    replace_wrapped_widget (&app.keymap_test_button, new_keymap_test_button ());
+}
+
+GtkWidget *new_keymap_test_button ()
+{
+    return new_icon_button ("process-completed", "Test layout", G_CALLBACK(on_grab_input_button), NULL);
+}
+
+GtkWidget *new_keymap_stop_test_button ()
+{
+    return new_icon_button ("media-playback-stop", "Stop testing layout",
+                            G_CALLBACK(on_ungrab_input_button), NULL);
+}
+
 int main (int argc, char *argv[])
 {
-    struct interactive_debug_app_t app = {0};
-
     if (argc <= 1) {
         printf ("Usage: xkbcommon-view [XKB_FILE]\n");
         return 0;
@@ -165,10 +192,13 @@ int main (int argc, char *argv[])
     app.header_bar = gtk_header_bar_new ();
     gtk_header_bar_set_title (GTK_HEADER_BAR(app.header_bar), "Keys");
     gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(app.header_bar), TRUE);
-    app.headerbar_buttons = gtk_grid_new ();
-    gtk_header_bar_pack_start (GTK_HEADER_BAR(app.header_bar), wrap_gtk_widget (app.headerbar_buttons));
+    app.headerbar_buttons = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_header_bar_pack_start (GTK_HEADER_BAR(app.header_bar), app.headerbar_buttons);
     gtk_widget_show_all (app.header_bar);
     gtk_window_set_titlebar (GTK_WINDOW(window), app.header_bar);
+
+    app.keymap_test_button = new_keymap_test_button ();
+    gtk_container_add (GTK_CONTAINER (app.headerbar_buttons), app.keymap_test_button);
 
     app.repr_path = sh_expand (REPRESENTATIONS_DIR_PATH, &app.pool);
     app.settings_file_path = sh_expand (SETTINGS_FILE_PATH, &app.pool);

@@ -40,6 +40,8 @@ struct interactive_debug_app_t {
     char *repr_path;
     char *settings_file_path;
 
+    GtkWidget *window;
+    GtkWidget *keymap_test_button;
     GtkWidget *header_bar;
     GtkWidget *headerbar_buttons;
     struct keyboard_view_t *keyboard_view;
@@ -183,11 +185,11 @@ int main (int argc, char *argv[])
     gtk_icon_theme_add_resource_path (gtk_icon_theme_get_default (),
                                       "/com/github/santileortiz/iconoscope/icons");
 
-    GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_default_size (GTK_WINDOW(window), 1200, 540);
-    g_signal_connect (G_OBJECT(window), "delete-event", G_CALLBACK (window_delete_handler), NULL);
-    gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
-    gtk_window_set_gravity (GTK_WINDOW(window), GDK_GRAVITY_CENTER);
+    app.window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_default_size (GTK_WINDOW(app.window), 1200, 540);
+    g_signal_connect (G_OBJECT(app.window), "delete-event", G_CALLBACK (window_delete_handler), NULL);
+    gtk_window_set_position(GTK_WINDOW(app.window), GTK_WIN_POS_CENTER);
+    gtk_window_set_gravity (GTK_WINDOW(app.window), GDK_GRAVITY_CENTER);
 
     app.header_bar = gtk_header_bar_new ();
     gtk_header_bar_set_title (GTK_HEADER_BAR(app.header_bar), "Keys");
@@ -195,17 +197,17 @@ int main (int argc, char *argv[])
     app.headerbar_buttons = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_header_bar_pack_start (GTK_HEADER_BAR(app.header_bar), app.headerbar_buttons);
     gtk_widget_show_all (app.header_bar);
-    gtk_window_set_titlebar (GTK_WINDOW(window), app.header_bar);
+    gtk_window_set_titlebar (GTK_WINDOW(app.window), app.header_bar);
 
     app.keymap_test_button = new_keymap_test_button ();
     gtk_container_add (GTK_CONTAINER (app.headerbar_buttons), app.keymap_test_button);
 
     app.repr_path = sh_expand (REPRESENTATIONS_DIR_PATH, &app.pool);
     app.settings_file_path = sh_expand (SETTINGS_FILE_PATH, &app.pool);
-    app.keyboard_view = keyboard_view_new_with_gui (window,
+    app.keyboard_view = keyboard_view_new_with_gui (app.window,
                                                     app.repr_path, NULL,
                                                     app.settings_file_path);
-    gtk_container_add(GTK_CONTAINER(window), wrap_gtk_widget(app.keyboard_view->widget));
+    gtk_container_add(GTK_CONTAINER(app.window), wrap_gtk_widget(app.keyboard_view->widget));
 
     mem_pool_t tmp = {0};
 
@@ -234,8 +236,8 @@ int main (int argc, char *argv[])
 
         g_settings_sync();
 
-        g_signal_connect (window, "key-press-event", G_CALLBACK (on_gdk_key_event), &app);
-        g_signal_connect (window, "key-release-event", G_CALLBACK (on_gdk_key_event), &app);
+        g_signal_connect (app.window, "key-press-event", G_CALLBACK (on_gdk_key_event), &app);
+        g_signal_connect (app.window, "key-release-event", G_CALLBACK (on_gdk_key_event), &app);
     }
 
     if (keyboard_view_set_keymap (app.keyboard_view, name, file_content)) {
@@ -251,7 +253,7 @@ int main (int argc, char *argv[])
             }
         }
 
-        gtk_widget_show_all (window);
+        gtk_widget_show_all (app.window);
 
         gtk_main();
     }

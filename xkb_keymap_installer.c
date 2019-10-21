@@ -1278,4 +1278,5 @@ bool xkb_keymap_add_to_gsettings (char *name)
 bool xkb_keymap_remove_from_gsettings (char *name)
 {
     // TODO: Implement this.
+    return false;
 }

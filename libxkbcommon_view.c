@@ -259,6 +259,7 @@ int main (int argc, char *argv[])
     }
 
     if (keymap_installed) {
+        xkb_keymap_remove_from_gsettings (info.name);
         xkb_keymap_set_active_full (app.original_active_layout.type, app.original_active_layout.name);
         xkb_keymap_uninstall (info.name);
     }

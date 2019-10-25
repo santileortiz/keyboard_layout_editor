@@ -839,7 +839,7 @@ void get_info_from_layoutList (string_t *layoutList_xml,
                     xmlNodePtr lang = xml_get_child (languages_list_node, "iso639Id");
                     struct ptrarr_t languages = {0};
                     layouts[layout_count].num_languages = 0;
-                    do {
+                    while (lang) {
                         xmlChar *content = xmlNodeGetContent(lang);
                         char* lang_str = pom_strdup (pool, (const char*)content);
                         ptrarr_push (&languages, lang_str);
@@ -847,8 +847,7 @@ void get_info_from_layoutList (string_t *layoutList_xml,
 
                         layouts[layout_count].num_languages++;
                         lang = xml_get_sibling (lang->next, "iso639Id");
-                        if (lang == NULL) break;
-                    } while (1);
+                    }
 
                     layouts[layout_count].languages =
                         pom_push_size (pool, sizeof(char*)*layouts[layout_count].num_languages);

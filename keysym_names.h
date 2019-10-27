@@ -1,7 +1,8 @@
 // File automatically generated using './pymk generate_keysym_names'
+
 struct named_keysym_t {
     const char *name;
-    xkb_keysym_t keysym;
+    xkb_keysym_t val;
 };
 
 static const struct named_keysym_t keysym_names[] = {

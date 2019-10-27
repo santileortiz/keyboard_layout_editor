@@ -128,51 +128,23 @@ def generate_keysym_names ():
         return
 
     xkbcommon_keysyms_header = open (scripts.find_system_lib ("xkbcommon/xkbcommon-keysyms.h"))
-    keysyms = []
-    regex = re.compile (r'^#define\s+XKB_KEY_(\S+)\s+(\S+)')
-    num_cols = regex.groups
-    col_width = [0]*num_cols
 
-    avg_len = 0
-    for line in xkbcommon_keysyms_header:
-        m = regex.match (line.strip())
-        if m != None:
-            groups = m.groups()
-            for i, val in enumerate(groups):
-                if i == 0:
-                    avg_len += len(val)
+    scripts.header_define_to_struct_array_header (xkbcommon_keysyms_header,
+            'named_keysym_t', 'xkb_keysym_t',
+            'keysym_names', 'keysym_names.h',
+            "// File automatically generated using './pymk generate_keysym_names'", 'XKB_KEY_')
 
-                col_width[i] = max(col_width[i], len(val))
+def generate_gdk_keysym_names ():
+    global g_dry_run
+    if g_dry_run:
+        return
 
-            keysyms.append (groups)
+    xkbcommon_keysyms_header = open (scripts.find_system_lib ("gdk/gdkkeysyms.h", 'gdk-3.0'))
 
-    res = []
-    for keysym in keysyms:
-        col = []
-        for i, val in enumerate(keysym):
-            if (i == 0):
-                col.append ('{0:{width}}'.format ('"'+val+'",', width=col_width[i]+3))
-            else:
-                col.append ('{0:{width}}'.format (val, width=col_width[i]))
-
-        res.append ('    {'+''.join (col)+'}')
-
-    out_file = open ("keysym_names.h", "w")
-    out_file.write ("// File automatically generated using './pymk generate_keysym_names'")
-    out_file.write (textwrap.dedent (
-                    r'''
-                    struct named_keysym_t {
-                        const char *name;
-                        xkb_keysym_t keysym;
-                    };
-
-                    '''))
-    # Maybe these can be useful in the future? or maybe not...
-    #out_file.write ('int keysym_names_avg_len = {width};\n'.format (width=int(avg_len/len(res))))
-    #out_file.write ('int keysym_names_max_len = {width};\n'.format (width=col_width[0]))
-    out_file.write ('static const struct named_keysym_t keysym_names[] = {\n')
-    out_file.write (',\n'.join(res))
-    out_file.write ('\n};')
+    scripts.header_define_to_struct_array_header (xkbcommon_keysyms_header,
+            'named_gdk_keysym_t', 'guint',
+            'gdk_keysym_names', 'gdk_keysym_names.h',
+            "// File automatically generated using './pymk generate_gdk_keysym_names'")
 
 if __name__ == "__main__":
     # Everything above this line will be executed for each TAB press.

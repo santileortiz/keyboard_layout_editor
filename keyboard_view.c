@@ -3879,7 +3879,7 @@ gboolean kv_tooltip_handler (GtkWidget *widget, gint x, gint y,
 }
 
 // TODO: Report errors to the caller
-bool keyboard_view_set_keymap (struct keyboard_view_t *kv, const char *keymap_name, const char *xkb_str)
+bool keyboard_view_set_keymap (struct keyboard_view_t *kv, const char *xkb_str)
 {
     // TODO: I noticed libxkbcommon's scanner breaks when parsing floating point
     // numbers in locales that use ',' as decimal separator. For now I fixed it

@@ -216,7 +216,7 @@ void on_custom_layout_selected (GtkListBox *box, GtkListBoxRow *row, gpointer us
 
     string_t xkb_str = reconstruct_installed_custom_layout_str (curr_layout);
 
-    if (keyboard_view_set_keymap (app.keyboard_view, curr_layout, str_data(&xkb_str))) {
+    if (keyboard_view_set_keymap (app.keyboard_view, str_data(&xkb_str))) {
         str_free (&app.curr_xkb_str);
         app.curr_xkb_str = xkb_str;
 
@@ -735,7 +735,7 @@ void open_xkb_file_handler (GtkButton *button, gpointer user_data)
         // copy, but who knows. I won't think much about this for now.
         // @performance
         if (edit_xkb_str (&app, name, file_content) &&
-            keyboard_view_set_keymap (app.keyboard_view, name, file_content)) {
+            keyboard_view_set_keymap (app.keyboard_view, file_content)) {
             str_set (&app.curr_xkb_str, file_content);
             str_set (&app.curr_keymap_name, name);
 

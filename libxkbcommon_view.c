@@ -237,8 +237,7 @@ int main (int argc, char *argv[])
     mem_pool_t tmp = {0};
 
     char *absolute_path = sh_expand (argv[1], &tmp);
-    char *name, *file_content;
-    path_split (&tmp, argv[1], NULL, &name);
+    char *file_content;
     file_content = full_file_read (&tmp, argv[1]);
 
     struct keyboard_layout_info_t info = {0};
@@ -265,7 +264,7 @@ int main (int argc, char *argv[])
         g_signal_connect (app.window, "key-release-event", G_CALLBACK (on_gdk_key_event), &app);
     }
 
-    if (keyboard_view_set_keymap (app.keyboard_view, name, file_content)) {
+    if (keyboard_view_set_keymap (app.keyboard_view, file_content)) {
         // Compute the modifier name array for easy access
         {
             // TODO: I think we have better implementations for this in our xkb

@@ -33,6 +33,7 @@
 
 #include "settings.h"
 #include "gdk_modifier_names.h"
+#include "gdk_keysym_names.h"
 
 struct interactive_debug_app_t {
     mem_pool_t pool;
@@ -60,69 +61,111 @@ struct interactive_debug_app_t app = {0};
 static gint on_gdk_key_event (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
 {
     struct interactive_debug_app_t *app = (struct interactive_debug_app_t*)user_data;
-    struct keyboard_view_t *kv = app->keyboard_view;
-    struct xkb_state *state = kv->xkb_state;
 
-    bool was_pressed = false;
-    string_t info_str = {0};
-
-    xkb_keycode_t keycode = event->hardware_keycode;
-    enum xkb_state_component changed;
-
-    str_cat_c (&info_str, "type: ");
-    if (event->type == GDK_KEY_PRESS) {
-        // Detect if the key was pressed before and update the state in the
-        // pressed array.
-        if (app->key_pressed[keycode]) {
-            was_pressed = true;
+    // Detect if the event is a key press repetition and update the state in the
+    // pressed array.
+    bool ignore_keypress_repetition = false;
+    if (app->key_pressed[event->hardware_keycode]) {
+        if (event->type == GDK_KEY_PRESS) {
+            ignore_keypress_repetition = true;
+        } else if (event->type == GDK_KEY_RELEASE) {
+            app->key_pressed[event->hardware_keycode] = false;
         }
-        app->key_pressed[keycode] = true;
-
-        str_cat_c (&info_str, "KEY_PRESS\n");
-        changed = xkb_state_update_key(state, keycode, XKB_KEY_DOWN);
-
-    } else if (event->type == GDK_KEY_RELEASE) {
-        app->key_pressed[keycode] = false;
-        str_cat_c (&info_str, "KEY_RELEASE\n");
-        changed = xkb_state_update_key(state, keycode, XKB_KEY_UP);
 
     } else {
-        invalid_code_path;
-    }
+        if (event->type == GDK_KEY_PRESS) {
+            app->key_pressed[event->hardware_keycode] = true;
 
-    str_cat_c (&info_str, "state: ");
-    bool is_first = true;
-    for (uint32_t mask = event->state;
-         mask;
-         mask = mask & (mask-1)) {
-        uint32_t next_bit_mask = mask & -mask;
-
-        if (!is_first) {
-            str_cat_c (&info_str, ", ");
+        } else if (event->type == GDK_KEY_RELEASE) {
+            // As far as I know there is no way this can happen unless something
+            // weird happens.
+            invalid_code_path;
         }
-        is_first = false;
-        str_cat_printf (&info_str, "%s", gdk_modifier_names[bit_pos(next_bit_mask)]);
-    }
-    str_cat_c (&info_str, "\n");
-
-    str_cat_printf (&info_str, "Changed: %x\n", changed);
-
-    xkb_keysym_t keysym = xkb_state_key_get_one_sym(state, event->hardware_keycode);
-
-    char keysym_name[64];
-    xkb_keysym_get_name(keysym, keysym_name, sizeof(keysym_name));
-
-    str_cat_printf (&info_str, "keysym: %s\n", keysym_name);
-
-    int size = xkb_state_key_get_utf8(state, keycode, NULL, 0) + 1;
-    if (size > 1) {
-        char *buffer = malloc (size);
-        xkb_state_key_get_utf8(state, keycode, buffer, size);
-        str_cat_printf (&info_str, "UTF-8: %s\n", buffer);
     }
 
-    // Print modifier information
-    {
+    // Don't continue if this is a key repetitions.
+    // TODO: We may want to make this optional if we get serious about
+    // supporting the repeat setting of the XKB file format.
+    if (!ignore_keypress_repetition) {
+        struct keyboard_view_t *kv = app->keyboard_view;
+        struct xkb_state *state = kv->xkb_state;
+        string_t info_str = {0};
+        xkb_keycode_t keycode = event->hardware_keycode;
+        enum xkb_state_component changed;
+
+        str_cat_c (&info_str, "-------\n");
+        str_cat_c (&info_str, "GDK/GTK\n");
+        str_cat_c (&info_str, "-------\n");
+        str_cat_c (&info_str, "type: ");
+        if (event->type == GDK_KEY_PRESS) {
+            str_cat_c (&info_str, "KEY_PRESS\n");
+            changed = xkb_state_update_key(state, keycode, XKB_KEY_DOWN);
+
+        } else if (event->type == GDK_KEY_RELEASE) {
+            str_cat_c (&info_str, "KEY_RELEASE\n");
+            changed = xkb_state_update_key(state, keycode, XKB_KEY_UP);
+        }
+
+        str_cat_c (&info_str, "send_event: ");
+        if (event->send_event == TRUE) {
+            str_cat_c (&info_str, "TRUE\n");
+        } else {
+            str_cat_c (&info_str, "FALSE\n");
+        }
+
+        str_cat_printf (&info_str, "time: %d\n", event->time);
+
+        str_cat_c (&info_str, "state: ");
+        bool is_first = true;
+        for (uint32_t mask = event->state;
+             mask;
+             mask = mask & (mask-1)) {
+            uint32_t next_bit_mask = mask & -mask;
+
+            if (!is_first) {
+                str_cat_c (&info_str, ", ");
+            }
+            is_first = false;
+            str_cat_printf (&info_str, "%s", gdk_modifier_names[bit_pos(next_bit_mask)]);
+        }
+        str_cat_c (&info_str, "\n");
+
+        // TODO: Don't do linear search here.
+        const char *keyval_name = NULL;
+        for (int i = 0; keyval_name == NULL && i<ARRAY_SIZE(gdk_keysym_names); i++) {
+            if (gdk_keysym_names[i].val == event->keyval) {
+                keyval_name = gdk_keysym_names[i].name;
+            }
+        }
+        str_cat_printf (&info_str, "keyval: %s\n", keyval_name);
+        str_cat_printf (&info_str, "length: %i\n", event->length);
+        str_cat_printf (&info_str, "string: %s\n", event->string);
+        str_cat_printf (&info_str, "hardware_keycode: %d\n", event->hardware_keycode);
+        str_cat_printf (&info_str, "group: %d\n", event->group);
+        str_cat_printf (&info_str, "is_modifier: %d\n", event->is_modifier);
+
+        str_cat_c (&info_str, "------------\n");
+        str_cat_c (&info_str, "LIBXKBCOMMON\n");
+        str_cat_c (&info_str, "------------\n");
+        str_cat_printf (&info_str, "Changed: %x\n", changed);
+
+        xkb_keysym_t keysym = xkb_state_key_get_one_sym(state, event->hardware_keycode);
+
+        char keysym_name[64];
+        xkb_keysym_get_name(keysym, keysym_name, sizeof(keysym_name));
+
+        str_cat_printf (&info_str, "keysym: %s\n", keysym_name);
+
+        str_cat_c (&info_str, "UTF-8: ");
+        int size = xkb_state_key_get_utf8(state, keycode, NULL, 0) + 1;
+        if (size > 1) {
+            char *buffer = malloc (size);
+            xkb_state_key_get_utf8(state, keycode, buffer, size);
+            str_cat_printf (&info_str, "%s\n", buffer);
+        } else {
+            str_cat_c (&info_str, "(none)\n");
+        }
+
         str_cat_c (&info_str, "Effective Mods: ");
         for (int i=0; i<app->num_mods; i++) {
             if (xkb_state_mod_index_is_active(state, i, XKB_STATE_MODS_EFFECTIVE)) {
@@ -145,17 +188,11 @@ static gint on_gdk_key_event (GtkWidget *widget, GdkEventKey *event, gpointer us
                 str_cat_printf (&info_str, "%s ", app->mod_names[i]);
             }
         }
-        str_cat_c (&info_str, "\n");
-    }
+        str_cat_c (&info_str, "\n\n");
 
-    str_cat_c (&info_str, "\n");
-
-    // Don't print event data of key repetitions as these just clutter the
-    // output.
-    // TODO: We may want to make this optional if we get serious about
-    // supporting the repeat setting of the XKB file format.
-    if (!was_pressed) {
         printf ("%s", str_data (&info_str));
+
+        str_free (&info_str);
     }
 
     return FALSE;

@@ -1884,7 +1884,7 @@ typedef struct {
 // could increase cache misses? I don't know.
 //
 // NOTE: I reluctantly added closures to ON_DESTROY_CALLBACK. For
-// str_init_pooled() we need a way to pass the string to be freed. Heavy use of
+// str_set_pooled() we need a way to pass the string to be freed. Heavy use of
 // closures here is a slippery slope. Expecting to be able to run any code from
 // here will be problematic and closures may gieve the wrong impression that
 // code here is always safe. It's easy to use freed memory from here. Whenever
@@ -2314,6 +2314,21 @@ char* sh_expand (const char *str, mem_pool_t *pool)
     char *res = collapse_str_arr (out.we_wordv, out.we_wordc, pool);
     wordfree (&out);
     return res;
+}
+
+char* abs_path (const char *path, mem_pool_t *pool)
+{
+    mem_pool_t l_pool = {0};
+
+    char *expanded_path = sh_expand (path, &l_pool);
+
+    char *absolute_path_m = realpath (expanded_path, NULL);
+    char *absolute_path = pom_strdup (pool, absolute_path_m);
+    free (absolute_path_m);
+
+    mem_pool_destroy (&l_pool);
+
+    return absolute_path;
 }
 
 void file_write (int file, void *pos,  ssize_t size)

@@ -266,7 +266,7 @@ xkb_keycodes "evdev+aliases(qwerty)" {
     indicator 11 = "Charging";
 };
 
-xkb_types "complete" {
+xkb_types "mod_ident_t" {
 
     virtual_modifiers NumLock,Alt,LevelThree,LAlt,RAlt,RControl,LControl,ScrollLock,LevelFive,AltGr,Meta,Super,Hyper;
 
@@ -295,7 +295,7 @@ xkb_types "complete" {
         level_name[Level2]= "Number";
     };
     type "MOD_TESTING_TYPE_A" {
-        modifiers= Shift+Lock+Control+Mod1+Mod2+Mod3+Mod4+Mod5;
+        modifiers= Shift+Lock+Control+Mod1;
         map[Shift]= Level2;
         map[Lock]= Level3;
         map[Control]= Level4;
@@ -307,7 +307,7 @@ xkb_types "complete" {
         level_name[Level5]= "Mod1";
     };
     type "MOD_TESTING_TYPE_B" {
-        modifiers= Shift+Lock+Control+Mod1+Mod2+Mod3+Mod4+Mod5;
+        modifiers= Mod2+Mod3+Mod4+Mod5;
         map[Mod2]= Level2;
         map[Mod3]= Level3;
         map[Mod4]= Level4;
@@ -320,7 +320,7 @@ xkb_types "complete" {
     };
 };
 
-xkb_compatibility "complete" {
+xkb_compatibility "mod_ident_c" {
     indicator "Caps Lock" {
         !allowExplicit;
         whichModState= locked;
@@ -419,33 +419,44 @@ xkb_symbols "pc+us+inet(evdev)" {
     key <BKSL> {         [       backslash,             bar ] };
     key <AB01> {
         type= "ALPHABETIC",
-        symbols[Group1]= [               z,               Z ]
+        symbols[Group1]= [               z,               Z ],
+        actions[Group1]= [SetMods(modifiers=Shift,clearLocks)]
     };
     key <AB02> {
         type= "ALPHABETIC",
-        symbols[Group1]= [               x,               X ]
+        symbols[Group1]= [               x,               X ],
+        actions[Group1]= [SetMods(modifiers=Lock,clearLocks)]
     };
     key <AB03> {
         type= "ALPHABETIC",
-        symbols[Group1]= [               c,               C ]
+        symbols[Group1]= [               c,               C ],
+        actions[Group1]= [SetMods(modifiers=Control,clearLocks)]
     };
     key <AB04> {
         type= "ALPHABETIC",
-        symbols[Group1]= [               v,               V ]
+        symbols[Group1]= [               v,               V ],
+        actions[Group1]= [SetMods(modifiers=Mod1,clearLocks)]
     };
     key <AB05> {
         type= "ALPHABETIC",
-        symbols[Group1]= [               b,               B ]
+        symbols[Group1]= [               b,               B ],
+        actions[Group1]= [SetMods(modifiers=Mod2,clearLocks)]
     };
     key <AB06> {
         type= "ALPHABETIC",
-        symbols[Group1]= [               n,               N ]
+        symbols[Group1]= [               n,               N ],
+        actions[Group1]= [SetMods(modifiers=Mod3,clearLocks)]
     };
     key <AB07> {
         type= "ALPHABETIC",
-        symbols[Group1]= [               m,               M ]
+        symbols[Group1]= [               m,               M ],
+        actions[Group1]= [SetMods(modifiers=Mod4,clearLocks)]
     };
-    key <AB08> {         [           comma,            less ] };
+    key <AB08> {
+        type= "ALPHABETIC",
+        symbols[Group1]= [               a,               A ],
+        actions[Group1]= [SetMods(modifiers=Mod5,clearLocks)]
+    };
     key <AB09> {         [          period,         greater ] };
     key <AB10> {         [           slash,        question ] };
     key <RTSH> {         [         Shift_R ] };

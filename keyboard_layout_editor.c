@@ -77,6 +77,12 @@ struct kle_app_t {
 
 struct kle_app_t app;
 
+// The following are wrapper functions that use Polkit's pkexec to call the
+// layout installation API. If we ever get to install layout locally for a user,
+// then this should not be necessary.
+//
+// :Polkit_wrapper
+
 // It seems like when calling pkexec we must always use absolute paths. We use
 // this function to get full paths from whatever the user passes in the CLI.
 // Maybe this is a configuration settiong in the policy file for pkexec, related
@@ -91,12 +97,6 @@ void str_cat_full_path (string_t *str, char *path)
     free (abs_path);
 }
 
-// The following are wrapper functions that use Polkit's pkexec to call the
-// layout installation API. If we ever get to install layout locally for a user,
-// then this should not be necessary.
-//
-// @Polkit_wrapper
-//
 // TODO: Redirect stderr so we don't cluttter the user's output, when they press
 // the cancel button.
 // TODO: Internationalization of the authentication dialog has to be done
@@ -127,6 +127,7 @@ bool unprivileged_xkb_keymap_install (char *keymap_path, struct keyboard_layout_
             int retval = system (str_data (&command));
             if (!WIFEXITED (retval)) {
                 printf ("Could not call pkexec. %i\n", retval);
+                success = false;
             }
             str_free (&command);
         } else {
@@ -136,7 +137,7 @@ bool unprivileged_xkb_keymap_install (char *keymap_path, struct keyboard_layout_
     return success;
 }
 
-// @Polkit_wrapper
+// :Polkit_wrapper
 bool unprivileged_xkb_keymap_uninstall (char *layout_name)
 {
     bool success = true;
@@ -150,6 +151,7 @@ bool unprivileged_xkb_keymap_uninstall (char *layout_name)
             int retval = system (str_data (&command));
             if (!WIFEXITED (retval)) {
                 printf ("Could not call pkexec.\n");
+                success = false;
             }
             str_free (&command);
         } else {
@@ -159,7 +161,7 @@ bool unprivileged_xkb_keymap_uninstall (char *layout_name)
     return success;
 }
 
-// @Polkit_wrapper
+// :Polkit_wrapper
 bool unprivileged_xkb_keymap_uninstall_everything ()
 {
     bool success = true;
@@ -172,6 +174,7 @@ bool unprivileged_xkb_keymap_uninstall_everything ()
             int retval = system (str_data (&command));
             if (!WIFEXITED (retval)) {
                 printf ("Could not call pkexec.\n");
+                success = false;
             }
             str_free (&command);
         } else {

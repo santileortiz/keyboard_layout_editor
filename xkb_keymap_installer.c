@@ -228,7 +228,7 @@ bool xkb_keymap_xkb_install (struct keyboard_layout_t *keymap, char *dest_dir)
         //
         //
         // I did some more research and found out that the compatibility section
-        // we install seems pretty much useless in elementary OS. I don't now
+        // we install seems pretty much useless in elementary OS. I don't kow
         // how or where the OS is messing up but I tried flipping keys just by
         // using a custom compatibility section and it didin't work. This limits
         // a lot how we can let the user work with modifiers. It means we can't
@@ -252,7 +252,7 @@ bool xkb_keymap_xkb_install (struct keyboard_layout_t *keymap, char *dest_dir)
         // :actions_in_symbols_cause_problems
         str_set (&section_buffer, "");
         str_put_xkb_component_path (&dest_file, dest_dir_end, keymap->info.name, XKB_CMPNT_SYMBOLS);
-        xkb_file_write_symbols (&state, keymap, &section_buffer, false);
+        xkb_file_write_symbols (&state, keymap, &section_buffer, true);
         ensure_path_exists (str_data (&dest_file));
         full_file_write (str_data(&section_buffer), str_len(&section_buffer), str_data(&dest_file));
     }
@@ -1173,6 +1173,8 @@ bool xkb_keymap_get_active (mem_pool_t *pool, struct gsettings_layout_t *res)
 #define xkb_keymap_set_active(name) xkb_keymap_set_active_full("xkb",name)
 bool xkb_keymap_set_active_full (char *type, char *name)
 {
+    assert (type != NULL && name != NULL);
+
     GSettings *gtk_keyboard_settings = g_settings_new ("org.gnome.desktop.input-sources");
 
     GVariant *layout_list = g_settings_get_value (gtk_keyboard_settings, "sources");

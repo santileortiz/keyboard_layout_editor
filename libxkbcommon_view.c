@@ -35,9 +35,13 @@
 #include "gdk_modifier_names.h"
 #include "gdk_keysym_names.h"
 
+#define TEST_LAYOUT_NAME "TEST_keyboard_view_test_installation"
+#define KEYBOARD_EDITOR_BIN "./bin/keyboard-layout-editor"
+
 struct interactive_debug_app_t {
     mem_pool_t pool;
 
+    char *keymap_absolute_path;
     char *repr_path;
     char *settings_file_path;
 
@@ -49,6 +53,8 @@ struct interactive_debug_app_t {
 
     int num_mods;
     const char **mod_names;
+
+    bool keymap_installed;
 
     // Stores if the key at the index has been pressed before.
     bool key_pressed[KEY_CNT];
@@ -204,9 +210,79 @@ gboolean window_delete_handler (GtkWidget *widget, GdkEvent *event, gpointer use
     return FALSE;
 }
 
+bool unprivileged_xkb_keymap_install (char *keymap_path, struct keyboard_layout_info_t *info)
+{
+    bool success = true;
+    mem_pool_t pool = {0};
+
+    string_t command = {0};
+    str_set_pooled (&pool, &command, "");
+    str_cat_printf (&command, "pkexec %s --install %s --name %s",
+                    abs_path (KEYBOARD_EDITOR_BIN, &pool),
+                    abs_path (keymap_path, &pool),
+                    info->name);
+
+    int retval = system (str_data (&command));
+    if (!WIFEXITED (retval)) {
+        printf ("Could not call pkexec. %i\n", retval);
+        success = false;
+    }
+
+    mem_pool_destroy (&pool);
+    return success;
+}
+
+bool unprivileged_xkb_keymap_uninstall (char *layout_name)
+{
+    bool success = true;
+    mem_pool_t pool = {0};
+
+    string_t command = {0};
+    str_set_pooled (&pool, &command, "");
+    str_cat_printf (&command, "pkexec %s --uninstall %s",
+                    abs_path (KEYBOARD_EDITOR_BIN, &pool), layout_name);
+
+    int retval = system (str_data (&command));
+    if (!WIFEXITED (retval)) {
+        printf ("Could not call pkexec. %i\n", retval);
+        success = false;
+    }
+
+    mem_pool_destroy (&pool);
+    return success;
+}
+
 GtkWidget *new_keymap_stop_test_button ();
 void on_grab_input_button (GtkButton *button, gpointer user_data)
 {
+    // TODO: If the layout file changed it would be useful to detect that an
+    // reinstall the layout in that case. This would ask again for
+    // authentication. In order for it to not get too annoying we should try to
+    // have permissions for a longer time.
+    if (!app.keymap_installed) {
+        struct keyboard_layout_info_t info = {0};
+        info.name = TEST_LAYOUT_NAME;
+        if (unprivileged_xkb_keymap_install (app.keymap_absolute_path, &info)) {
+            xkb_keymap_get_active (&app.pool, &app.original_active_layout);
+
+            xkb_keymap_add_to_gsettings (TEST_LAYOUT_NAME);
+            app.keymap_installed = true;
+
+        } else {
+            printf ("Failed to install the layout.\n");
+        }
+    }
+
+    if (app.keymap_installed) {
+        if (xkb_keymap_set_active (TEST_LAYOUT_NAME)) {
+            g_signal_connect (app.window, "key-press-event", G_CALLBACK (on_gdk_key_event), &app);
+            g_signal_connect (app.window, "key-release-event", G_CALLBACK (on_gdk_key_event), &app);
+
+        } else {
+            printf ("Failed to set the input layout as active.\n");
+        }
+    }
+
     if (grab_input (app.window)) {
         replace_wrapped_widget (&app.keymap_test_button, new_keymap_stop_test_button ());
     }
@@ -218,6 +294,11 @@ void on_ungrab_input_button (GtkButton *button, gpointer user_data)
     ungrab_input ();
 
     replace_wrapped_widget (&app.keymap_test_button, new_keymap_test_button ());
+
+    if (app.keymap_installed) {
+        xkb_keymap_set_active_full (app.original_active_layout.type, app.original_active_layout.name);
+        g_signal_handlers_disconnect_by_func(app.window, G_CALLBACK (on_gdk_key_event), &app);
+    }
 }
 
 GtkWidget *new_keymap_test_button ()
@@ -271,35 +352,11 @@ int main (int argc, char *argv[])
                                                     app.settings_file_path);
     gtk_container_add(GTK_CONTAINER(app.window), wrap_gtk_widget(app.keyboard_view->widget));
 
-    mem_pool_t tmp = {0};
+    app.keymap_absolute_path = sh_expand (argv[1], &app.pool);
 
-    char *absolute_path = sh_expand (argv[1], &tmp);
+    mem_pool_t tmp = {0};
     char *file_content;
     file_content = full_file_read (&tmp, argv[1]);
-
-    struct keyboard_layout_info_t info = {0};
-    info.name = "TEST_keyboard_view_test_installation";
-    bool keymap_installed = false;;
-
-    if (!xkb_keymap_install (absolute_path, &info)) {
-        printf ("WARN: To install the layout and get GTK event info run with sudo.\n");
-
-    } else if(xkb_keymap_get_active (&app.pool, &app.original_active_layout)) {
-        // TODO: Changing gsettings as sudo seems to be different than changing
-        // it without. Implement event capturing and see if the layout is
-        // acttually changing or not.
-        xkb_keymap_add_to_gsettings (info.name);
-        if (!xkb_keymap_set_active (info.name)) {
-            printf ("Failed to set the input layout as active.\n");
-        } else {
-            keymap_installed = true;
-        }
-
-        g_settings_sync();
-
-        g_signal_connect (app.window, "key-press-event", G_CALLBACK (on_gdk_key_event), &app);
-        g_signal_connect (app.window, "key-release-event", G_CALLBACK (on_gdk_key_event), &app);
-    }
 
     if (keyboard_view_set_keymap (app.keyboard_view, file_content)) {
         // Compute the modifier name array for easy access
@@ -319,11 +376,13 @@ int main (int argc, char *argv[])
         gtk_main();
     }
 
-    if (keymap_installed) {
-        xkb_keymap_remove_from_gsettings (info.name);
+    if (app.keymap_installed) {
         xkb_keymap_set_active_full (app.original_active_layout.type, app.original_active_layout.name);
-        xkb_keymap_uninstall (info.name);
+        xkb_keymap_remove_from_gsettings (TEST_LAYOUT_NAME);
+        unprivileged_xkb_keymap_uninstall (TEST_LAYOUT_NAME);
     }
+
+    ungrab_input ();
 
     mem_pool_destroy (&tmp);
     keyboard_view_destroy (app.keyboard_view);

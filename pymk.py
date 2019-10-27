@@ -25,6 +25,10 @@ def keyboard_layout_editor ():
     ex ('gcc {FLAGS} -o bin/keyboard-layout-editor keyboard_layout_editor.c -I/usr/include/libxml2 -lxml2 {GTK3_FLAGS} -lm -lxkbcommon')
 
 def xkbcommon_view ():
+    # The test uses the keyboard layout editor to install the layout so we
+    # depend on it. We build it first.
+    keyboard_layout_editor ()
+
     ex ('gcc {FLAGS} -o bin/xkbcommon-view libxkbcommon_view.c -I/usr/include/libxml2 -lxml2 {GTK3_FLAGS} -lm -lxkbcommon')
 
 def im_gtk3 ():

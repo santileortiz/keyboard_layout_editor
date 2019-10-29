@@ -31,6 +31,9 @@ def xkbcommon_view ():
 
     ex ('gcc {FLAGS} -o bin/xkbcommon-view libxkbcommon_view.c -I/usr/include/libxml2 -lxml2 {GTK3_FLAGS} -lm -lxkbcommon')
 
+def xkb_keymap_getter():
+    ex ('gcc {FLAGS} -o bin/xkb_keymap_getter xkb_keymap_getter.c -lm -lxkbcommon')
+
 def im_gtk3 ():
     print ("BUILDING IM FOR GTK3")
     ex ('gcc -shared -fPIC {FLAGS} -o bin/im-kle-xkb.so im/kle_im_context.c im/kle_im_module.c {GTK3_FLAGS} -lm -lxkbcommon')

@@ -429,6 +429,14 @@ def pers_func (name, func, arg):
     """
     return pers_func_f (name, func, [arg])
 
+def path_exists (path_s):
+    """
+    Convenience function that checks the existance of a file or directory. It
+    supports context variable substitutions.
+    """
+    resolved_path = path_s.format(**get_user_str_vars())
+    return pathlib.Path(resolved_path).exists()
+
 # This could also be accomplished by:
 #   ex ('mkdir -p {path_s}')
 # Maybe remove this function and use that instead, although it won't work on Windows
@@ -437,11 +445,57 @@ def ensure_dir (path_s):
     if g_dry_run:
         return
 
-    resolved_path = path_s.format(**get_user_str_vars())
-
-    path = pathlib.Path(resolved_path)
-    if not path.exists():
+    if not path_exists(path_s):
         os.makedirs (resolved_path)
+
+def needs_target (recipe):
+    """
+    This function takes a tuple of 2 strings representing paths, the first one
+    we call source and the second one target. Each tuple represents a
+    dependency between the source and target files. This function returns true
+    whenever the target file needs to be regenerated, either because it does
+    not exist or because source is more recent than target.
+
+    The aim of this function is to implement similar functionality than the one
+    provided by Make's recipes.
+    """
+    # TODO: Support target using common file transfer protocols like rsync, ftp
+    # and SSH. How would we support authentication?.
+
+    # TODO: Do we want to allow multiple source files?, Makefiles allow
+    # multiple 'prerequisites'. My thoughts now are that this could lead users
+    # in a slippery slope to have overly complicated build scripts. Not
+    # supporting this is a way to make them rethink their architecture, maybe
+    # use unity builds?. Anyway, it may be necessary in some cases so it's
+    # useful to keep in mind, but it won't be implemented for now.
+    #
+    # If we were to implement it, the way to go would be to have all leading
+    # elements od the tuple be the prerequisites and make the last one be the
+    # target. This way it's easy to add more prerequisites and the user doesn't
+    # need to change much.
+
+    src = recipe[0]
+    tgt = recipe[1]
+
+    if not path_exists (tgt):
+        return True
+    else:
+        if (file_time(src) > file_time(tgt)):
+            return True
+        else:
+            return False
+
+def needs_targets (recipes):
+    """
+    This function takes a list of tuples and calls needs_target() on them.
+    Returns True if any of these calls returns True and False otherwise (all
+    calls returned False).
+    """
+
+    for recipe in recipes:
+        if needs_target (recipe):
+            return True
+    return False
 
 def file_time(fname):
     res = 0
@@ -449,6 +503,7 @@ def file_time(fname):
     if tgt_path.is_file():
         res = os.stat(fname).st_mtime
     return res
+
 
 def install_files (info_dict, prefix=None):
     global g_dry_run

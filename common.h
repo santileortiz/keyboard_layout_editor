@@ -54,11 +54,43 @@ typedef enum {false, true} bool;
 
 #define invalid_code_path assert(0)
 
+// These macros simplify the process of creating functions that receive format
+// string like print does
 #if __GNUC__ > 2
 #define GCC_PRINTF_FORMAT(fmt_idx, arg_idx) __attribute__((format (printf, fmt_idx, arg_idx)))
 #else
 #define GCC_PRINTF_FORMAT(fmt_idx, arg_idx)
 #endif
+
+// A printf like function works in 3 stages: 1) compute the size of the
+// resulting string, 2) allocate the char array for the string, 3) populate the
+// array with the resulting string. The following macros implement the 1st and
+// 3rd stages. The 2nd stage will be implemented by the user.
+//
+// This macro corresponds to the 1st stage. It takes as argument _format_ the
+// name of the variable with format string. It then creates 2 new variables
+// named _size_ and _args_. The first one contains the size of the resulting
+// string including the null byte the second one is used by the 3rd stage.
+#define PRINTF_INIT(format, size, args)                   \
+va_list args;                                             \
+size_t size;                                              \
+{                                                         \
+    va_list args_copy;                                    \
+    va_start (args, format);                              \
+    va_copy (args_copy, args);                            \
+                                                          \
+    size = vsnprintf (NULL, 0, format, args_copy) + 1;    \
+    va_end (args_copy);                                   \
+}
+
+// This is the 3rd stage of a printf like function. It takes the same arguments
+// as vsnprintf(). As a convenience the _args_ variable is the one created in
+// the 1st stage.
+#define PRINTF_SET(str, size, format, args)               \
+{                                                         \
+    vsnprintf (str, size, format, args);                  \
+    va_end (args);                                        \
+}
 
 // Console color escape sequences
 // TODO: Maybe add a way to detect if the output is a terminal so we don't do
@@ -434,6 +466,31 @@ void strn_cat_c (string_t *dest, const char *src, size_t len)
     char *dest_data = str_data(dest);
     memmove (dest_data+len_dest, src, len);
     dest_data[total_len] = '\0';
+}
+
+void str_cat_indented (string_t *str1, string_t *str2, int num_spaces)
+{
+    if (str_len(str2) == 0) {
+        return;
+    }
+
+    char *c = str_data(str2);
+    for (int i=0; i<num_spaces; i++) {
+        strn_cat_c (str1, " ", 1);
+    }
+
+    while (c && *c) {
+        if (*c == '\n' && *(c+1) != '\n' && *(c+1) != '\0') {
+            strn_cat_c (str1, "\n", 1);
+            for (int i=0; i<num_spaces; i++) {
+                strn_cat_c (str1, " ", 1);
+            }
+
+        } else {
+            strn_cat_c (str1, c, 1);
+        }
+        c++;
+    }
 }
 
 char str_last (string_t *str)
@@ -1383,46 +1440,127 @@ void swap_n_bytes (void *a, void*b, uint32_t n)
 // IS_A_LT_B is an expression where a and b are pointers
 // to _arr_ true when *a<*b.
 // NOTE: IS_A_LT_B as defined, will sort the array in ascending order.
-#define templ_sort(FUNCNAME,TYPE,IS_A_LT_B)                     \
-void FUNCNAME ## _user_data (TYPE *arr, int n, void *user_data) \
-{                                                               \
-    if (arr == NULL || n<=1) {                                  \
-        return;                                                 \
-    } else if (n == 2) {                                        \
-        TYPE *a = &arr[1];                                      \
-        TYPE *b = &arr[0];                                      \
-        int c = IS_A_LT_B;                                      \
-        if (c) {                                                \
-            swap_n_bytes (&arr[0], &arr[1], sizeof(TYPE));      \
-        }                                                       \
-    } else {                                                    \
-        TYPE res[n];                                            \
-        FUNCNAME ## _user_data (arr, n/2, user_data);           \
-        FUNCNAME ## _user_data (&arr[n/2], n-n/2, user_data);   \
-                                                                \
-        int i;                                                  \
-        int h=0;                                                \
-        int k=n/2;                                              \
-        for (i=0; i<n; i++) {                                   \
-            TYPE *a = &arr[h];                                  \
-            TYPE *b = &arr[k];                                  \
-            int c = IS_A_LT_B;                                  \
-            if (k==n || (h<n/2 && c)) {                         \
-                res[i] = arr[h];                                \
-                h++;                                            \
-            } else {                                            \
-                res[i] = arr[k];                                \
-                k++;                                            \
-            }                                                   \
-        }                                                       \
-        for (i=0; i<n; i++) {                                   \
-            arr[i] = res[i];                                    \
-        }                                                       \
-    }                                                           \
-}                                                               \
-                                                                \
-void FUNCNAME(TYPE *arr, int n) {                               \
-    FUNCNAME ## _user_data (arr,n,NULL);                        \
+#define templ_sort(FUNCNAME,TYPE,IS_A_LT_B)                                       \
+void FUNCNAME ## _user_data (TYPE *arr, int n, void *user_data)                   \
+{                                                                                 \
+    if (arr == NULL || n<=1) {                                                    \
+        return;                                                                   \
+    } else if (n == 2) {                                                          \
+        TYPE *a = &arr[1];                                                        \
+        TYPE *b = &arr[0];                                                        \
+        int c = IS_A_LT_B;                                                        \
+        if (c) {                                                                  \
+            swap_n_bytes (&arr[0], &arr[1], sizeof(TYPE));                        \
+        }                                                                         \
+    } else {                                                                      \
+        TYPE res[n];                                                              \
+        FUNCNAME ## _user_data (arr, n/2, user_data);                             \
+        FUNCNAME ## _user_data (&arr[n/2], n-n/2, user_data);                     \
+                                                                                  \
+        /* Merge halfs until one of them runs out*/                               \
+        int i;                                                                    \
+        int h=0;                                                                  \
+        int k=n/2;                                                                \
+        for (i=0; k<n && h<n/2; i++) {                                            \
+            TYPE *a = &arr[h];                                                    \
+            TYPE *b = &arr[k];                                                    \
+            int c = IS_A_LT_B;                                                    \
+            if (c) {                                                              \
+                res[i] = arr[h];                                                  \
+                h++;                                                              \
+            } else {                                                              \
+                res[i] = arr[k];                                                  \
+                k++;                                                              \
+            }                                                                     \
+        }                                                                         \
+                                                                                  \
+        /* If there are elements remaining in one half copy them. Separating
+         * loop this way avoids evaluating CMP_A_TO_B for invalid elements (past
+         * the maximum value for h).
+         */                                                                       \
+        int rest_idx = k==n ? h : k;                                              \
+        for (; i<n; i++) {                                                        \
+            res[i] = arr[rest_idx];                                               \
+            rest_idx++;                                                           \
+        }                                                                         \
+                                                                                  \
+        /* Copy the sorted array back from the temporary array. */                \
+        for (i=0; i<n; i++) {                                                     \
+            arr[i] = res[i];                                                      \
+        }                                                                         \
+    }                                                                             \
+}                                                                                 \
+                                                                                  \
+void FUNCNAME(TYPE *arr, int n) {                                                 \
+    FUNCNAME ## _user_data (arr,n,NULL);                                          \
+}
+
+// Stable templetized merge sort for arrays
+//
+// CMP_A_TO_B is an expression where a and b are pointers to _arr_, it's equal
+// to -1, 0 or 1 if *a and *b compare as less than, equal to or grater than
+// respectively.
+//
+// The reasoning behind this being separate from templ_sort() is that a stable
+// sort requires a 3-way comparison, which makes it a little more inconvinient
+// to instantiate. Writing a IS_A_LT_B expression is much more straightforward
+// than a CMP_A_TO_B expression.
+//
+// NOTE: CMP_A_TO_B as defined, will sort the array in ascending order.
+#define templ_sort_stable(FUNCNAME,TYPE,CMP_A_TO_B)                               \
+void FUNCNAME ## _user_data (TYPE *arr, int n, void *user_data)                   \
+{                                                                                 \
+    if (arr == NULL || n<=1) {                                                    \
+        return;                                                                   \
+    } else if (n == 2) {                                                          \
+        TYPE *a = &arr[1];                                                        \
+        TYPE *b = &arr[0];                                                        \
+        int c = CMP_A_TO_B;                                                       \
+        if (c == -1) {                                                            \
+            swap_n_bytes (&arr[0], &arr[1], sizeof(TYPE));                        \
+        }                                                                         \
+                                                                                  \
+    } else {                                                                      \
+        TYPE res[n];                                                              \
+        FUNCNAME ## _user_data (arr, n/2, user_data);                             \
+        FUNCNAME ## _user_data (&arr[n/2], n-n/2, user_data);                     \
+                                                                                  \
+        /* Merge halfs until one of them runs out*/                               \
+        int i;                                                                    \
+        int h=0;                                                                  \
+        int k=n/2;                                                                \
+        for (i=0; k<n && h<n/2; i++) {                                            \
+            TYPE *a = &arr[h];                                                    \
+            TYPE *b = &arr[k];                                                    \
+            int c = CMP_A_TO_B;                                                   \
+            if (c < 1) {                                                          \
+                res[i] = arr[h];                                                  \
+                h++;                                                              \
+            } else {                                                              \
+                res[i] = arr[k];                                                  \
+                k++;                                                              \
+            }                                                                     \
+        }                                                                         \
+                                                                                  \
+        /* If there are elements remaining in one half copy them. Separating
+         * loop this way avoids evaluating CMP_A_TO_B for invalid elements, past
+         * the end of the array.
+         */                                                                       \
+        int rest_idx = k==n ? h : k;                                              \
+        for (; i<n; i++) {                                                        \
+            res[i] = arr[rest_idx];                                               \
+            rest_idx++;                                                           \
+        }                                                                         \
+                                                                                  \
+        /* Copy the sorted array back from the temporary array. */                \
+        for (i=0; i<n; i++) {                                                     \
+            arr[i] = res[i];                                                      \
+        }                                                                         \
+    }                                                                             \
+}                                                                                 \
+                                                                                  \
+void FUNCNAME(TYPE *arr, int n) {                                                 \
+    FUNCNAME ## _user_data (arr,n,NULL);                                          \
 }
 
 typedef struct {
@@ -1566,9 +1704,8 @@ void print_u64_array (uint64_t *arr, int n)
         TYPE *b = _b;                                         \
         c = IS_A_LT_B;                                        \
     }
-#define templ_sort_ll_next_field(FUNCNAME,TYPE,NEXT_FIELD,IS_A_LT_B)\
-templ_sort(FUNCNAME ## _arr, TYPE*,                                 \
-           _linked_list_A_B_dereference_injector(IS_A_LT_B,TYPE))   \
+
+#define _linked_list_sort_implementation(FUNCNAME,TYPE,NEXT_FIELD)  \
 void FUNCNAME ## _user_data (TYPE **head, int n, void *user_data)   \
 {                                                                   \
     if (head == NULL || n == 0) {                                   \
@@ -1607,8 +1744,23 @@ void FUNCNAME(TYPE **head, int n) {                                 \
     FUNCNAME ## _user_data (head,n,NULL);                           \
 }
 
+// Linked list sorting
+#define templ_sort_ll_next_field(FUNCNAME,TYPE,NEXT_FIELD,IS_A_LT_B)\
+templ_sort(FUNCNAME ## _arr, TYPE*,                                 \
+           _linked_list_A_B_dereference_injector(IS_A_LT_B,TYPE))   \
+_linked_list_sort_implementation(FUNCNAME,TYPE,NEXT_FIELD)
+
 #define templ_sort_ll(FUNCNAME,TYPE,IS_A_LT_B) \
     templ_sort_ll_next_field(FUNCNAME,TYPE,next,IS_A_LT_B)
+
+// Stable linked list sorting
+#define templ_sort_stable_ll_next_field(FUNCNAME,TYPE,NEXT_FIELD,CMP_A_TO_B)\
+templ_sort_stable(FUNCNAME ## _arr, TYPE*,                                  \
+           _linked_list_A_B_dereference_injector(CMP_A_TO_B,TYPE))          \
+_linked_list_sort_implementation(FUNCNAME,TYPE,NEXT_FIELD)
+
+#define templ_sort_stable_ll(FUNCNAME,TYPE,CMP_A_TO_B) \
+    templ_sort_stable_ll_next_field(FUNCNAME,TYPE,next,CMP_A_TO_B)
 
 void print_line (const char *sep, int len)
 {
@@ -2116,11 +2268,11 @@ typedef struct {
     void* base;
     uint32_t used;
     uint32_t total_data;
-} mem_pool_temp_marker_t;
+} mem_pool_marker_t;
 
-mem_pool_temp_marker_t mem_pool_begin_temporary_memory (mem_pool_t *pool)
+mem_pool_marker_t mem_pool_begin_temporary_memory (mem_pool_t *pool)
 {
-    mem_pool_temp_marker_t res;
+    mem_pool_marker_t res;
     res.total_data = pool->total_data;
     res.used = pool->used;
     res.base = pool->base;
@@ -2128,7 +2280,7 @@ mem_pool_temp_marker_t mem_pool_begin_temporary_memory (mem_pool_t *pool)
     return res;
 }
 
-void mem_pool_end_temporary_memory (mem_pool_temp_marker_t mrkr)
+void mem_pool_end_temporary_memory (mem_pool_marker_t mrkr)
 {
     if (mrkr.base != NULL) {
         // Call all on_destroy callbacks for bins that will be freed, starting
@@ -2216,7 +2368,7 @@ char* pprintf (mem_pool_t *pool, const char *format, ...)
     size_t size = vsnprintf (NULL, 0, format, args1) + 1;
     va_end (args1);
 
-    char *str = mem_pool_push_size (pool, size);
+    char *str = pom_push_size (pool, size);
 
     vsnprintf (str, size, format, args2);
     va_end (args2);
@@ -2323,6 +2475,10 @@ char* abs_path (const char *path, mem_pool_t *pool)
     char *expanded_path = sh_expand (path, &l_pool);
 
     char *absolute_path_m = realpath (expanded_path, NULL);
+    if (absolute_path_m == NULL) {
+        // NOTE: realpath() fails if the file does not exist.
+        printf ("Error: %s (%d)\n", strerror(errno), errno);
+    }
     char *absolute_path = pom_strdup (pool, absolute_path_m);
     free (absolute_path_m);
 
@@ -2389,7 +2545,7 @@ char* full_file_read (mem_pool_t *pool, const char *path)
     bool success = true;
     char *dir_path = sh_expand (path, NULL);
 
-    mem_pool_temp_marker_t mrk;
+    mem_pool_marker_t mrk;
     if (pool != NULL) {
         mrk = mem_pool_begin_temporary_memory (pool);
     }
@@ -2461,7 +2617,7 @@ char* full_file_read_prefix (mem_pool_t *out_pool, const char *path, char **pref
     str_free (&pfx_s);
     str_free (&path_s);
 
-    mem_pool_temp_marker_t mrk;
+    mem_pool_marker_t mrk;
     if (out_pool != NULL) {
         mrk = mem_pool_begin_temporary_memory (out_pool);
     }

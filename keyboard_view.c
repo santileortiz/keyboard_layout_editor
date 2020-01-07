@@ -2855,7 +2855,7 @@ bool kv_push_state_to_curr_repr (struct keyboard_view_t *kv)
 {
     bool retval = false;
 
-    mem_pool_temp_marker_t mrkr = mem_pool_begin_temporary_memory (&kv->repr_store->pool);
+    mem_pool_marker_t mrkr = mem_pool_begin_temporary_memory (&kv->repr_store->pool);
 
     char *str = kv_to_string (&kv->repr_store->pool, kv);
 

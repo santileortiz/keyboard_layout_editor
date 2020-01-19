@@ -3082,7 +3082,7 @@ TYPE *(SYMBOL);                                                                 
 
 #define UNLINK_SHARED_VARIABLE_NAMED(NAME)                                \
 if (shm_unlink (NAME) == -1) {                                            \
-    printf ("Error unlinking shared variable: %s", strerror(errno));      \
+    printf ("Error unlinking shared variable '%s': %s\n", NAME, strerror(errno));      \
 }
 
 ///////////////////

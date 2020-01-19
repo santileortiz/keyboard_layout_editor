@@ -851,9 +851,10 @@ void str_cat_test_name (string_t *str, char *test_name)
 // choose a name for a shared variable is useful. Better make it part of the
 // macro so the user has to think about how to handle this.
 #define SHARED_VARIABLE_NAME(NAME) "/" #NAME ":SHARED_VARIABLE_WM1WNTK8XM"
+
 #define NEW_SHARED_VARIABLE(TYPE,SYMBOL,VALUE) \
     NEW_SHARED_VARIABLE_NAMED(TYPE,SYMBOL,VALUE,SHARED_VARIABLE_NAME(SYMBOL))
-#define UNLINK_SHARED_VARIABLE(SYMBOL) UNLINK_SHARED_VARIABLE_NAMED(SHARED_VARIABLE_NAME(NAME))
+#define UNLINK_SHARED_VARIABLE(SYMBOL) UNLINK_SHARED_VARIABLE_NAMED(SHARED_VARIABLE_NAME(SYMBOL))
 
 void wait_and_cat_output (mem_pool_t *pool, bool *success,
                           char *stdout_fname, char *stderr_fname,

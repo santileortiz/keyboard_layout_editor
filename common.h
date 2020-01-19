@@ -493,6 +493,51 @@ void str_cat_indented (string_t *str1, string_t *str2, int num_spaces)
     }
 }
 
+void str_cat_indented_c (string_t *str1, char *c_str, int num_spaces)
+{
+    if (*c_str == '\0') return;
+
+    for (int i=0; i<num_spaces; i++) {
+        strn_cat_c (str1, " ", 1);
+    }
+
+    while (c_str && *c_str) {
+        if (*c_str == '\n' && *(c_str+1) != '\n' && *(c_str+1) != '\0') {
+            strn_cat_c (str1, "\n", 1);
+            for (int i=0; i<num_spaces; i++) {
+                strn_cat_c (str1, " ", 1);
+            }
+
+        } else {
+            strn_cat_c (str1, c_str, 1);
+        }
+        c_str++;
+    }
+}
+
+void printf_indented (char *str, int num_spaces)
+{
+    char *c = str;
+
+    for (int i=0; i<num_spaces; i++) {
+        printf (" ");
+    }
+
+    while (c && *c) {
+        if (*c == '\n' && *(c+1) != '\n' && *(c+1) != '\0') {
+            printf ("\n");
+            for (int i=0; i<num_spaces; i++) {
+                printf (" ");
+            }
+
+        } else {
+            // Use putc?
+            printf ("%c", *c);
+        }
+        c++;
+    }
+}
+
 char str_last (string_t *str)
 {
     return str_data(str)[str_len(str)-1];
@@ -1676,91 +1721,6 @@ void print_u64_array (uint64_t *arr, int n)
     }
     printf ("%"PRIu64"]\n", arr[i]);
 }
-
-// Templetized linked list sort
-//
-// IS_A_LT_B is an expression where a and b are pointers of type TYPE and should
-// evaluate to true when a->val < b->val. NEXT_FIELD specifies the name of the
-// field where the next node pointer is found. The macro templ_sort_ll is
-// convenience for when this field's name is "next". Use n=-1 if the size is
-// unknown, in this case the full linked list will be iterated to compute it.
-// NOTE: IS_A_LT_B as defined, will sort the linked list in ascending order.
-// NOTE: The last node of the linked list is expected to have NEXT_FIELD field
-// set to NULL.
-// NOTE: It uses a pointer array of size n, and calls merge sort on that array.
-
-// We say a and b are pointers, for arrays it's well defined. When talking about
-// linked lists we could mean a pointer to a node, or a pointer to an element of
-// the pointer array generated internally (a double pointer to a node). I've
-// seen the first one to be the expected way, but passing IS_A_LT_B as is, will
-// have the second semantics. This macro injects some code that dereferences a
-// and b so that we can do a->val < b->val easily.
-#define _linked_list_A_B_dereference_injector(IS_A_LT_B,TYPE) \
-    0;                                                        \
-    TYPE* _a = *a;                                            \
-    TYPE* _b = *b;                                            \
-    {                                                         \
-        TYPE *a = _a;                                         \
-        TYPE *b = _b;                                         \
-        c = IS_A_LT_B;                                        \
-    }
-
-#define _linked_list_sort_implementation(FUNCNAME,TYPE,NEXT_FIELD)  \
-void FUNCNAME ## _user_data (TYPE **head, int n, void *user_data)   \
-{                                                                   \
-    if (head == NULL || n == 0) {                                   \
-        return;                                                     \
-    }                                                               \
-                                                                    \
-    if (n == -1) {                                                  \
-        n = 0;                                                      \
-        TYPE *node = *head;                                         \
-        while (node != NULL) {                                      \
-            n++;                                                    \
-            node = node->NEXT_FIELD;                                \
-        }                                                           \
-    }                                                               \
-                                                                    \
-    TYPE *node = *head;                                             \
-    TYPE *arr[n];                                                   \
-                                                                    \
-    int j = 0;                                                      \
-    while (node != NULL) {                                          \
-        arr[j] = node;                                              \
-        j++;                                                        \
-        node = node->NEXT_FIELD;                                    \
-    }                                                               \
-                                                                    \
-    FUNCNAME ## _arr (arr, n);                                      \
-                                                                    \
-    *head = arr[0];                                                 \
-    for (j=0; j<n - 1; j++) {                                       \
-        arr[j]->NEXT_FIELD = arr[j+1];                              \
-    }                                                               \
-    arr[j]->NEXT_FIELD = NULL;                                      \
-}                                                                   \
-                                                                    \
-void FUNCNAME(TYPE **head, int n) {                                 \
-    FUNCNAME ## _user_data (head,n,NULL);                           \
-}
-
-// Linked list sorting
-#define templ_sort_ll_next_field(FUNCNAME,TYPE,NEXT_FIELD,IS_A_LT_B)\
-templ_sort(FUNCNAME ## _arr, TYPE*,                                 \
-           _linked_list_A_B_dereference_injector(IS_A_LT_B,TYPE))   \
-_linked_list_sort_implementation(FUNCNAME,TYPE,NEXT_FIELD)
-
-#define templ_sort_ll(FUNCNAME,TYPE,IS_A_LT_B) \
-    templ_sort_ll_next_field(FUNCNAME,TYPE,next,IS_A_LT_B)
-
-// Stable linked list sorting
-#define templ_sort_stable_ll_next_field(FUNCNAME,TYPE,NEXT_FIELD,CMP_A_TO_B)\
-templ_sort_stable(FUNCNAME ## _arr, TYPE*,                                  \
-           _linked_list_A_B_dereference_injector(CMP_A_TO_B,TYPE))          \
-_linked_list_sort_implementation(FUNCNAME,TYPE,NEXT_FIELD)
-
-#define templ_sort_stable_ll(FUNCNAME,TYPE,CMP_A_TO_B) \
-    templ_sort_stable_ll_next_field(FUNCNAME,TYPE,next,CMP_A_TO_B)
 
 void print_line (const char *sep, int len)
 {
@@ -3091,6 +3051,209 @@ void end_mutex (volatile int *lock) {
     *lock = 0;
 }
 
+///////////////////////
+//
+//   SHARED VARIABLE
+//
+//   These macros ease the creation of variables on shared memory. Useful when
+//   trying to pass data to child processes.
+
+#define NEW_SHARED_VARIABLE_NAMED(TYPE,SYMBOL,VALUE,NAME)                                         \
+TYPE *(SYMBOL);                                                                                   \
+{                                                                                                 \
+    int shared_fd = shm_open (NAME, O_CREAT | O_EXCL | O_RDWR, S_IRWXU | S_IRWXG);                \
+    if (shared_fd == -1 && errno == EEXIST) {                                                     \
+        printf ("Shared variable name %s exists, missing call to UNLINK_SHARED_VARIABLE*.\n",     \
+                NAME);                                                                            \
+        UNLINK_SHARED_VARIABLE_NAMED (NAME)                                                       \
+                                                                                                  \
+        shared_fd = shm_open (NAME,                                                               \
+                              O_CREAT | O_EXCL | O_RDWR, S_IRWXU | S_IRWXG);                      \
+    }                                                                                             \
+    assert (shared_fd != -1 && "Error on shm_open() while creating shared variable.");            \
+                                                                                                  \
+    int set_size_status = ftruncate (shared_fd, sizeof (TYPE));                                   \
+    assert (set_size_status == 0 && "Error on ftruncate() while creating shared variable.");      \
+                                                                                                  \
+    (SYMBOL) = (TYPE*) mmap (NULL, sizeof(TYPE), PROT_READ | PROT_WRITE, MAP_SHARED, shared_fd, 0); \
+                                                                                                  \
+    *(SYMBOL) = (VALUE);                                                                            \
+}
+
+#define UNLINK_SHARED_VARIABLE_NAMED(NAME)                                \
+if (shm_unlink (NAME) == -1) {                                            \
+    printf ("Error unlinking shared variable: %s", strerror(errno));      \
+}
+
+///////////////////
+//
+//  LINKED LIST
+//
+//  These macros are a low level implementation of common liked list operations.
+//  I've seen these be more useful than an actual liked list struct with a node
+//  type and head. These make it easy to convert any struct into a linked list
+//  and operate on it as such.
+//
+//  How to use:
+//
+//  struct my_struct_t {
+//      int a;
+//      float f;
+//
+//      struct my_struct_t *next;
+//  };
+//
+//  {
+//      mem_pool_t pool = {0};
+//      struct my_struct_t *list = NULL;
+//
+//      LINKED_LIST_PUSH_NEW (&pool, struct my_struct_t, list, new_my_struct);
+//      new_my_struct->a = 10;
+//      new_my_struct->f = 5;
+//
+//      ...
+//
+//      mem_pool_destroy (&pool);
+//  }
+//
+//  Keep in mind:
+//
+//    - LINKED_LIST_APPEND() requires the existance of a variable with the same
+//      name as the head but suffixed by _end. It's unlikely that the user wants
+//      O(n) appending, so we make the user do this so they get a O(1)
+//      implementation.
+//
+//  TODO: Allow users to pass the 'next' symbol name and the '_end' suffix.
+
+// Maybe we want people to do this manually? so that they know exactly what it
+// means storage wise to have a linked list?. It's also possible that you want
+// to save up on the number of pointers and the end pointer will be computed
+// before appending, or not used if they are only calling push.
+#define LINKED_LIST_DECLARE(type,head_name) \
+    type *head_name;                        \
+    type *head_name ## _end;
+
+#define LINKED_LIST_APPEND(type,head_name,node)              \
+{                                                            \
+    if (head_name ## _end == NULL) {                         \
+        head_name = node;                                    \
+    } else {                                                 \
+        head_name ## _end->next = node;                      \
+    }                                                        \
+    head_name ## _end = node;                                \
+}
+
+#define LINKED_LIST_APPEND_NEW(pool,type,head_name,new_node) \
+type *new_node;                                              \
+{                                                            \
+    new_node = mem_pool_push_struct(pool,type);              \
+    *new_node = ZERO_INIT(type);                             \
+                                                             \
+    LINKED_LIST_APPEND(type,head_name,new_node)              \
+}
+
+#define LINKED_LIST_PUSH(type,head_name,node)                \
+{                                                            \
+    node->next = head_name;                                  \
+    head_name = node;                                        \
+}
+
+#define LINKED_LIST_PUSH_NEW(pool,type,head_name,new_node)   \
+type *new_node;                                              \
+{                                                            \
+    new_node = mem_pool_push_struct(pool,type);              \
+    *new_node = ZERO_INIT(type);                             \
+                                                             \
+    LINKED_LIST_PUSH(type,head_name,new_node)                \
+}
+
+// TODO: Implement LINKED_LIST_FOR()
+
+// Linked list sorting
+//
+// IS_A_LT_B is an expression where a and b are pointers of type TYPE and should
+// evaluate to true when a->val < b->val. NEXT_FIELD specifies the name of the
+// field where the next node pointer is found. The macro templ_sort_ll is
+// convenience for when this field's name is "next". Use n=-1 if the size is
+// unknown, in this case the full linked list will be iterated to compute it.
+// NOTE: IS_A_LT_B as defined, will sort the linked list in ascending order.
+// NOTE: The last node of the linked list is expected to have NEXT_FIELD field
+// set to NULL.
+// NOTE: It uses a pointer array of size n, and calls merge sort on that array.
+
+// We say a and b are pointers, for arrays it's well defined. When talking about
+// linked lists we could mean a pointer to a node, or a pointer to an element of
+// the pointer array generated internally (a double pointer to a node). I've
+// seen the first one to be the expected way, but passing IS_A_LT_B as is, will
+// have the second semantics. This macro injects some code that dereferences a
+// and b so that we can do a->val < b->val easily.
+#define _linked_list_A_B_dereference_injector(IS_A_LT_B,TYPE) \
+    0;                                                        \
+    TYPE* _a = *a;                                            \
+    TYPE* _b = *b;                                            \
+    {                                                         \
+        TYPE *a = _a;                                         \
+        TYPE *b = _b;                                         \
+        c = IS_A_LT_B;                                        \
+    }
+
+// TODO: Receive the end pointer and update it. Allow it to be NULL.
+#define _linked_list_sort_implementation(FUNCNAME,TYPE,NEXT_FIELD)  \
+void FUNCNAME ## _user_data (TYPE **head, int n, void *user_data)   \
+{                                                                   \
+    if (head == NULL || n == 0) {                                   \
+        return;                                                     \
+    }                                                               \
+                                                                    \
+    if (n == -1) {                                                  \
+        n = 0;                                                      \
+        TYPE *node = *head;                                         \
+        while (node != NULL) {                                      \
+            n++;                                                    \
+            node = node->NEXT_FIELD;                                \
+        }                                                           \
+    }                                                               \
+                                                                    \
+    TYPE *node = *head;                                             \
+    TYPE *arr[n];                                                   \
+                                                                    \
+    int j = 0;                                                      \
+    while (node != NULL) {                                          \
+        arr[j] = node;                                              \
+        j++;                                                        \
+        node = node->NEXT_FIELD;                                    \
+    }                                                               \
+                                                                    \
+    FUNCNAME ## _arr (arr, n);                                      \
+                                                                    \
+    *head = arr[0];                                                 \
+    for (j=0; j<n - 1; j++) {                                       \
+        arr[j]->NEXT_FIELD = arr[j+1];                              \
+    }                                                               \
+    arr[j]->NEXT_FIELD = NULL;                                      \
+}                                                                   \
+                                                                    \
+void FUNCNAME(TYPE **head, int n) {                                 \
+    FUNCNAME ## _user_data (head,n,NULL);                           \
+}
+
+// Linked list sorting
+#define templ_sort_ll_next_field(FUNCNAME,TYPE,NEXT_FIELD,IS_A_LT_B)\
+templ_sort(FUNCNAME ## _arr, TYPE*,                                 \
+           _linked_list_A_B_dereference_injector(IS_A_LT_B,TYPE))   \
+_linked_list_sort_implementation(FUNCNAME,TYPE,NEXT_FIELD)
+
+#define templ_sort_ll(FUNCNAME,TYPE,IS_A_LT_B) \
+    templ_sort_ll_next_field(FUNCNAME,TYPE,next,IS_A_LT_B)
+
+// Stable linked list sorting
+#define templ_sort_stable_ll_next_field(FUNCNAME,TYPE,NEXT_FIELD,CMP_A_TO_B)\
+templ_sort_stable(FUNCNAME ## _arr, TYPE*,                                  \
+           _linked_list_A_B_dereference_injector(CMP_A_TO_B,TYPE))          \
+_linked_list_sort_implementation(FUNCNAME,TYPE,NEXT_FIELD)
+
+#define templ_sort_stable_ll(FUNCNAME,TYPE,CMP_A_TO_B) \
+    templ_sort_stable_ll_next_field(FUNCNAME,TYPE,next,CMP_A_TO_B)
 
 #define COMMON_H
 #endif

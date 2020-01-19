@@ -839,107 +839,21 @@ void str_cat_test_name (string_t *str, char *test_name)
     str_cat_c (str, " ");
 }
 
-void str_cat_indented (string_t *str1, string_t *str2, int num_spaces)
-{
-    char *c = str_data(str2);
-
-    for (int i=0; i<num_spaces; i++) {
-        strn_cat_c (str1, " ", 1);
-    }
-
-    while (c && *c) {
-        if (*c == '\n' && *(c+1) != '\n' && *(c+1) != '\0') {
-            strn_cat_c (str1, "\n", 1);
-            for (int i=0; i<num_spaces; i++) {
-                strn_cat_c (str1, " ", 1);
-            }
-
-        } else {
-            strn_cat_c (str1, c, 1);
-        }
-        c++;
-    }
-}
-
-void str_cat_indented_c (string_t *str1, char *c_str, int num_spaces)
-{
-    if (*c_str == '\0') return;
-
-    for (int i=0; i<num_spaces; i++) {
-        strn_cat_c (str1, " ", 1);
-    }
-
-    while (c_str && *c_str) {
-        if (*c_str == '\n' && *(c_str+1) != '\n' && *(c_str+1) != '\0') {
-            strn_cat_c (str1, "\n", 1);
-            for (int i=0; i<num_spaces; i++) {
-                strn_cat_c (str1, " ", 1);
-            }
-
-        } else {
-            strn_cat_c (str1, c_str, 1);
-        }
-        c_str++;
-    }
-}
-
-void printf_indented (char *str, int num_spaces)
-{
-    char *c = str;
-
-    for (int i=0; i<num_spaces; i++) {
-        printf (" ");
-    }
-
-    while (c && *c) {
-        if (*c == '\n' && *(c+1) != '\n' && *(c+1) != '\0') {
-            printf ("\n");
-            for (int i=0; i<num_spaces; i++) {
-                printf (" ");
-            }
-
-        } else {
-            // Use putc?
-            printf ("%c", *c);
-        }
-        c++;
-    }
-}
-
 // Names for shared memory objects are global to the system and they will still
 // be defined if the object wasn't unlinked or the last execution of the program
 // crashed. This macro is used to create a name that will not collide.
-// TODO: Move this to common.h
 // TODO: If we had a full language at compile time like in JAI we could create a
 // much more meaningful name here. Create a version that is scoped and
 // automatically calls UNLINK_SHARED then for variables that span multiple
 // scopes get a handle that UNLINK_SHARED receives.
+//
+// TODO: Stop doing this. I don't think obscuring the fact that you need to
+// choose a name for a shared variable is useful. Better make it part of the
+// macro so the user has to think about how to handle this.
 #define SHARED_VARIABLE_NAME(NAME) "/" #NAME ":SHARED_VARIABLE_WM1WNTK8XM"
-#define NEW_SHARED_VARIABLE(TYPE,NAME,VALUE)                                                      \
-TYPE *(NAME);                                                                                     \
-{                                                                                                 \
-    int shared_fd = shm_open (SHARED_VARIABLE_NAME(NAME),                                         \
-                              O_CREAT | O_EXCL | O_RDWR, S_IRWXU | S_IRWXG);                      \
-    if (shared_fd == -1 && errno == EEXIST) {                                                     \
-        printf ("Shared variable name %s exists, missing call to UNLINK_SHARED.\n",               \
-                SHARED_VARIABLE_NAME(NAME));                                                      \
-        UNLINK_SHARED_VARIABLE (NAME)                                                             \
-                                                                                                  \
-        shared_fd = shm_open (SHARED_VARIABLE_NAME(NAME),                                         \
-                              O_CREAT | O_EXCL | O_RDWR, S_IRWXU | S_IRWXG);                      \
-    }                                                                                             \
-    assert (shared_fd != -1 && "Error on shm_open() while creating shared variable.");            \
-                                                                                                  \
-    int set_size_status = ftruncate (shared_fd, sizeof (TYPE));                                   \
-    assert (set_size_status == 0 && "Error on ftruncate() while creating shared variable.");      \
-                                                                                                  \
-    (NAME) = (TYPE*) mmap (NULL, sizeof(TYPE), PROT_READ | PROT_WRITE, MAP_SHARED, shared_fd, 0); \
-                                                                                                  \
-    *(NAME) = (VALUE);                                                                            \
-}
-
-#define UNLINK_SHARED_VARIABLE(NAME) \
-    if (shm_unlink (SHARED_VARIABLE_NAME(NAME)) == -1) assert (0 && "Error unlinking shared variable.");
+#define NEW_SHARED_VARIABLE(TYPE,SYMBOL,VALUE) \
+    NEW_SHARED_VARIABLE_NAMED(TYPE,SYMBOL,VALUE,SHARED_VARIABLE_NAME(SYMBOL))
+#define UNLINK_SHARED_VARIABLE(SYMBOL) UNLINK_SHARED_VARIABLE_NAMED(SHARED_VARIABLE_NAME(NAME))
 
 void wait_and_cat_output (mem_pool_t *pool, bool *success,
                           char *stdout_fname, char *stderr_fname,

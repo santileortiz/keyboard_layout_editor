@@ -871,13 +871,13 @@ void wait_and_cat_output (mem_pool_t *pool, bool *success,
         str_cat_c (result, FAIL);
 
         string_t child_output = {0};
-        char *stdout_str = full_file_read (pool, stdout_fname);
+        char *stdout_str = full_file_read (pool, stdout_fname, NULL);
         if (*stdout_str != '\0') {
             str_cat_c (&child_output, ECMA_CYAN("stdout:\n"));
             str_cat_indented_c (&child_output, stdout_str, 2);
         }
 
-        char *stderr_str = full_file_read (pool, stderr_fname);
+        char *stderr_str = full_file_read (pool, stderr_fname, NULL);
         if (*stderr_str != '\0') {
             str_cat_c (&child_output, ECMA_CYAN("stderr:\n"));
             str_cat_indented_c (&child_output, stderr_str, 2);
@@ -1238,7 +1238,7 @@ void xkb_str_from_file (char *fname, string_t *xkb_str)
     // TODO: Make a file read that writes directly to a string_t?, maybe don't
     // use a string_t for input_str?
     mem_pool_t tmp = {0};
-    char *data = full_file_read (&tmp, fname);
+    char *data = full_file_read (&tmp, fname, NULL);
     str_set (xkb_str, data);
     mem_pool_destroy (&tmp);
 }
@@ -1323,7 +1323,7 @@ int main (int argc, char **argv)
                 input_type = INPUT_RMLVO_NAMES;
 
             } else if (strncmp (extension, "xkb", 3) == 0) {
-                input_file = default_argument;
+                input_file = abs_path(default_argument, NULL);
                 input_type = INPUT_XKB_FILE;
 
             } else {
@@ -1352,13 +1352,15 @@ int main (int argc, char **argv)
     string_t writer_keymap_str_2 = {0};
 
     if (input_type == INPUT_NONE) {
+        char *absolute_path = abs_path ("./tests", NULL);
         struct iterate_tests_dir_clsr_t clsr;
         clsr.result = &result;
         clsr.writer_keymap_str = &writer_keymap_str;
         clsr.writer_keymap_str_2 = &writer_keymap_str_2;
         clsr.prev_layout_success = false;
-        iterate_dir ("./tests", iterate_tests_dir, &clsr);
+        iterate_dir (absolute_path, iterate_tests_dir, &clsr);
 
+        free (absolute_path);
         str_free (&input_str);
         str_free (&result);
 
@@ -1403,6 +1405,7 @@ int main (int argc, char **argv)
         str_free (&info);
     }
 
+    if (input_file != NULL) free (input_file);
     str_free (&writer_keymap_str);
     str_free (&writer_keymap_str_2);
     str_free (&result);

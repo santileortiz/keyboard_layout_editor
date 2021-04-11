@@ -18,6 +18,7 @@
 #include <stdarg.h>
 #include <dirent.h>
 #include <locale.h>
+#include <float.h>
 
 #ifdef __cplusplus
 #define ZERO_INIT(type) (type){}
@@ -39,6 +40,10 @@ typedef enum {false, true} bool;
 
 #if !defined(CLAMP)
 #define CLAMP(a,lower,upper) ((a)>(upper)?(upper):((a)<(lower)?(lower):(a)))
+#endif
+
+#if !defined(SIGN)
+#define SIGN(a) ((a)<0?-1:1)
 #endif
 
 #define WRAP(a,lower,upper) ((a)>(upper)?(lower):((a)<(lower)?(upper):(a)))
@@ -102,6 +107,7 @@ size_t size;                                              \
 #define ECMA_MAGENTA(str) "\033[1;35m\033[K"str"\033[m\033[K"
 #define ECMA_CYAN(str) "\033[1;36m\033[K"str"\033[m\033[K"
 #define ECMA_WHITE(str) "\033[1;37m\033[K"str"\033[m\033[K"
+#define ECMA_BOLD(str) "\033[1m\033[K"str"\033[m\033[K"
 
 ////////////
 // STRINGS
@@ -221,7 +227,11 @@ typedef union {
 
 #define str_is_small(string) (!((string)->len_small&0x01))
 #define str_len(string) (str_is_small(string)?(string)->len_small/2:(string)->len)
-#define str_data(string) (str_is_small(string)?(string)->str_small:(string)->str)
+static inline
+char* str_data(string_t *str)
+{
+    return (str_is_small(str)?(str)->str_small:(str)->str);
+}
 
 static inline
 char* str_small_alloc (string_t *str, size_t len)
@@ -540,6 +550,7 @@ void printf_indented (char *str, int num_spaces)
 
 char str_last (string_t *str)
 {
+    assert (str_len(str) > 0);
     return str_data(str)[str_len(str)-1];
 }
 
@@ -681,7 +692,7 @@ bool is_end_of_line (const char *c)
 // Set POSIX locale while storing the previous one. Useful while calling strtod
 // and you know the decimal separator will always be '.', and you don't want it
 // to break if the user changes locale.
-// NOTE: Must be followed by a call to end_posix_locale() to avoid memory leaks
+// NOTE: Must be followed by a call to restore_locale() to avoid memory leaks
 char* begin_posix_locale ()
 {
     char *old_locale = NULL;
@@ -693,7 +704,7 @@ char* begin_posix_locale ()
 }
 
 // Restore the previous locale returned by begin_posix_locale
-void end_posix_locale (char *old_locale)
+void restore_locale (char *old_locale)
 {
     setlocale (LC_ALL, old_locale);
     free (old_locale);
@@ -1998,7 +2009,7 @@ typedef struct {
 // NOTE: I reluctantly added closures to ON_DESTROY_CALLBACK. For
 // str_set_pooled() we need a way to pass the string to be freed. Heavy use of
 // closures here is a slippery slope. Expecting to be able to run any code from
-// here will be problematic and closures may gieve the wrong impression that
+// here will be problematic and closures may give the wrong impression that
 // code here is always safe. It's easy to use freed memory from here. Whenever
 // you use these callbacks think carefully! this mechanism should be rareley be
 // used.
@@ -2295,6 +2306,15 @@ void mem_pool_end_temporary_memory (mem_pool_marker_t mrkr)
     }
 }
 
+// The idea of this is to allow chaining multiple pools so we only need to
+// delete the parent one.
+ON_DESTROY_CALLBACK(pool_chain_destroy)
+{
+    mem_pool_destroy(clsr);
+}
+
+#define mem_pool_add_child(pool,child_pool) mem_pool_push_cb(pool, pool_chain_destroy, child_pool)
+
 // pom == pool or malloc
 #define pom_push_struct(pool, type) pom_push_size(pool, sizeof(type))
 #define pom_push_array(pool, n, type) pom_push_size(pool, (n)*sizeof(type))
@@ -2370,6 +2390,8 @@ void strn_set_pooled (mem_pool_t *pool, string_t *str, const char *c_str, size_t
     strn_set (str, c_str, len);
 }
 
+#define str_pool(pool,str) mem_pool_push_cb(pool,destroy_pooled_str,str)
+
 // Flatten an array of null terminated strings into a single string allocated
 // into _pool_ or heap.
 char* collapse_str_arr (char **arr, int n, mem_pool_t *pool)
@@ -2419,7 +2441,18 @@ void flatten_array (mem_pool_t *pool, uint32_t num_arrs, size_t e_size,
 // Expand _str_ as bash would, allocate it in _pool_ or heap. 
 // NOTE: $(<cmd>) and `<cmd>` work but don't get too crazy, this spawns /bin/sh
 // and a subprocess. Using env vars like $HOME, or ~/ doesn't.
-char* sh_expand (const char *str, mem_pool_t *pool)
+// CAUTION: This is dangerous if called on untrusted user input. It will run
+// arbitrary shell commands.
+// CAUTION: It is a VERY bad idea to hide calls to this from users of an API.
+// Mainly for 2 reasons:
+//  - It's unsafe by default.
+//  - It's common to have paths with () characters in them (i.e. duplicate
+//    downloads).
+// For some time all file manipulation functions started with a call to
+// sh_expand(). Don't do that again!!. In fact, try to use sh_expand() as little
+// as possible. When a user may input a path with ~, better resolve it using
+// resolve_user_path().
+char* sh_expand (char *str, mem_pool_t *pool)
 {
     wordexp_t out;
     wordexp (str, &out, 0);
@@ -2428,16 +2461,52 @@ char* sh_expand (const char *str, mem_pool_t *pool)
     return res;
 }
 
-char* abs_path (const char *path, mem_pool_t *pool)
+static inline
+char sys_path_sep ()
+{
+    // TODO: Actually return the system's path separator.
+    return '/';
+}
+
+char *resolve_user_path (char *path, mem_pool_t *pool)
+{
+    assert (path != NULL);
+
+    char *result;
+    if (path[0] == '~' && (strlen(path) == 1 || path[1] == sys_path_sep())) {
+        char *home_path = getenv ("HOME");
+        result = pom_push_size (pool, strlen (home_path) + strlen (path));
+        strcpy (result, home_path);
+        strcat (result, path + 1);
+
+    } else {
+        result = pom_strdup (pool, path);
+    }
+
+    return result;
+}
+
+// It's common to want absolute paths before we start a series of path
+// manipulation calls, so this is likely to be the first function to be called
+// on a string that represents a path. Because real path needs to traverse
+// folders to resolve "..", this fails if the path does not exist. Then... what
+// is the point of having separate *_exists() functions?. I think the useful
+// thing about those is for times when we already know a path is absolute and we
+// need to make multiple tests. But for a single sequence of abs_path() followed
+// by path_exists(), we can use abs_path()'s result.
+//
+// TODO: This function should probably also set a boolean value that tells the
+// caller if there was a file not found error.
+char* abs_path (char *path, mem_pool_t *pool)
 {
     mem_pool_t l_pool = {0};
 
-    char *expanded_path = sh_expand (path, &l_pool);
+    char *user_path = resolve_user_path (path, &l_pool);
 
-    char *absolute_path_m = realpath (expanded_path, NULL);
+    char *absolute_path_m = realpath (user_path, NULL);
     if (absolute_path_m == NULL) {
         // NOTE: realpath() fails if the file does not exist.
-        printf ("Error: %s (%d)\n", strerror(errno), errno);
+        //printf ("Error: %s (%d)\n", strerror(errno), errno);
     }
     char *absolute_path = pom_strdup (pool, absolute_path_m);
     free (absolute_path_m);
@@ -2469,11 +2538,10 @@ void file_read (int file, void *pos,  ssize_t size)
 bool full_file_write (const void *data, ssize_t size, const char *path)
 {
     bool failed = false;
-    char *dir_path = sh_expand (path, NULL);
 
     // TODO: If writing fails, we will leave a blank file behind. We should make
     // a backup in case things go wrong.
-    int file = open (dir_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    int file = open (path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
     if (file != -1) {
         int bytes_written = 0;
         do {
@@ -2496,14 +2564,13 @@ bool full_file_write (const void *data, ssize_t size, const char *path)
         }
     }
 
-    free (dir_path);
     return failed;
 }
 
-char* full_file_read (mem_pool_t *pool, const char *path)
+char* full_file_read (mem_pool_t *pool, const char *path, uint64_t *len)
 {
     bool success = true;
-    char *dir_path = sh_expand (path, NULL);
+    char *expanded_path = NULL;
 
     mem_pool_marker_t mrk;
     if (pool != NULL) {
@@ -2512,10 +2579,10 @@ char* full_file_read (mem_pool_t *pool, const char *path)
 
     char *loaded_data = NULL;
     struct stat st;
-    if (stat(dir_path, &st) == 0) {
+    if (stat(path, &st) == 0) {
         loaded_data = (char*)pom_push_size (pool, st.st_size + 1);
 
-        int file = open (dir_path, O_RDONLY);
+        int file = open (path, O_RDONLY);
         if (file != -1) {
             int bytes_read = 0;
             do {
@@ -2528,6 +2595,11 @@ char* full_file_read (mem_pool_t *pool, const char *path)
                 bytes_read += status;
             } while (bytes_read != st.st_size);
             loaded_data[st.st_size] = '\0';
+
+            if (len != NULL) {
+                *len = st.st_size;
+            }
+
             close (file);
         } else {
             success = false;
@@ -2550,100 +2622,38 @@ char* full_file_read (mem_pool_t *pool, const char *path)
         }
     }
 
-    free (dir_path);
-    return retval;
-}
-
-char* full_file_read_prefix (mem_pool_t *out_pool, const char *path, char **prefix, int len)
-{
-    mem_pool_t pool = {0};
-    string_t pfx_s = {0};
-    string_t path_s = str_new (path);
-    char *dir_path = sh_expand (path, &pool);
-
-    int status, i = 0;
-    struct stat st;
-    while ((status = (stat(dir_path, &st) == -1)) && i < len) {
-        if (errno == ENOENT && prefix != NULL && *prefix != NULL) {
-            str_set (&pfx_s, prefix[i]);
-            assert (str_last(&pfx_s) == '/');
-            str_cat (&pfx_s, &path_s);
-            dir_path = sh_expand (str_data(&pfx_s), &pool);
-            i++;
-        } else {
-            break;
-        }
+    if (expanded_path != NULL) {
+        free (expanded_path);
     }
-    str_free (&pfx_s);
-    str_free (&path_s);
-
-    mem_pool_marker_t mrk;
-    if (out_pool != NULL) {
-        mrk = mem_pool_begin_temporary_memory (out_pool);
-    }
-
-    bool success = true;
-    char *loaded_data = NULL;
-    if (status == 0) {
-        loaded_data = (char*)pom_push_size (out_pool, st.st_size + 1);
-
-        int file = open (dir_path, O_RDONLY);
-        int bytes_read = 0;
-        do {
-            int status = read (file, loaded_data+bytes_read, st.st_size-bytes_read);
-            if (status == -1) {
-                success = false;
-                printf ("Error reading %s: %s\n", path, strerror(errno));
-                break;
-            }
-            bytes_read += status;
-        } while (bytes_read != st.st_size);
-        loaded_data[st.st_size] = '\0';
-    } else {
-        success = false;
-        printf ("Could not locate %s in any folder.\n", path);
-    }
-
-    char *retval = NULL;
-    if (success) {
-        retval = loaded_data;
-    } else if (loaded_data != NULL) {
-        if (out_pool != NULL) {
-            mem_pool_end_temporary_memory (mrk);
-        } else {
-            free (loaded_data);
-        }
-    }
-
-    mem_pool_destroy (&pool);
     return retval;
 }
 
 bool path_exists (char *path)
 {
+    if (path == NULL) return false;
+
     bool retval = true;
-    char *dir_path = sh_expand (path, NULL);
 
     struct stat st;
     int status;
-    if ((status = stat(dir_path, &st)) == -1) {
+    if ((status = stat(path, &st)) == -1) {
         retval = false;
         if (errno != ENOENT) {
             printf ("Error checking existance of %s: %s\n", path, strerror(errno));
         }
     }
-    free (dir_path);
     return retval;
 }
 
 bool dir_exists (char *path)
 {
+    if (path == NULL) return false;
+
     bool retval = true;
-    char *dir_path = sh_expand (path, NULL);
 
     struct stat st;
     int status;
-    if ((status = stat(dir_path, &st)) == -1) {
+    if ((status = stat(path, &st)) == -1) {
         retval = false;
         if (errno != ENOENT) {
             printf ("Error checking existance of %s: %s\n", path, strerror(errno));
@@ -2655,7 +2665,6 @@ bool dir_exists (char *path)
         }
     }
 
-    free (dir_path);
     return retval;
 }
 
@@ -2663,22 +2672,20 @@ bool dir_exists (char *path)
 bool ensure_dir_exists (char *path)
 {
     bool retval = true;
-    char *dir_path = sh_expand (path, NULL);
 
     struct stat st;
     int success = 0;
-    if (stat(dir_path, &st) == -1 && errno == ENOENT) {
-        success = mkdir (dir_path, 0777);
+    if (stat(path, &st) == -1 && errno == ENOENT) {
+        success = mkdir (path, 0777);
     }
 
     if (success == -1) {
         char *expl = strerror (errno);
-        printf ("Could not create %s: %s\n", dir_path, expl);
+        printf ("Could not create %s: %s\n", path, expl);
         free (expl);
         retval = false;
     }
 
-    free (dir_path);
     return retval;
 }
 
@@ -2686,18 +2693,17 @@ bool ensure_dir_exists (char *path)
 // to create all directories required for it to exist. If path ends in / then
 // all components are checked, otherwise the last part after / is assumed to be
 // a filename and is not created as a directory.
-bool ensure_path_exists (const char *path)
+bool ensure_path_exists (char *path)
 {
     bool success = true;
-    char *dir_path = sh_expand (path, NULL);
 
-    char *c = dir_path;
+    char *c = path;
     if (*c == '/') {
         c++;
     }
 
     struct stat st;
-    if (stat(dir_path, &st) == -1) {
+    if (stat(path, &st) == -1) {
         if (errno == ENOENT) {
             while (*c && success) {
                 while (*c && *c != '/') {
@@ -2706,10 +2712,10 @@ bool ensure_path_exists (const char *path)
 
                 if (*c != '\0') {
                     *c = '\0';
-                    if (stat(dir_path, &st) == -1 && errno == ENOENT) {
-                        if (mkdir (dir_path, 0777) == -1) {
+                    if (stat(path, &st) == -1 && errno == ENOENT) {
+                        if (mkdir (path, 0777) == -1) {
                             success = false;
-                            printf ("Error creating %s: %s\n", dir_path, strerror (errno));
+                            printf ("Error creating %s: %s\n", path, strerror (errno));
                         }
                     }
 
@@ -2726,7 +2732,6 @@ bool ensure_path_exists (const char *path)
         // file or directory?.
     }
 
-    free (dir_path);
     return success;
 }
 
@@ -2825,6 +2830,9 @@ char* change_extension (mem_pool_t *pool, char *path, char *new_ext)
     return res;
 }
 
+// NOTE: This correctly handles a filename like hi.autosave.repl where there are
+// multiple parts that would look like an extensions. Only the last one will be
+// removed.
 char* remove_extension (mem_pool_t *pool, char *path)
 {
     size_t end_pos = strlen(path)-1;
@@ -3111,6 +3119,8 @@ if (shm_unlink (NAME) == -1) {                                            \
 //      new_my_struct->a = 10;
 //      new_my_struct->f = 5;
 //
+//      struct my_struct_t *head = LINKED_LIST_POP (new_my_struct);
+//
 //      ...
 //
 //      mem_pool_destroy (&pool);
@@ -3133,7 +3143,7 @@ if (shm_unlink (NAME) == -1) {                                            \
     type *head_name;                        \
     type *head_name ## _end;
 
-#define LINKED_LIST_APPEND(type,head_name,node)              \
+#define LINKED_LIST_APPEND(head_name,node)                   \
 {                                                            \
     if (head_name ## _end == NULL) {                         \
         head_name = node;                                    \
@@ -3143,19 +3153,105 @@ if (shm_unlink (NAME) == -1) {                                            \
     head_name ## _end = node;                                \
 }
 
+#define LINKED_LIST_PUSH(head_name,node)                     \
+{                                                            \
+    node->next = head_name;                                  \
+    head_name = node;                                        \
+}
+
+// This is O(n) and requres the _end pointer.
+//
+// Discussion:
+//  1) The only way to make this operation O(1) is to ask the user to pass the
+//     parent pointer. The user will either have to do a O(n) operation before
+//     to compute it, or complicate their code to keep track of the parent
+//     pointer. A better solution would be to use a doubly linked list that
+//     stores prev pointers in the nodes, instead of a linked list.
+//
+//  2) The _end pointer requirement should be optional, but there is no way we
+//     can know if the user defined it or not until build time. For now, I
+//     haven't needed this on lists without _end pointer. When I do, I will need
+//     to create an alternate macro for it.
+//
+// TODO: Take a look at the trick in
+// https://gist.github.com/santileortiz/9a5c60a545d01a70dc1d9a631b9fca40 see if
+// it's useful to make the _end pointer optional.
+#define LINKED_LIST_REMOVE(type,head,node)         \
+{                                                  \
+    /* Find the pointer to node */                 \
+    type **curr_node_ptr = &head;                  \
+    type *curr_node = head;                        \
+    type *prev_node = NULL;                        \
+    while (curr_node != NULL) {                    \
+        if (*curr_node_ptr == node) break;         \
+                                                   \
+        curr_node_ptr = &((*curr_node_ptr)->next); \
+        prev_node = curr_node;                     \
+        curr_node = curr_node->next;               \
+    }                                              \
+                                                   \
+    if (curr_node == node) {                       \
+        /* Update the _end pointer if necessary */ \
+        if ((curr_node)->next == NULL) {           \
+            head ## _end = prev_node;              \
+        }                                          \
+                                                   \
+        /* Remove the node */                      \
+        *curr_node_ptr = (curr_node)->next;        \
+        (curr_node)->next = NULL;                  \
+    }                                              \
+}
+
+// NOTE: This doesn't update the _end pointer if its being used. Use
+// LINKED_LIST_POP_END() in that case.
+#define LINKED_LIST_POP(head)                                \
+head;                                                        \
+{                                                            \
+    void *tmp = head->next;                                  \
+    head->next = NULL;                                       \
+    head = tmp;                                              \
+}
+
+// This requires _end pointer.
+// TODO: I'm not sure this is the right way of making the _end pointer
+// requirement optional. It's very easy to forget to use the right POP macro
+// version and mess up everything. I wish there was a way to conditionally add
+// or remove code if a symbols exists or not in the context.
+#define LINKED_LIST_POP_END(head)                            \
+head;                                                        \
+{                                                            \
+    if (head == head ## _end) {                              \
+        head ## _end = NULL;                                 \
+    }                                                        \
+                                                             \
+    void *tmp = head->next;                                  \
+    head->next = NULL;                                       \
+    head = tmp;                                              \
+}
+
+#define LINKED_LIST_REVERSE(type,head)                       \
+{                                                            \
+    type *curr_node = head;                                  \
+    type *prev_node = NULL;                                  \
+    while (curr_node != NULL) {                              \
+        type *next_node = curr_node->next;                   \
+        curr_node->next = prev_node;                         \
+                                                             \
+        prev_node = curr_node;                               \
+        curr_node = next_node;                               \
+    }                                                        \
+    head = prev_node;                                        \
+}
+
+// These require passing the type of the node struct and a pool.
+
 #define LINKED_LIST_APPEND_NEW(pool,type,head_name,new_node) \
 type *new_node;                                              \
 {                                                            \
     new_node = mem_pool_push_struct(pool,type);              \
     *new_node = ZERO_INIT(type);                             \
                                                              \
-    LINKED_LIST_APPEND(type,head_name,new_node)              \
-}
-
-#define LINKED_LIST_PUSH(type,head_name,node)                \
-{                                                            \
-    node->next = head_name;                                  \
-    head_name = node;                                        \
+    LINKED_LIST_APPEND(head_name,new_node)                   \
 }
 
 #define LINKED_LIST_PUSH_NEW(pool,type,head_name,new_node)   \
@@ -3164,10 +3260,30 @@ type *new_node;                                              \
     new_node = mem_pool_push_struct(pool,type);              \
     *new_node = ZERO_INIT(type);                             \
                                                              \
-    LINKED_LIST_PUSH(type,head_name,new_node)                \
+    LINKED_LIST_PUSH(head_name,new_node)                     \
 }
 
-// TODO: Implement LINKED_LIST_FOR()
+// This macro requires the passed type parameter to be a pointer. I had another
+// version of this macro that turned a normal type to a pointer type internally
+// (appended *). I found I always passed a pointer type so I was getting a
+// double pointer in the end. The best mnemonic I've found is to think of this
+// macro like a foreach loop in other languages like java where you declare the
+// full type of the variable that will be iterated on. This old macro has the
+// same issue as *_ptr typedefs some people use.
+//
+// TODO: Can we check at compile time that type is a pointer? Right now if users
+// forget the *, they get a long list of errors. Maybe a static assert would
+// show a nicer error message?.
+#define LINKED_LIST_FOR(type, varname,headname)              \
+type varname = headname;                                     \
+for (; varname != NULL; varname = varname->next)
+
+/*
+//@DEPRECATED
+#define LINKED_LIST_FOR(type, varname,headname)              \
+type *varname = headname;                                    \
+for (; varname != NULL; varname = varname->next)
+*/
 
 // Linked list sorting
 //
@@ -3197,12 +3313,13 @@ type *new_node;                                              \
         c = IS_A_LT_B;                                        \
     }
 
-// TODO: Receive the end pointer and update it. Allow it to be NULL.
+// NOTE: The generated sorting function returns the last node of the linked list
+// so the user can update it if needed.
 #define _linked_list_sort_implementation(FUNCNAME,TYPE,NEXT_FIELD)  \
-void FUNCNAME ## _user_data (TYPE **head, int n, void *user_data)   \
+TYPE* FUNCNAME ## _user_data (TYPE **head, int n, void *user_data)  \
 {                                                                   \
     if (head == NULL || n == 0) {                                   \
-        return;                                                     \
+        return NULL;                                                \
     }                                                               \
                                                                     \
     if (n == -1) {                                                  \
@@ -3224,17 +3341,19 @@ void FUNCNAME ## _user_data (TYPE **head, int n, void *user_data)   \
         node = node->NEXT_FIELD;                                    \
     }                                                               \
                                                                     \
-    FUNCNAME ## _arr (arr, n);                                      \
+    FUNCNAME ## _arr_user_data (arr, n, user_data);                 \
                                                                     \
     *head = arr[0];                                                 \
     for (j=0; j<n - 1; j++) {                                       \
         arr[j]->NEXT_FIELD = arr[j+1];                              \
     }                                                               \
     arr[j]->NEXT_FIELD = NULL;                                      \
+                                                                    \
+    return arr[n-1];                                                \
 }                                                                   \
                                                                     \
-void FUNCNAME(TYPE **head, int n) {                                 \
-    FUNCNAME ## _user_data (head,n,NULL);                           \
+TYPE* FUNCNAME(TYPE **head, int n) {                                \
+    return FUNCNAME ## _user_data (head,n,NULL);                    \
 }
 
 // Linked list sorting
@@ -3254,6 +3373,76 @@ _linked_list_sort_implementation(FUNCNAME,TYPE,NEXT_FIELD)
 
 #define templ_sort_stable_ll(FUNCNAME,TYPE,CMP_A_TO_B) \
     templ_sort_stable_ll_next_field(FUNCNAME,TYPE,next,CMP_A_TO_B)
+
+///////////////////
+//
+//  DYNAMIC ARRAY
+//
+ON_DESTROY_CALLBACK (pooled_free_call)
+{
+    free (*(void**)clsr);
+}
+
+#define DYNAMIC_ARRAY_DEFINE(type, name)             \
+    type *name;                                      \
+    int name ## _len;                                \
+    int name ## _size
+
+#define DYNAMIC_ARRAY_REALLOC(head_name,new_size)           \
+    if (new_size != 0) {                                    \
+        void *new_head =                                    \
+            realloc(head_name, new_size*sizeof(*head_name));\
+        if (new_head) {                                     \
+            head_name = new_head;                           \
+            head_name ## _size = new_size;                  \
+        }                                                   \
+    }
+
+#define DYNAMIC_ARRAY_INITIAL_SIZE 50
+
+#define DYNAMIC_ARRAY_INIT(pool,head_name,initial_size)                                 \
+{                                                                                       \
+    mem_pool_push_cb(pool, pooled_free_call, &head_name);                               \
+    head_name ## _size = initial_size == 0 ? DYNAMIC_ARRAY_INITIAL_SIZE : initial_size; \
+    DYNAMIC_ARRAY_REALLOC (head_name, head_name ## _size);                              \
+}
+
+#define DYNAMIC_ARRAY_APPEND(head_name,element)                             \
+{                                                                           \
+    size_t new_size = 0;                                                    \
+    if (0 == head_name ## _size) {                                          \
+        new_size = DYNAMIC_ARRAY_INITIAL_SIZE;                              \
+    } else if (head_name ## _size == head_name ## _len) {                   \
+        new_size = 2*(head_name ## _size);                                  \
+    }                                                                       \
+                                                                            \
+    DYNAMIC_ARRAY_REALLOC(head_name, new_size)                              \
+                                                                            \
+    (head_name)[(head_name ## _len)++] = element;                           \
+}
+
+// In some cases we can't assign to a type by assigning to it, for example in
+// the case we are storing string_t structures, if we assign an empty string the
+// allocated internal memory pointer will be leaked. In such cases we just want
+// to get a pointer to the appended value and then the caller will handle what
+// to do next.
+//
+// CAUTION: Do not store the pointers returned by this persistently! When the
+// array grows and is reallocated the pointer will become invalid!.
+// TODO: This is probably even useless, in cases where something like this is
+// necessary, we should really be using linked lists.
+#define DYNAMIC_ARRAY_APPEND_GET(head_name, type, name)                     \
+{                                                                           \
+    size_t new_size = 0;                                                    \
+    if (0 == head_name ## _size) {                                          \
+        new_size = DYNAMIC_ARRAY_INITIAL_SIZE;                              \
+    } else if (head_name ## _size == head_name ## _len) {                   \
+        new_size = 2*(head_name ## _size);                                  \
+    }                                                                       \
+                                                                            \
+    DYNAMIC_ARRAY_REALLOC(head_name, new_size)                              \
+}                                                                           \
+type name = (head_name) + ((head_name ## _len)++);
 
 #define COMMON_H
 #endif

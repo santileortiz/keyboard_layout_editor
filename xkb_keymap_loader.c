@@ -87,27 +87,27 @@ string_t reconstruct_installed_custom_layout_str (const char *layout_name)
         str_put_c (&filename, root_dir_len, "keycodes/");
         str_cat_c (&filename, layout_name);
         str_cat_c (&filename, "_k");
-        section = full_file_read (&local_pool, str_data (&filename));
+        section = full_file_read (&local_pool, str_data (&filename), NULL);
         str_cat_c (&res, section);
         str_cat_c (&res, "\n");
 
         str_put_c (&filename, root_dir_len, "types/");
         str_cat_c (&filename, layout_name);
         str_cat_c (&filename, "_t");
-        section = full_file_read (&local_pool, str_data (&filename));
+        section = full_file_read (&local_pool, str_data (&filename), NULL);
         str_cat_c (&res, section);
         str_cat_c (&res, "\n");
 
         str_put_c (&filename, root_dir_len, "compat/");
         str_cat_c (&filename, layout_name);
         str_cat_c (&filename, "_c");
-        section = full_file_read (&local_pool, str_data (&filename));
+        section = full_file_read (&local_pool, str_data (&filename), NULL);
         str_cat_c (&res, section);
         str_cat_c (&res, "\n");
 
         str_put_c (&filename, root_dir_len, "symbols/");
         str_cat_c (&filename, layout_name);
-        section = full_file_read (&local_pool, str_data (&filename));
+        section = full_file_read (&local_pool, str_data (&filename), NULL);
         str_cat_c (&res, section);
         str_cat_c (&res, "\n");
 

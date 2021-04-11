@@ -134,6 +134,7 @@ void str_put_xkb_component_path (string_t *str, size_t pos, char *layout_name, e
     str_put_xkb_component_fname (str, str_len(str), layout_name, cmpnt);
 }
 
+// NOTE: dest_dir is expected to be absolute.
 bool xkb_keymap_xkb_install (struct keyboard_layout_t *keymap, char *dest_dir)
 {
     bool success = true;
@@ -423,7 +424,7 @@ bool xkb_keymap_info_install (struct keyboard_layout_info_t *keymap, bool *new_l
     char *res;
     size_t res_len;
     bool updated = false;
-    char *db = full_file_read (&pool, db_path);
+    char *db = full_file_read (&pool, db_path, NULL);
     if (db) {
         char *s = strstr (db, "<!--CUSTOM LAYOUTS START-->");
         if (s) {
@@ -588,7 +589,7 @@ bool xkb_keymap_rules_install (char *keymap_name)
     char *res;
     size_t res_len;
     char *path = "/usr/share/X11/xkb/rules/evdev";
-    char *db = full_file_read (&pool, path);
+    char *db = full_file_read (&pool, path, NULL);
     if (db) {
         char *s = strstr (db, "CUSTOM LAYOUTS START");
         if (s) {
@@ -687,7 +688,7 @@ bool xkb_keymap_install (char *keymap_path, struct keyboard_layout_info_t *info)
     bool success = true;
 
     mem_pool_t pool = {0};
-    char *xkb_file_content = full_file_read (&pool, keymap_path);
+    char *xkb_file_content = full_file_read (&pool, keymap_path, NULL);
     struct keyboard_layout_t keymap = {0};
     if (!xkb_file_parse (xkb_file_content, &keymap)) {
         success = false;
@@ -877,7 +878,7 @@ void xkb_keymap_list_default (mem_pool_t *pool, struct keyboard_layout_info_t **
 
     mem_pool_t local_pool = {0};
     char *metadata_path = "/usr/share/X11/xkb/rules/evdev.xml";
-    char *metadata = full_file_read (&local_pool, metadata_path);
+    char *metadata = full_file_read (&local_pool, metadata_path, NULL);
 
     string_t default_layouts;
     char *layoutList_start = strstr (metadata, "<layoutList>");
@@ -921,7 +922,7 @@ void xkb_keymap_list (mem_pool_t *pool, struct keyboard_layout_info_t **res, int
 
     mem_pool_t local_pool = {0};
     char *metadata_path = "/usr/share/X11/xkb/rules/evdev.xml";
-    char *metadata = full_file_read (&local_pool, metadata_path);
+    char *metadata = full_file_read (&local_pool, metadata_path, NULL);
 
     char *s = strstr (metadata, "CUSTOM LAYOUTS START");
     if (s) {
@@ -1003,7 +1004,7 @@ bool xkb_keymap_uninstall (char *layout_name)
         str_cat_c (&mrkr, xkb_cmpnt_suffixes[0]);
 
         char *rules_path = "/usr/share/X11/xkb/rules/evdev";
-        char *rules = full_file_read (&pool, rules_path);
+        char *rules = full_file_read (&pool, rules_path, NULL);
         size_t new_file_len;
         char *new_file = delete_lines (&pool, rules, str_data(&mrkr), "\n\n", &new_file_len);
         if (new_file == NULL) {
@@ -1073,7 +1074,7 @@ bool xkb_keymap_uninstall_everything ()
     // Remove installed xkb rules
     if (success) {
         char *rules_path = "/usr/share/X11/xkb/rules/evdev";
-        char *rules = full_file_read (&pool, rules_path);
+        char *rules = full_file_read (&pool, rules_path, NULL);
         size_t new_file_len;
         char *new_file = delete_lines (&pool, rules,
                                        "\n\n// CUSTOM LAYOUTS START", "CUSTOM LAYOUTS END", &new_file_len);
@@ -1089,7 +1090,7 @@ bool xkb_keymap_uninstall_everything ()
     // Remove installed metadata
     if (success) {
         char *metadata_path = "/usr/share/X11/xkb/rules/evdev.xml";
-        char *metadata = full_file_read (&pool, metadata_path);
+        char *metadata = full_file_read (&pool, metadata_path, NULL);
         size_t new_file_len;
         char *new_file = delete_lines (&pool, metadata,
                                        "CUSTOM LAYOUTS START", "CUSTOM LAYOUTS END", &new_file_len);

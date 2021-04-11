@@ -194,7 +194,7 @@ char* kv_to_string_full (mem_pool_t *pool, struct keyboard_view_t *kv, bool full
     }
 
     // Restore the original locale
-    end_posix_locale (old_locale);
+    restore_locale (old_locale);
 
     return pom_strdup (pool, str_data(&str));
 }
@@ -386,7 +386,7 @@ void kv_set_from_string (struct keyboard_view_t *kv, char *str)
     }
 
     // Restore the original locale
-    end_posix_locale (old_locale);
+    restore_locale (old_locale);
 }
 
 bool kv_test_parser (struct keyboard_view_t *kv)

@@ -721,7 +721,8 @@ void open_xkb_file_handler (GtkButton *button, gpointer user_data)
         fname = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER(dialog));
 
         mem_pool_t tmp = {0};
-        char *file_content = full_file_read (&tmp, fname);
+        // NOTE: gtk_file_chooser_get_filename() returns an absolute path.
+        char *file_content = full_file_read (&tmp, fname, NULL);
 
         char *name;
         path_split (&tmp, fname, NULL, &name);
@@ -957,7 +958,9 @@ int main (int argc, char *argv[])
                 // around keyboard_layout_info_t. Make languages a linked list
                 // and allow pushing and setting the by a comma separated
                 // string.
-                success = unprivileged_xkb_keymap_install (argv[2], &info);
+                char *absolute_path = abs_path (argv[2], NULL);
+                success = unprivileged_xkb_keymap_install (absolute_path, &info);
+                free (absolute_path);
             }
 
         } else if (strcmp (argv[1], "--uninstall") == 0) {
@@ -1035,8 +1038,8 @@ int main (int argc, char *argv[])
 
         // Load settings from file. Currently a single line contaíning the
         // selected keyboard representation.
-        if (path_exists(app.settings_file_path)) {
-            app.selected_repr = full_file_read (&app.pool, app.settings_file_path);
+        if (path_exists (app.settings_file_path)) {
+            app.selected_repr = full_file_read (&app.pool, app.settings_file_path, NULL);
             // Make the string end at the first line break
             char *c = app.selected_repr;
             while (*c) {

@@ -3946,7 +3946,7 @@ bool keyboard_view_set_keymap (struct keyboard_view_t *kv, const char *xkb_str)
         gtk_widget_queue_draw (kv->widget);
     }
 
-    end_posix_locale (old_locale);
+    restore_locale (old_locale);
 
     return success;
 }

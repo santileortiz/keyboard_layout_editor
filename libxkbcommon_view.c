@@ -356,9 +356,9 @@ int main (int argc, char *argv[])
 
     mem_pool_t tmp = {0};
     char *file_content;
-    file_content = full_file_read (&tmp, argv[1]);
+    file_content = full_file_read_full (&tmp, app.keymap_absolute_path, NULL, false);
 
-    if (keyboard_view_set_keymap (app.keyboard_view, file_content)) {
+    if (file_content != NULL && keyboard_view_set_keymap (app.keyboard_view, file_content)) {
         // Compute the modifier name array for easy access
         {
             // TODO: I think we have better implementations for this in our xkb

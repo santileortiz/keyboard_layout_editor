@@ -460,6 +460,7 @@ void kv_push_representation_str (struct kv_repr_store_t *store,
     store->last_repr = new_repr;
 }
 
+// NOTE: path is expected to be absolute.
 void kv_repr_store_push_file (struct kv_repr_store_t *store, char *path)
 {
     mem_pool_t pool_l = {0};
@@ -468,8 +469,7 @@ void kv_repr_store_push_file (struct kv_repr_store_t *store, char *path)
 
     if (!g_str_has_suffix(fname, ".autosave.lrep") && g_str_has_suffix(fname, ".lrep")) {
         char *name = remove_extension (&pool_l, fname);
-        char *str = full_file_read (&pool_l, path);
-
+        char *str = full_file_read (&pool_l, path, NULL);
         kv_push_representation_str (store, name, str, false);
 
     } else {
@@ -592,12 +592,12 @@ struct kv_repr_store_t* kv_repr_store_new (char *repr_path)
 
                         if (repr != NULL) {
                             str_put_c (&repr_path_str, repr_path_len, entry_info->d_name);
-                            char *str = full_file_read (&store->pool, str_data(&repr_path_str));
+                            char *str = full_file_read (&store->pool, str_data(&repr_path_str), NULL);
                             kv_repr_push_state_no_dup (store, repr, str);
 
                         } else {
                             // TODO: Should we remove this dangling autosave?
-                            printf ("Autosave for non existant representation \"%s\".\n", name);
+                            printf ("Autosave for non existent representation \"%s\".\n", name);
                         }
 
                         free (name);
